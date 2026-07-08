@@ -1,0 +1,77 @@
+version: v29
+
+# v29 STAGE 2 — full joint fine-tuning.
+#
+# Init from v29a's stage-1 ckpt (shape-only trained for 10k steps;
+# best val pos_3D 0.585 at step 2000, final 0.760 with drift).
+# Stage 2 unfreezes the previously-frozen ScaleEstimator (still leaves
+# both DINOv3 backbones frozen because they're pretrained vision
+# features). Loss adds pos_2D and visibility BCE on top of the
+# normalized 3D loss from stage 1.
+#
+# Launch:
+#   uv run python scripts/train_mamba3_tracker.py \
+#     --config configs/v29b.yaml \
+#     --init-ckpt result/track_v29a_20260602-0758/ckpt_10000.pt \
+#     --out-dir result/track_v29b_<datetime>
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  freeze_scale_estimator: false           # ← stage 2: UNFREEZE
+  frozen_scale_estimator_ckpt: result/scale_est_v8_20260601-1128/ckpt_best.pt
+  frozen_scale_estimator_cfg:
+    dinov2_model: facebook/dinov3-vitl16-pretrain-lvd1689m
+    dinov2_image_size: 896
+    num_heads: 8
+    state_dim: 64
+    head_hidden: 1024
+    param: exp
+    use_patches: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 15000
+  warmup: 500
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 1.0e-4                              # lower lr for fine-tuning
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  scale_source: motion_rms                 # same as stage 1
+  loss_form: L1                            # same as stage 1
+  mask_z_negative: false
+  weights:
+    pos_3D: 1.0                            # shape (kept from stage 1)
+    scale:  0.0                            # no scale loss (use frozen→fine-tuning module)
+    pos_2D: 1.0                            # NEW: 2D projection loss
+    vis:    1.0                            # NEW: visibility BCE

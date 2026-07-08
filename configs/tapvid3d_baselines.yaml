@@ -1,0 +1,72 @@
+# Published TAPVid-3D baselines on the MINIVAL split (150 clips: 50 per subset).
+#
+# All entries use `scaling = "median"`, matching the
+# `compute_clip_metrics_official(..., scaling="median")` call in
+# src/mamba3_tracker/eval/tapvid3d_eval.py:45 — direct apples-to-apples
+# with our `result/eval_tracker/v*/metric_results/<subset>.json` outputs
+# when the eval set is MINIVAL.
+#
+# Why minival and not full_eval:
+#   Our v19+ training uses the OFFICIAL TAPVid-3D protocol "A1" — train on
+#   FULL_EVAL_FILES (4419 clips, disjoint from minival), test on
+#   MINIVAL_FILES (150 clips). The full-eval test set would overlap with our
+#   training data, so the only zero-leakage test set is minival.
+#
+# Source: TAPVid-3D paper (arXiv:2407.05921 / NeurIPS 2024), Table 3
+# minival column (the entries marked with "*"). Fractions; ×100 = %.
+#
+# Per-subset minival values from the paper:
+#   BootsTAPIR + ZoeDepth*   aria  8.6   drivetrack  5.1   pstudio 10.2
+#   BootsTAPIR + COLMAP*     aria  7.3   drivetrack  9.3   pstudio  6.2
+#   SpatialTracker*          aria  9.2   drivetrack  5.8   pstudio  9.8
+#
+# Newer methods (CoTracker3, DELTA, TAPIP3D, SpatialTrackerV2) published
+# *only* full-eval numbers (Table 3 unstarred), not minival. They are
+# omitted from this file — putting their full-eval numbers next to our
+# minival numbers would be apples-to-oranges. If you want a rough
+# directional reference, the published full-eval AJ for the strongest is
+# DELTA = 18.3 mean, CoTracker3-offline = 17.3 mean, vs the older
+# baselines below at ~8 mean.
+
+baselines:
+  - name: "BootsTAPIR + ZoeDepth*"
+    description: "2D TAP base + monocular depth uplift (paper Table 3 minival)"
+    aria: 0.086
+    drivetrack: 0.051
+    pstudio: 0.102
+  - name: "BootsTAPIR + COLMAP*"
+    description: "2D TAP base + Structure-from-Motion depth (paper Table 3 minival)"
+    aria: 0.073
+    drivetrack: 0.093
+    pstudio: 0.062
+  - name: "SpatialTracker*"
+    description: "Unified 3D tracker (paper Table 3 minival, original SoTA)"
+    aria: 0.092
+    drivetrack: 0.058
+    pstudio: 0.098
+
+
+# Newer SoTA published ONLY on the full eval split (Table 3 unstarred), NOT
+# minival. Numbers are included as reference so the comparison plot shows
+# "where the field currently is" — but they are on a different (larger,
+# easier-on-average) test set and should not be read as a like-for-like
+# minival number. The plot renders these with a hatched/desaturated style
+# and a caveat label.
+#
+# Source: each method's published paper.
+sota_full_eval:
+  - name: "CoTracker3-online"
+    description: "Online causal transformer tracker (full eval, NOT minival)"
+    aria: 0.146
+    drivetrack: 0.107
+    pstudio: 0.213
+  - name: "CoTracker3-offline"
+    description: "Bidirectional refinement (full eval, NOT minival)"
+    aria: 0.163
+    drivetrack: 0.135
+    pstudio: 0.222
+  - name: "DELTA"
+    description: "Dense 3D tracker w/ flow + depth co-training (full eval, NOT minival)"
+    aria: 0.176
+    drivetrack: 0.130
+    pstudio: 0.244

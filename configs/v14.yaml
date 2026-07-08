@@ -1,0 +1,69 @@
+version: v14
+
+# v14 — replace the from-scratch PyramidEncoder with a frozen DINOv2-small
+# backbone for image feature extraction. Same Mamba-3 cross-attention
+# propagator + tracking heads as v12/v13. Same v12 loss (per-anchor
+# cumsum + scale-normalised squared L2 + visibility Binary Cross-Entropy).
+#
+# Why DINOv2 instead of DINOv3: DINOv3 is gated on HuggingFace (access
+# request required); DINOv2-small is freely downloadable. DINOv2-small's
+# hidden_size = 384, which matches our propagator's `dim` exactly — no
+# projection layer needed.
+#
+# Why drop the multi-level pyramid: the v13 pyramid's "finer levels" were
+# just bilinear-upsampled coarse features, no new image content. With a
+# strong DINO feature extractor, one level of 32×32 features at 448-px
+# input gives per-patch features that already encode rich appearance.
+# Propagator runs one Mamba-3 cross-attention pass per frame against
+# that single feature grid.
+#
+# Encoder: frozen — no gradient flow. `requires_grad=False` set inside
+# DINOv2Encoder. Saved checkpoints exclude `encoder.backbone.*` (those
+# weights reload from HF Hub via from_pretrained at resume).
+
+model:
+  dim: 384                          # = DINOv2-small hidden_size, no projection needed
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov2-small
+  dinov2_image_size: 448            # 448 / 14 = 32×32 patch grid
+  level_sizes: [32]                 # propagator sees a single 32×32 level
+  num_iters: 1
+  use_correlation: false
+
+data:
+  subsets: [pstudio, drivetrack]
+  image_size: 448
+  num_tracks: 256
+  split:
+    source: minival
+    n_train: 40
+    n_val:   5
+    n_test:  5
+    seed:    42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

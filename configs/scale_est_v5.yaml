@@ -1,0 +1,50 @@
+version: scale_est_v5
+
+# v5 — multi-layer DINOv3 fusion via DPT-style fuse_layers.
+#
+# v4 (patch features) brought best pooled MAE down to 1.79 m (vs v3's
+# 6.81 m). drivetrack hit 4.11 m at best, still the bottleneck. v4 was
+# using only the FINAL DINO layer's patch+CLS features. Mid-layers
+# carry complementary geometric / texture cues (depth, surface) that
+# the final layer abstracts away.
+#
+# v5 enables fuse_layers=[8, 10, 11] on the DINOv2Encoder. For a 12-block
+# DINOv3-S backbone, this fuses outputs from blocks 8, 10, and 11 via
+# DPT-style per-layer LayerNorm + concat + projection (built into the
+# encoder; we just turn it on). Adds 3·D·D ≈ 440k trainable params on
+# top of v4's 1.5M.
+#
+# Everything else identical to v4.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  head_hidden: 384
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  param: exp
+  use_patches: true
+  fuse_layers: [8, 10, 11]            # ← v5 switch
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+
+train:
+  steps: 5000
+  warmup: 250
+  decay: 500
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  loss_form: log_L1

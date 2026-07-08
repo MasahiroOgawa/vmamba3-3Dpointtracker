@@ -1,0 +1,83 @@
+version: v29
+
+# v29 STAGE 1 — shape-only training.
+#
+# Per user 2026-06-02: confirm that normalized 3D point tracking is a
+# different problem from scale prediction and can converge well even if
+# the scale module is imperfect.
+#
+# Two-stage procedure:
+#   STAGE 1 (this config): train ONLY normalized 3D loss on visible.
+#     - Frozen: DINOv3 encoder + v8 ScaleEstimator (gives pred.scale)
+#     - Trainable: propagator + xyz_head (+ vis_head bonus)
+#     - Loss: TrackingLossV20 pos_3D term only (scale=0, pos_2D=0, vis=0)
+#     - scale_source: motion_rms (v20 default, well-tested for shape)
+#     - loss_form: L1 (v25, constant gradient at small r)
+#   STAGE 2 (v29b.yaml): init from this ckpt, unfreeze ScaleEstimator,
+#     full joint loss (pos_3D + pos_2D + vis).
+#
+# Goal: stage 1 should drive shape (xyz_head) to a clean per-clip
+# trajectory match in unitless space, independently of scale. Then
+# stage 2 fine-tunes the metric reconstruction + visibility under the
+# combined supervision.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  freeze_scale_estimator: true            # stage 1: frozen
+  frozen_scale_estimator_ckpt: result/scale_est_v8_20260601-1128/ckpt_best.pt
+  frozen_scale_estimator_cfg:
+    dinov2_model: facebook/dinov3-vitl16-pretrain-lvd1689m
+    dinov2_image_size: 896
+    num_heads: 8
+    state_dim: 64
+    head_hidden: 1024
+    param: exp
+    use_patches: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 10000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  scale_source: motion_rms                 # v20 default for shape supervision
+  loss_form: L1                            # v25 — constant gradient at small r
+  mask_z_negative: false                   # only matters for 2D, weight=0 here
+  weights:
+    pos_3D: 1.0                            # ONLY this term active in stage 1
+    scale:  0.0
+    pos_2D: 0.0
+    vis:    0.0

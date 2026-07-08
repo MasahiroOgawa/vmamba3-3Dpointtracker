@@ -1,0 +1,76 @@
+version: v25
+
+# v25 — L1 loss for pos_3D and pos_2D, on top of v23's depth-median scale
+# and v22's Z>0 rule.
+#
+# v23 (L2 + depth) and v24 (log1p + depth) both failed but for different
+# reasons:
+#   v23: At m=0 the loss = (m*/depth)² ≈ 0.0004, gradient = 2·(m*/depth)
+#        ≈ 0.04 — too weak to escape the m=0 trap. Plateau at AJ=1.1%.
+#   v24: log1p has constant gradient ≈ 1 at small r (fixes v23's trap),
+#        but ALSO has saturating gradient at large r → bad residuals get
+#        no extra push. Bucket-median p3D flat at 0.057 across 11k steps.
+#
+# v25 keeps the m=0-escape property of v24 but switches log1p → L1 so:
+#   * Per-component gradient: sign(r), magnitude 1 at ALL residual sizes.
+#     At m=0 the push is 1, not 0.04 (vs L2). No m=0 trap.
+#   * Loss VALUE = |r| grows linearly with r. Large-residual clips
+#     contribute proportionally more to the aggregated batch loss than
+#     under log1p (where loss = log(|r|+1) ≈ const for large r).
+#   * Per-residual gradient is unbounded above, so outlier residuals
+#     still contribute non-saturated gradient pressure.
+#
+# Everything else identical to v24: DINOv3-small @ 896, depth-median
+# scale_gt, exp ScaleHead, Z>0 rule, official A1 split, 30k steps.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  mask_z_negative: true               # v22 contribution
+  scale_source: anchor_depth_median   # v23 contribution
+  loss_form: L1                       # ← v25 switch
+  weights:
+    pos_3D: 1.0
+    scale:  1.0
+    pos_2D: 1.0
+    vis:    1.0

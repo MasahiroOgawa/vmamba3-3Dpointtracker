@@ -1,0 +1,40 @@
+version: v8
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  level_sizes: [32, 64]
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 448
+  num_tracks: 256
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 2
+  window: 8
+  amp: fp32
+  num_workers: 1
+  seed: 0
+
+loss:
+  delta_3d_m: 0.05            # Huber clip for 3D scale s_3D = sqrt(δ² + ‖v*‖²)
+  delta_2d_px: 1.0            # Huber clip for 2D scale s_2D = sqrt(δ² + ‖u*‖²)
+  weights:
+    vel_3D:    1.0            # ‖(v̂ − v*) / s_3D‖²
+    vel_2D:    1.0            # ‖(û − u*) / s_2D‖²
+    pos_3D:    0.1            # ‖(p̂ − p*) / s_3D‖² — anti-DC-drift anchor
+    pos_2D:    0.1            # ‖(π(p̂) − π(p*)) / s_2D‖² — anti-DC-drift anchor
+    smooth_3D: 0.1            # ‖(v̂(t) − v̂(t−1)) / s_3D‖²
+    smooth_2D: 0.1            # ‖(û(t) − û(t−1)) / s_2D‖²
+    vis:       1.0            # BCE on visibility (Occ-Acc surrogate)

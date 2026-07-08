@@ -1,0 +1,60 @@
+version: v33
+
+# v33 — Mamba-3 depth-along-ray refiner (SEA-RAFT 2D track frozen).
+#
+# Lesson from v32: a learned delta_uv on top of SEA-RAFT flow DEGRADES 3D-AJ
+# (3.4% vs 5.2% baseline) — nudging uv across DA3 depth edges drops points out
+# of the AJ threshold band. v33 obeys "the SSM only treats 3D positions, never
+# touches the SEA-RAFT 2D track": the pixel position (u,v) and the FB-consistency
+# visibility are FROZEN. With uv fixed, the only 3D DOF that preserves the 2D
+# projection is depth z along the pixel ray. A small causal Mamba-3 SSM refines
+# per-track depth: z = z_raw * exp(delta_log_z), delta_log_z zero-init → starts
+# exactly at the SEA-RAFT+DA3 baseline.
+#
+# Loss is 3D-position-only (TrackingLossV33): no 2D term (uv fixed → zero grad),
+# no vis term (frozen). Sanity: eval motion ratio must equal SEA-RAFT's exactly.
+
+model:
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0   # depth correction bounded to [e^-2, e^2] ≈ [0.13x, 7.4x]
+
+flow:
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: null
+  fb_alpha: 0.05
+  fb_beta: 1.0
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 3.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+
+loss:
+  weights:
+    pos_3D: 1.0

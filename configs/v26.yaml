@@ -1,0 +1,80 @@
+version: v26
+
+# v26 — fix train/inference scale-consistency mismatch in 2D loss.
+#
+# v20-v25 all reconstructed the metric position for the 2D loss with
+# scale_star (GT-derived median depth):
+#     p_hat = anchor + scale_star · m̃            ← training only
+# But at INFERENCE the reconstruction uses the model's predicted scale:
+#     p_hat = anchor + s_pred  · m̃               ← inference + video
+# Result: training never sees the cost of mispredicting s_pred, so the
+# scale head can be wrong at inference even when training pos_2D is small.
+# Symptom: training loss looks fine, but rendered tracking videos show
+# tracks barely moving / wrong magnitudes (user-observed on v25).
+#
+# v26 switches the 2D loss to use s_pred (pred.scale) directly:
+#     p_hat = anchor + pred.scale · m̃            ← train AND inference
+# Gradient now flows from the 2D loss back through scale_head. Training
+# is forced to make s_pred match what the 2D projection of GT requires.
+#
+# The v18/v19 multiplicative-deadlock concern (shape gradient ∝ s_pred
+# starves when s_pred → 0) does not return here because the separate
+# decoupled 3D shape loss `‖m̃ - m*/scale_star‖` provides shape-head
+# gradient INDEPENDENT of s_pred. So shape head still trains even if
+# s_pred ever briefly underflows.
+#
+# Everything else identical to v25: L1 loss form, depth-median scale_gt,
+# Z>0 rule, official A1 split, 30k steps.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  mask_z_negative: true                 # v22 contribution
+  scale_source: anchor_depth_median     # v23 contribution
+  loss_form: L1                         # v25 contribution
+  metric_2d_uses_pred_scale: true       # ← v26 switch
+  weights:
+    pos_3D: 1.0
+    scale:  1.0
+    pos_2D: 1.0
+    vis:    1.0

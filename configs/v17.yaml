@@ -1,0 +1,70 @@
+version: v17
+
+# v17 — drop-in encoder swap from DINOv2-small (v15) to DINOv3-small.
+#
+# Why now and why DINOv3-small:
+#   * DINOv3 access was approved 2026-05-23; weights cached locally.
+#   * DINOv3-small has hidden_size=384 — matches our propagator's `dim`
+#     exactly. No projection layer needed. Cleanest direct comparison to
+#     v15's DINOv2-small (also hidden=384). Only knob changed = pretrained
+#     backbone weights.
+#   * No layer fusion (v16's fusion experiment didn't produce a clear
+#     aggregate win at convergence despite mid-training pstudio peaks).
+#     If v17 shows a clean DINOv2→DINOv3 lift, we can revisit fusion as
+#     v18 = DINOv3 + fusion. One variable per run.
+#
+# Shape differences from v15:
+#   * patch_size: 14 → 16
+#   * grid at 896 input: 64×64 (4096 tokens) → 56×56 (3136 tokens)
+#   * Each patch covers 16 px of input vs 14 px — slightly coarser.
+#     Compensated by DINOv3's stronger per-patch features.
+#
+# All other knobs identical to v15.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m   # ← the swap
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null              # no fusion (default)
+  level_sizes: [56]                     # 896 / 16 = 56
+  num_iters: 1
+  use_correlation: false
+
+data:
+  subsets: [pstudio, drivetrack]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: minival
+    n_train: 40
+    n_val:   5
+    n_test:  5
+    seed:    42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

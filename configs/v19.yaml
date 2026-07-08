@@ -1,0 +1,82 @@
+version: v19
+
+# v19 — same model as v18, but trained on the FULL TAPVid-3D dataset
+# under the official zero-leakage protocol.
+#
+# What changed from v18:
+#   * data.split.source: minival → official    (the only substantive change)
+#       v18 trained on 40 clips per subset (minus adt) — total 80 clips.
+#       v19 trains on FULL_EVAL_FILES = 4419 clips across all 3 subsets
+#       (1906 adt + 2407 drivetrack + 106 pstudio).
+#       Test set = MINIVAL_FILES (150 clips, disjoint from FULL_EVAL by
+#       construction in the official TAPVid-3D splits file).
+#   * data.subsets: [pstudio, drivetrack] → [pstudio, drivetrack, adt]
+#       adt was dropped at v12 because the minival adt files were
+#       labels-only. With FULL_EVAL_FILES we have 1906 image-bearing adt
+#       clips for training.
+#
+# Everything else identical to v18:
+#   * DINOv3-small encoder (frozen, patch=16, 56×56 grid at 896 input)
+#   * ScaleHead → per-clip positive scalar s
+#   * Loss: 3D normalised by GT path-length from anchor + 2D normalised
+#     by image_size + visibility BCE
+#   * Same propagator, same optimiser, same step count
+#
+# Hypothesis being tested: v18's mode collapse on pstudio + catastrophic
+# adt eval was caused by training on too little, leaky data (40 clips per
+# subset, all drawn from MINIVAL which is itself a held-out dev set).
+# With 4419 disjoint training clips, the model should be able to learn
+# generalisable motion patterns.
+#
+# Comparison target: TAPVid-3D paper Table 3 minival baselines
+# (configs/tapvid3d_baselines.yaml):
+#   BootsTAPIR + ZoeDepth*   aria 8.6 / drivetrack 5.1 / pstudio 10.2
+#   BootsTAPIR + COLMAP*     aria 7.3 / drivetrack 9.3 / pstudio  6.2
+#   SpatialTracker*          aria 9.2 / drivetrack 5.8 / pstudio  9.8
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official              # ← v19 switch
+    n_val_monitor: 15             # 15 random train clips for in-training motion-ratio plot
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

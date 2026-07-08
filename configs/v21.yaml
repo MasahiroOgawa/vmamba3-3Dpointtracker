@@ -1,0 +1,73 @@
+version: v21
+
+# v21 — v20 with the scale_gt bias fix; everything else identical so we can
+# compare apples-to-apples vs v20 / v19 on the same official-protocol minival.
+#
+# Diagnosis of v20 (from result/track_v20_20260527-0913/loss_history.json):
+#   3 train steps reached pos_3D = 24M, 10M, 5M (next-largest 112). Val pos_3D
+#   stayed flat ~1.5 across all 30k steps — the unitless shape head never
+#   actually learned. Cause: _per_clip_motion_scale used the MEDIAN over all
+#   visible (t,n). The anchor frame is always visible (it's the query) and
+#   ‖m*(anchor,n)‖ = 0 by construction, so anchor-zeros dragged the median
+#   toward the 1e-4 floor on some clips. For any frame in such a clip with
+#   normal motion, m*/scale_gt blew up by ~10³× → squared loss ~10⁶ → noise
+#   swamped the gradient signal.
+#
+# v21 fixes _per_clip_motion_scale only:
+#   * mask out anchor frames (they carry no scale information)
+#   * use RMS instead of median (robust to the residual small values)
+# Everything else — exp ScaleHead, decoupled L_shape + L_scale + L_2D + L_vis,
+# reconstruction p̂ = p*_anchor + s_pred · cumsum(Δp̃), full TAPVid-3D train,
+# official MINIVAL test — is bit-identical to v20.
+#
+# Step budget reduced 30k → 7k so the end-to-end cycle stays ≤ 2 h (we want
+# to catch regressions quickly). Warmup/decay scaled proportionally.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 7000
+  warmup: 250
+  decay: 700
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    scale:  1.0
+    pos_2D: 1.0
+    vis:    1.0

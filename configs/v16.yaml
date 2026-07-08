@@ -1,0 +1,73 @@
+version: v16
+
+# v16 — DINOv2-small with multi-layer fusion.
+#
+# v14/v15 used only block 11 (final layer) of DINOv2-small. Late layers
+# carry strong semantic content but are smeared in spatial detail. For
+# small-object tracking (pstudio balls), the bottleneck is per-patch
+# *localisation* sharpness — knowing exactly which 14-px patch the ball
+# is in — which sits in *earlier* layers.
+#
+# v16 reads blocks {2, 5, 8, 11} of DINOv2-small, normalises each
+# (LayerNorm), concatenates along the feature dim (4·384 = 1536), and
+# projects back to 384 with a learnable Linear. The propagator sees a
+# single feature map at the same shape as v15's, but constructed from
+# both local-detail and semantic features.
+#
+# Frozen vs trainable:
+#   * DINOv2 backbone — frozen (as in v14/v15)
+#   * fuse_norms (4× LayerNorm(384)) and fuse_proj (Linear 1536→384)
+#     are trainable — ~590K extra params. Total trainable ≈ 1.8M (v15
+#     had ~1.2M; v14 had ~1.2M).
+#
+# Encoder forward cost is unchanged from v15 — DINO already computes
+# all 12 layer outputs; we just read 4 of them instead of 1. The fusion
+# Linear is one (1536→384) matmul per patch, negligible.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov2-small
+  dinov2_image_size: 896
+  dinov2_fuse_layers: [2, 5, 8, 11]   # ← v16 addition
+  level_sizes: [64]
+  num_iters: 1
+  use_correlation: false
+
+data:
+  subsets: [pstudio, drivetrack]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: minival
+    n_train: 40
+    n_val:   5
+    n_test:  5
+    seed:    42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

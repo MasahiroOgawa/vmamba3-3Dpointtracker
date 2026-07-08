@@ -1,0 +1,75 @@
+version: v31
+
+# v31 — 2D tracker (DINOv3-S + Mamba3) + DA3-Large metric depth.
+#
+# v19-v30 all plateaued at <=3% mean AJ. The joint prediction of per-clip
+# scale + normalized shape + 3D position was the architectural bottleneck.
+# v31 decouples the two: a pretrained metric-depth model (DA3-Large)
+# supplies absolute scale per pixel, and we only have to learn 2D
+# correspondence — a strictly simpler problem.
+#
+# Architecture:
+#   * encoder: DINOv3-S (22M frozen, dim=384)              ← same as v19
+#   * propagator: Mamba3 CausalCrossPropagator             ← same as v19
+#   * heads.output_mode = "uv": delta_uv (zero-init) +     ← new
+#       anchor_uv → pred.uv in pixel coords
+#   * DA3-Large frozen, pre-computed depth maps loaded
+#     from <da3_depth_root>/<subset>/<clip>.npz
+#
+# Loss (TrackingLossV31, all L1):
+#   pos_3D = mean |xyz_pred - xyz*| / median(anchor Z per clip)
+#       xyz_pred = unproject(pred.uv, da3_depth[uv], K)
+#   pos_2D = mean |pred.uv - uv*| / image_size
+#   vis    = BCE(vis_logits, gt_visibility)
+#
+# Prerequisite: run `uv run python scripts/precompute_da3_depths.py` once
+# to populate ~/data/tapvid3d_da3/ before launching this config.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: false
+  head_mode: uv
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

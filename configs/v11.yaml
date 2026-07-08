@@ -1,0 +1,57 @@
+version: v11
+
+# v11 — cumsum-trajectory + smooth scale-normalised L2 loss.
+#
+# Architecture changes vs v10:
+#   * 4-level pyramid [16, 32, 64, 128] (was [32, 64]). The encoder's
+#     `coarse_image_size` becomes 16*14 = 224 px (model resizes input
+#     internally; dataset still uses image_size=448 unless overridden).
+#   * num_iters = 1 (was 3). Iterative refinement off.
+#   * use_correlation = false. The RAFT-style CorrelationCrossAttention
+#     class stays in propagator.py but is not instantiated.
+#   * LayerNorm hygiene from v10 retained inside the propagator.
+#
+# Loss changes vs v10 (see src/mamba3_tracker/train/loss.py):
+#   * Per-frame motion interpretation: model output `pred.xyz[t]` =
+#     Δp̂(t). `Δp̂(0)` is ignored.
+#   * p̂(0, n) = GT initial position (placeholder for future feature
+#     detector head). p̂(t≥1) = p̂(0) + Σ_{s=1..t} Δp̂(s).
+#   * L_3D = ‖(p̂ − p*)/s_3D‖²  with s_3D = median ‖p*‖ per clip.
+#   * L_2D = ‖(π(p̂, K) − π(p*, K))/image_size‖².
+#   * L_vis = BCEWithLogits on visibility.
+#   * No velocity / smoothness / threshold / Huber.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  level_sizes: [16, 32, 64, 128]
+  num_iters: 1
+  use_correlation: false
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 448
+  num_tracks: 256
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500          # save more often so resume catches up faster after a kill
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 2
+  window: 8
+  amp: fp32
+  num_workers: 1
+  seed: 0
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

@@ -1,0 +1,65 @@
+version: v30
+
+# v30 — v19 base + DINOv3-L backbone (300M frozen, dim=1024).
+#
+# v19 is the best joint tracker so far (7.9% mean AJ on minival). The
+# subsequent iterations (v20-v29) all tried various loss / scale-decoupling
+# strategies and regressed. The remaining easy lever on a known-good
+# recipe is encoder capacity.
+#
+# Per user 2026-06-02: scale up the backbone to DINOv3-L, keep all of v19's
+# other choices unchanged (TrackingLossV18 with predict_scale, 30k steps,
+# joint position+scale+vis training from scratch).
+#
+# Architecture deltas vs v19:
+#   dim:            384 → 1024
+#   num_heads:      6   → 8  (1024/6 isn't integer; 1024/8 = 128)
+#   dinov2_model:   dinov3-vits16 → dinov3-vitl16
+# Everything else identical to configs/v19.yaml.
+
+model:
+  dim: 1024
+  num_heads: 8
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vitl16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

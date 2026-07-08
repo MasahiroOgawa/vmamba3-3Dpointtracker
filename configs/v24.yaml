@@ -1,0 +1,78 @@
+version: v24
+
+# v24 — log(|r|+1) loss for pos_3D and pos_2D, on top of v23's depth-median
+# scale and v22's Z>0 rule.
+#
+# The v23 result + gradient logging (per user request, now in place) showed
+# the xyz_head gradient norm at step 0 was 0.11 vs the scale_head's 6.74 —
+# a 60× starvation that explained why the p3D loss plateaued at 0.002 from
+# step 2000 onwards and never recovered. Root cause: L2 on depth-normalised
+# residuals (~0.02 typical magnitude) gives gradient ~2r ≈ 0.04 — vanishingly
+# small. With 30k steps of essentially-zero gradient signal, the shape head
+# never moved from random init.
+#
+# v24 fixes this with the user-proposed log-loss form:
+#   L_3D = mean_(t,n)  Σ_{xyz} log(|m̃_pred − m*/median_depth| + 1)
+#   L_2D = mean_(t,n)  Σ_{uv}  log(|Δu_pred − Δu*|/W + 1)
+#
+# Gradient at small residual: sign(r)/(|r|+1) → ±1 (constant ~1) instead of
+# L2's 2r ≈ 0. So the shape head gets ~25× more gradient where it matters
+# (small residuals are the steady-state). At large residuals the log loss
+# saturates (gradient → 0 as |r| → ∞), which gives outlier robustness.
+#
+# Depth-median for the scale_head supervision is kept (v23 contribution) —
+# that's the right invariant for what the model can extract from monocular
+# features and matches TAPVid-3D's median-scaling evaluator. Z>0 rule is
+# kept (v22 contribution).
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  mask_z_negative: true               # v22 contribution
+  scale_source: anchor_depth_median   # v23 contribution
+  loss_form: log1p                    # ← v24 switch
+  weights:
+    pos_3D: 1.0
+    scale:  1.0
+    pos_2D: 1.0
+    vis:    1.0

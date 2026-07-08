@@ -1,0 +1,51 @@
+version: scale_est_v8
+
+# v8 — DINOv3-L (300M frozen, dim=1024) + corrected val procedure (MINIVAL).
+#
+# v6 used DINOv3-L but with the broken val sample (15 random train clips),
+# reporting best 1.76 m pooled MAE. That was the random.sample lottery —
+# v7 with DINOv3-S on actual MINIVAL gave 3.46 m best. v8 is the honest
+# measurement of DINOv3-L's contribution.
+#
+# Capacity rationale: drivetrack MAE 9.1 m on v7 is the bottleneck. Larger
+# encoder may improve depth discrimination on far drivetrack scenes.
+#
+# Architecture: same as v6 (use_patches + cross-attn + exp(z) head).
+# Procedure: train on 4418 FULL_EVAL, val on 150 MINIVAL (v7's fix).
+#
+# Acceptance: if pooled MINIVAL MAE drops meaningfully below v7's 3.46 m,
+# DINOv3-L is worth the extra compute and we continue with this backbone.
+# If marginal, revert to DINOv3-S and try other axes (longer training,
+# 2-iter Mamba3, etc.) for v9.
+
+model:
+  dim: 1024
+  num_heads: 8
+  state_dim: 64
+  head_hidden: 1024
+  dinov2_model: facebook/dinov3-vitl16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  param: exp
+  use_patches: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+
+train:
+  steps: 5000
+  warmup: 250
+  decay: 500
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  loss_form: log_L1

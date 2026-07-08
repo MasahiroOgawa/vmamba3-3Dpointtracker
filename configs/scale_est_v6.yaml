@@ -1,0 +1,52 @@
+version: scale_est_v6
+
+# v6 — DINOv3-L backbone (D=1024) replacing v4/v5's DINOv3-S (D=384).
+#
+# v4 plateaued at pooled MAE 1.79 m (drivetrack 4.11 m) with DINOv3-S.
+# v5 added multi-layer fusion but regressed. The encoder is now the
+# capacity bottleneck — DINOv3-S features can't carry enough geometric
+# precision for far drivetrack scenes (0.2-1% relative target).
+#
+# v6 swaps in DINOv3-L (300M frozen params, dim=1024) keeping v4's
+# architecture: patch mean-pool + CLS concat → Linear(2D→D) → Mamba3
+# cross-attention from learnable query → MLP → exp(z).
+#
+# Memory check: at 896 px, 8-frame batch in bf16, DINOv3-L forward
+# peaks at 2.8 GB on the 12 GB GPU — headroom for the Mamba3 +
+# head + activations on top.
+#
+# num_heads bumped to 8 (1024/6 isn't integer; 1024/8 = 128).
+# head_hidden bumped to 1024 (matches D so the MLP has comparable
+# fan-in/fan-out to v4's 384→384).
+
+model:
+  dim: 1024
+  num_heads: 8
+  state_dim: 64
+  head_hidden: 1024
+  dinov2_model: facebook/dinov3-vitl16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  param: exp
+  use_patches: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+
+train:
+  steps: 5000
+  warmup: 250
+  decay: 500
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  loss_form: log_L1

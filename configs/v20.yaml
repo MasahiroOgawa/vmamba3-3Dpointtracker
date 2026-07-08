@@ -1,0 +1,84 @@
+version: v20
+
+# v20 — scale-invariant decoupled loss + log-scale ScaleHead.
+#
+# Diagnosis of v18/v19 (empirical, from the trained v19 checkpoint):
+#   The ScaleHead collapsed to s≈0 on pstudio (0.0000) and adt (0.0001)
+#   while staying healthy on drivetrack (1.57). The xyz_head WAS predicting
+#   motion (raw |Δp̃| ~ 11-21 cm) but the near-zero scale multiplied it away.
+#   Root cause = the multiplicative reconstruction p̂ = p_anchor + s·cumsum(Δp̃):
+#     - shape gradient ∂L/∂Δp̃ ∝ s  → vanishes when s→0  → shape stops learning
+#     - s only ever supervised through the same product → with a noisy shape,
+#       s=0 is loss-optimal → deadlock. softplus made it worse (∂s/∂z→0 near 0,
+#       so s couldn't climb back out).
+#
+# v20 fixes BOTH halves of the deadlock:
+#   1. ScaleHead parameterisation softplus → exp  (scale_param: exp).
+#      s = exp(z); ∂log s/∂z = 1 everywhere → uniform learning across
+#      0.01-100 m (z ∈ [-4.6, 4.6]); s never hard-zeros, always recoverable.
+#   2. Decouple the supervision (TrackingLossV20):
+#        scale* = per-clip median ‖p*(t,n) − p*_anchor(n)‖   (GT motion scale)
+#        p̃*     = (p* − p*_anchor) / scale*                   (unitless GT shape)
+#        shape (pos_3D): ‖cumsum(Δp̃) − p̃*‖²   → gradient to xyz_head, NO s factor
+#        scale:          (log s − log scale*)² → gradient to ScaleHead, direct target
+#        pos_2D:         ((π(p̂) − π(p*))/image_size)² with p̂ = p_anchor + scale*·cumsum(Δp̃)
+#        vis:            BCE
+#      Shape and scale now learn independently — no starvation.
+#
+# Inference uses the PREDICTED scale: p̂ = p_anchor + s_pred · cumsum(Δp̃)
+# (same reconstruction path as v18/v19; eval/render unchanged).
+#
+# Everything else identical to v19: DINOv3-small (frozen, 896 input,
+# 56×56 grid), full TAPVid-3D official split (train=FULL_EVAL 4419,
+# test=MINIVAL 150). Compare to paper Table 3 minival baselines.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp              # ← v20: log-scale parameterisation
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  # Decoupled scale-invariant loss (TrackingLossV20). The presence of the
+  # "scale" weight key is what selects TrackingLossV20 in the train script.
+  weights:
+    pos_3D: 1.0      # shape: ‖cumsum(Δp̃) − p̃*‖²
+    scale:  1.0      # (log s − log scale*)²
+    pos_2D: 1.0      # ((π(p̂) − π(p*))/image_size)²
+    vis:    1.0      # visibility BCE

@@ -1,0 +1,89 @@
+version: v23
+
+# v23 — scale_gt = median anchor depth (scene scale), not RMS motion.
+#
+# v20/v21/v22 all used scale_gt = RMS of GT motion magnitude. This loss form
+# is fundamentally near-singular for near-static clips: when RMS motion drops
+# to the eps floor (1e-4 m), log(scale_gt) → -9, so the scale loss
+# (log s_pred − log scale_gt)² spikes to ~80 even if the model's s_pred is
+# perfectly reasonable (~5cm). v21's anchor-mask+RMS fix reduced *frequency*
+# but not the mathematical singularity. v22's Z>0 rule is orthogonal.
+#
+# v23 changes the invariant: scale_gt = median over query tracks of the
+# anchor-frame Z coordinate (scene depth). Geometric and statistical wins:
+#
+#  Geometric: image-plane motion ≈ 3D motion / depth. Depth is the projective
+#    scale a feature-based tracker can actually observe from monocular video;
+#    motion magnitude is not. Normalising 3D residuals by depth recovers the
+#    dimensionless quantity DINO features encode.
+#
+#  Bounded by physics: no visible 3D point ever sits at the optical centre,
+#    so anchor-frame Z is bounded below by something like 10 cm. log(scale_gt)
+#    lives in [-2.3, 4.6] for typical scenes — the log-MSE scale loss is
+#    bounded by a small constant, and spikes vanish entirely.
+#
+#  Cross-subset coupling: with scale_gt = depth, the normalised motion
+#    m̃ = m/depth lands in the same order of magnitude across subsets
+#    (pstudio 0.025, drivetrack 0.02, adt 0.02). One scale head fits all
+#    three subsets without regime switching.
+#
+#  Train/eval alignment: TAPVid-3D's official evaluator uses scaling="median",
+#    which rescales prediction so prediction-median-depth = GT-median-depth
+#    per clip. Training with the same invariant means there is no scale
+#    mismatch between training-time supervision and eval-time normalisation.
+#
+# Everything else identical to v22: DINOv3-small @ 896, exp ScaleHead,
+# official A1 split, Z>0 rule on 2D + visibility. Trained at the full
+# v20-style 30k-step budget (vs v22's 7k) since v21/v22 told us 7k was
+# undertrained — apples-to-apples comparison with v20 at matched compute.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  mask_z_negative: true                 # inherit v22's Z>0 rule
+  scale_source: anchor_depth_median     # ← v23 switch
+  weights:
+    pos_3D: 1.0
+    scale:  1.0
+    pos_2D: 1.0
+    vis:    1.0

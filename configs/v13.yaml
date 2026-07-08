@@ -1,0 +1,68 @@
+version: v13
+
+# v13 — drop the coarsest 16-grid pyramid level.
+#
+# Why: the encoder's `coarse_image_size = level_sizes[0] * patch = 16 * 14
+# = 224 px` was forcing a 448→224 internal down-resize, throwing away half
+# the spatial resolution from what the dataset feeds (image_size=448). For
+# a track in pstudio with ~60 px GT pixel travel, the 16-grid only saw
+# ~1.5 patches of motion at the coarsest level — below the encoder's
+# resolution. With level_sizes=[32, 64, 128]:
+#
+#   coarse_image_size = 32 * 14 = 448 px       (matches dataset resize — no internal downsize)
+#   pstudio motion at coarsest = 60 / (640/448) / 14 ≈ 3 patches  (was 1.5)
+#   drivetrack motion at coarsest = 550 / (1920/448) / 14 ≈ 9 patches  (was 5)
+#
+# Same architecture otherwise (per-anchor cumsum reconstruction, no
+# correlation cross-attention, num_iters=1, v10 post-update LayerNorm
+# inside the propagator).
+#
+# Also new: in-training motion-ratio diagnostic (logged every val_every
+# steps) — pixel-travel ratio per subset, the same number the eval
+# diagnostic computes after training. See `_motion_check` in
+# scripts/train_mamba3_tracker.py. Letting us kill failed runs at
+# step 5000 (~35 min) instead of waiting 3 hours.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  level_sizes: [32, 64, 128]       # was [16, 32, 64, 128] in v12
+  num_iters: 1
+  use_correlation: false
+
+data:
+  subsets: [pstudio, drivetrack]
+  image_size: 448
+  num_tracks: 256
+  split:
+    source: minival
+    n_train: 40
+    n_val:   5
+    n_test:  5
+    seed:    42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10                    # all 10 val clips
+    max_frames: 32                 # 32-frame inference window for the ratio
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

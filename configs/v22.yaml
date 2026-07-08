@@ -1,0 +1,83 @@
+version: v22
+
+# v22 — v21 + geometric Z>0 rule for 2D loss and visibility.
+#
+# v21 made shape learn (scale_gt anchor-mask + RMS fix removed the pos_3D
+# spikes), but eval revealed predicted Z drifts to ≤ 0 on ~5-6% of visible
+# ADT frames (small anchor depth + meaningful motion). Cause: v20/v21 had
+# NO training-time term constraining the metric product `anchor + s·m̃`
+# — L_shape uses unitless m̃, L_scale only constrains s, and L_2D was
+# teacher-forced with scale_gt, never touching the predicted product.
+# So at inference (using s_pred) the product was unconstrained → Z<0 →
+# projection blow-ups → meaningless 2D + AJ on ADT.
+#
+# v22 closes this without adding a duplicate metric-3D term (which would
+# just make total loss fluctuate). It enforces the GEOMETRIC fact that a
+# point with Z<=0 cannot appear on the image:
+#
+#   2D loss: drop predicted-Z<=0 entries entirely (instead of just clamping
+#            depth in the pinhole projection). A point behind the camera
+#            has no defined 2D projection — don't count it as a residual.
+#
+#   vis loss: effective predicted visibility = sigmoid(vis_logits) * σ(Z/5cm).
+#            Predicting Z<0 implicitly says "invisible at that frame". So if
+#            GT says visible at a frame where the model predicts Z<0, BCE on
+#            the effective-visible probability is large → the visibility
+#            term gives Z a clean gradient toward Z>0 right there.
+#
+# Both changes flow through the existing decoupled gradients (shape head
+# still gets clean gradient from L_shape; ScaleHead still from L_scale).
+# So no deadlock, no extra term, just the missing geometric constraint.
+#
+# Everything else identical to v21: DINOv3-small @ 896, exp ScaleHead,
+# official A1 split, 7000 steps for the ≤ 2 h cycle.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 7000
+  warmup: 250
+  decay: 700
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  mask_z_negative: true       # ← v22 switch
+  weights:
+    pos_3D: 1.0
+    scale:  1.0
+    pos_2D: 1.0
+    vis:    1.0

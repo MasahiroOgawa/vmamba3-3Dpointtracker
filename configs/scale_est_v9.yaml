@@ -1,0 +1,49 @@
+version: scale_est_v9
+
+# v9 — v8 architecture (DINOv3-L + v4 head) + longer training (10k steps)
+# with much slower lr decay.
+#
+# v7 (DINOv3-S, 5k): best MINIVAL 3.46 m at step 2500. After that: drift.
+# v8 (DINOv3-L, 5k): best MINIVAL 3.31 m at step 3500. After that: drift.
+# Both runs found the peak in the middle of training and then DEGRADED in
+# the final 1500-2500 steps. The decay schedule was too aggressive — by
+# step 4500 lr was already 0.07× peak, but the model kept moving (with
+# enough lr) into worse regions.
+#
+# v9 doubles training to 10000 steps and pushes the decay tail much
+# further: warmup 500, decay 2000 (so the model spends step 500-8000 at
+# full lr, then gentle cosine to 10% over the last 2000 steps). The hope
+# is the model gets to roam more at full lr to find a flatter minimum,
+# then the long-tail decay locks it in without overshooting.
+
+model:
+  dim: 1024
+  num_heads: 8
+  state_dim: 64
+  head_hidden: 1024
+  dinov2_model: facebook/dinov3-vitl16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  param: exp
+  use_patches: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+
+train:
+  steps: 10000                          # ← v9: 2× v8
+  warmup: 500
+  decay: 2000                           # ← v9: longer tail
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  loss_form: log_L1

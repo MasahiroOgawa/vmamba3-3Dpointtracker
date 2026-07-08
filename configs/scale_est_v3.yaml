@@ -1,0 +1,51 @@
+version: scale_est_v3
+
+# v3 — log-space L1 loss on top of v2's exp(z) parameterisation.
+#
+# v2 fixed the softplus-deadlock (∂s/∂z = s now nonzero everywhere) and
+# bucket-median train L1 reached 0.83 m by step 1500, but the linear L1
+# loss is dominated by drivetrack outliers: a 50% error on a 50 m drivetrack
+# clip contributes 25 m to the loss, while the same 50% error on a 1 m adt
+# clip contributes 0.5 m. Drivetrack therefore drives the gradient ~50×
+# harder than adt, and the model thrashes — val MAE stayed 5-13 m.
+#
+# v3 changes the loss to log-space L1:
+#     loss = |log(s_pred) − log(s_gt)|
+# This equalises *relative* error across subsets — a 50% error is the
+# same |log| residual ≈ 0.4 regardless of whether s_gt is 1 m or 50 m.
+# Matches the user-stated geometry of the 0.05 m target (which is a
+# relative-percentage budget across very different depth scales).
+#
+# Everything else identical to v2: DINOv3 + Mamba3 cross-attn + exp(z)
+# head, 5000 steps, batch=1, 896 px.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  head_hidden: 384
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+
+train:
+  steps: 5000
+  warmup: 250
+  decay: 500
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  loss_form: log_L1                   # ← v3 switch

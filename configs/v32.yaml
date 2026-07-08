@@ -1,0 +1,63 @@
+version: v32
+
+# v32 — Flow-Conditioned Mamba-3 Tracker (SEA-RAFT flow + DA3 depth → Mamba-3 SSM).
+#
+# SEA-RAFT (ECCV 2024) provides dense 2D correspondence per consecutive
+# frame pair (frozen, no-grad). DA3-Large provides absolute metric depth
+# (pre-computed cache, also no-grad). A small Mamba-3 state-space model
+# refines the SEA-RAFT-chained 2D positions by processing the
+# flow-and-depth observation sequence causally over time.
+#
+# Design rationale (see doc/mamba3_3dpoint_tracking.tex):
+#   - No image encoder: direct flow+depth conditioning avoids the
+#     DINOv2 feature learning bottleneck that collapsed v19-v31.
+#   - ~480k trainable params vs 22M in v31 → 20k steps is enough.
+#   - Zero-init uv_head: starts at the SEA-RAFT baseline loss (mean AJ
+#     5.2% minival), only learns to improve from there.
+
+model:
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  # head_mode is always "uv" for v32 (2D tracking + DA3 unproject)
+
+flow:
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M   # SEA-RAFT spring-M weights
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4      # null uses cfg default (4)
+  scale: null   # null uses cfg default (-1, half-res inference)
+  fb_alpha: 0.05
+  fb_beta: 1.0
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 3.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0    # 0 = main-process dataloader; avoids fork-related CUDA init issues
+  seed: 0
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

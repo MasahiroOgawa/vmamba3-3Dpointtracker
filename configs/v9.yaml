@@ -1,0 +1,49 @@
+version: v9
+
+# v9a — v8's loss with pos_3D and pos_2D weights raised from 0.1 to 1.0.
+# Hypothesis: velocity loss is invariant to a constant offset in Δp̂, so
+# a "predict static Δp̂ ≈ 0" predictor satisfies the velocity term. Only
+# position loss forces absolute position to track GT. Underweighting it
+# at 0.1 lets the model collapse to "static at anchor" — the v8 video
+# symptom of points barely moving. Raising to 1.0 brings the position
+# term's gradient on par with velocity's. Everything else is identical
+# to configs/v8.yaml.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  level_sizes: [32, 64]
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 448
+  num_tracks: 256
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 2
+  window: 8
+  amp: fp32
+  num_workers: 1
+  seed: 0
+
+loss:
+  delta_3d_m: 0.05
+  delta_2d_px: 1.0
+  weights:
+    vel_3D:    1.0
+    vel_2D:    1.0
+    pos_3D:    1.0      # v8 was 0.1 — raised to match velocity (anti-static-collapse)
+    pos_2D:    1.0      # v8 was 0.1 — raised to match velocity
+    smooth_3D: 0.1
+    smooth_2D: 0.1
+    vis:       1.0

@@ -1,0 +1,70 @@
+version: v12
+
+# v12 — code-verification run.
+#
+# Same loss as v11 (scale-normalised squared-L2 on 3D + 2D + visibility BCE)
+# but with two bug fixes:
+#   1. Per-track anchor for cumsum reconstruction. The init position is
+#      GT at each track's own anchor frame `a_n`, not at clip-frame-0.
+#      Trajectory is integrated bidirectionally from a_n (cumsum-gather-
+#      subtract math; see `reconstruct_trajectory` in train/loss.py).
+#   2. Train/val/test split = official TAPVid-3D MINIVAL_FILES only.
+#      Stratified 40/5/5 per subset (pstudio + drivetrack + adt), 120/15/15
+#      total. Fixed seed for reproducibility. This is a code-verification
+#      run — it OVERLAPS with the published-baseline eval set, so reported
+#      numbers can't be directly compared to SpatialTracker / CoTracker3D /
+#      DELTA. A later run will train on data outside MINIVAL_FILES for
+#      that comparison.
+#
+# Architecture: same as v11. 4-level pyramid [16, 32, 64, 128] (coarse →
+# fine, patch count per side); num_iters=1; correlation cross-attention
+# defined-but-not-instantiated; v10's post-update LayerNorm in the
+# propagator retained.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  level_sizes: [16, 32, 64, 128]
+  num_iters: 1
+  use_correlation: false
+
+data:
+  subsets: [pstudio, drivetrack]   # ADT dropped — the official adt minival
+                                    # ships labels-only (no images_jpeg_bytes;
+                                    # video has to be paired in from the
+                                    # Project Aria release). Will be added
+                                    # back in v13+ when we set up the ADT
+                                    # video pairing.
+  image_size: 448
+  num_tracks: 256
+  # 40 train + 5 val + 5 test = 50 (the entire minival per subset).
+  # Total across 2 subsets: 80 train / 10 val / 10 test = 100 clips.
+  split:
+    source: minival
+    n_train: 40
+    n_val:   5
+    n_test:  5
+    seed:    42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1                   # 4-level pyramid needs batch=1 to fit 11.6 GB GPU
+  window: 8
+  amp: bf16                  # forced — fp32 + 4-level pyramid OOMs
+  num_workers: 1
+  seed: 0
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

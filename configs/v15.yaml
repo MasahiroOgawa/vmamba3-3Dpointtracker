@@ -1,0 +1,74 @@
+version: v15
+
+# v15 — bump dataset target + DINO input from 448 → 896.
+#
+# v14 outcome: drivetrack motion ratio reached 60-75% (visibly tracks
+# camera-pan motion). Pstudio stayed at 30-130% bouncy — model
+# couldn't learn the smaller (~5 px/frame) pstudio motion because each
+# DINO patch at 448 input covers ~14 px of the 448-resized image, which
+# in original-image space is ~20 px for pstudio. Per-frame motion is
+# sub-patch → invisible.
+#
+# v15 doubles the resolution chain end-to-end:
+#   * Dataset resizes original frames to 896×896 (was 448) — more real
+#     image content reaches the encoder.
+#   * DINO input is 896×896 — at fixed patch=14, that's a 64×64 token
+#     grid (was 32×32 in v14).
+#   * Each DINO patch now covers 14 px of the 896 image → halves the
+#     per-patch coverage of the actual scene:
+#         drivetrack original cover : 60 px → 30 px
+#         pstudio    original cover : 20 px → 10 px
+#         adt        original cover : 16 px →  8 px
+#
+# Memory cost: 4× more tokens per frame (4096 vs 1024). Cross-attention
+# `sim` tensor goes from ~5 MB to ~20 MB per call. Should still fit at
+# batch=1 bf16 on 11.6 GB GPU. If it doesn't, fall back to window=4.
+#
+# Everything else (loss, propagator, head, split) unchanged from v14.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov2-small
+  dinov2_image_size: 896           # was 448 in v14
+  level_sizes: [64]                # single 64×64 level (was [32])
+  num_iters: 1
+  use_correlation: false
+
+data:
+  subsets: [pstudio, drivetrack]
+  image_size: 896                  # was 448 in v14
+  num_tracks: 256
+  split:
+    source: minival
+    n_train: 40
+    n_val:   5
+    n_test:  5
+    seed:    42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

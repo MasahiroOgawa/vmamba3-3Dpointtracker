@@ -1,0 +1,29 @@
+version: searaft
+
+# SEA-RAFT optical-flow point tracker (training-free baseline).
+#
+# Replaces v31's learned Mamba-3 propagator with a frozen pretrained SEA-RAFT
+# flow model (ECCV 2024). Per-frame dense flow is chained to propagate each
+# query point's uv from its anchor; visibility comes from forward-backward
+# consistency. The uv track is then unprojected through the SAME frozen
+# DA3-Large metric-depth cache as v31 and scored with the SAME TAPVid-3D
+# metrics, so this is a drop-in, apples-to-apples comparison against v31.
+#
+# Nothing is trained — this config records the inference recipe only.
+
+flow:
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M   # SEA-RAFT spring-M weights
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4          # null -> use cfg default (4)
+  scale: null       # null -> use cfg default (-1, half-res inference)
+
+track:
+  image_size: 896   # square working space; matches v31 depth/unproject convention
+  fb_alpha: 0.05    # forward-backward consistency: err <= alpha*(|fwd|+|bwd|)+beta
+  fb_beta: 1.0      # pixels
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  split: minival
+  da3_depth_root: ~/data/tapvid3d_da3
+  data_root: ~/data

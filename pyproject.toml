@@ -1,0 +1,54 @@
+[project]
+name = "vmamba3-3dpointtracker"
+version = "0.1.0"
+description = "3D point tracker: SEA-RAFT + DA3 depth + Mamba-3 SSM refiner"
+authors = [{ name = "Masahiro Ogawa", email = "m-ogawa@sensyn-robotics.com" }]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "visionmamba3",
+    "torch>=2.2",
+    "torchvision",
+    "einops",
+    "numpy<2",
+    "pillow",
+    "opencv-python",
+    "matplotlib",
+    "scipy",
+    "scikit-learn",
+    "requests",
+    "tqdm",
+    "omegaconf",
+    "addict",
+    "safetensors",
+    "huggingface-hub",
+    "imageio",
+    "moviepy>=2.2.1",
+    "transformers>=5.6.2",
+    "plotly>=6.7.0",
+    "h5py>=3.16.0",
+    "plyfile>=1.1.3",
+    "evo>=1.36.3",
+    "pycolmap>=4.0.3",
+    "schedulefree>=1.4.1",
+    "open3d>=0.19.0",
+    "trimesh>=4.12.2",
+    "pycocotools",
+    "py7zr",
+]
+
+[tool.uv.sources]
+visionmamba3 = { path = "third_party/visionMamba3", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mamba3_tracker", "src/searaft_flow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[dependency-groups]
+dev = ["pytest>=7", "pytest-xdist", "ruff>=0.15.14"]

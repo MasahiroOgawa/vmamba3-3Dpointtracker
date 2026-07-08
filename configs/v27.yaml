@@ -1,0 +1,81 @@
+version: v27
+
+# v27 — amplify position losses (pos_3D × 100, pos_2D × 1000) so they dominate
+# the weighted total. Per user 2026-05-30.
+#
+# Rationale: v20-v26 all normalised residuals (depth-normalised 3D, image-
+# width-normalised 2D) so pos_3D ≈ 0.05 and pos_2D ≈ 0.02 typically. With
+# equal weights (0.25 each), the total was dominated by `scale` (~0.15) and
+# `vis` (~0.15), not by position. Despite our scale-consistency fix in v26,
+# the position terms still only contributed a small fraction of the total
+# loss and a small fraction of the gradient.
+#
+# v27 un-normalises the position losses to their physical scales:
+#   pos_2D × 1000 (≈ image width)       → ~5.0 typical
+#   pos_3D × 100  (≈ "100m scene scale") → ~5.0 typical
+# After weighted sum with equal raw weights (0.25 each after normalisation):
+#   pos_2D contribution ≈ 4.5  (≈77% of total)
+#   pos_3D contribution ≈ 1.25 (≈21% of total)
+#   scale  contribution ≈ 0.04 (<1%)
+#   vis    contribution ≈ 0.04 (<1%)
+# Position now dominates. Scale and vis still receive gradient — scale via
+# the 2D-loss-through-scale_head path (v26 fix); vis via the Z>0-coupled
+# BCE (v22 fix). So no head is starved.
+#
+# Everything else identical to v26: L1, depth-median scale_gt, Z>0 rule,
+# scale-consistent 2D reconstruction, 30k steps.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  scale_param: exp
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  mask_z_negative: true
+  scale_source: anchor_depth_median
+  loss_form: L1
+  metric_2d_uses_pred_scale: true       # v26 contribution
+  amp_3d: 100.0                          # ← v27 switch
+  amp_2d: 1000.0                         # ← v27 switch
+  weights:
+    pos_3D: 1.0
+    scale:  1.0
+    pos_2D: 1.0
+    vis:    1.0

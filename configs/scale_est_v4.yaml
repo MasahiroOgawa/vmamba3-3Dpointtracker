@@ -1,0 +1,50 @@
+version: scale_est_v4
+
+# v4 — patch features concatenated with CLS for richer per-frame tokens.
+#
+# v3 (log-L1 + exp(z)) brought adt MAE down to ~1 m but drivetrack stayed
+# at 7-13 m. Final pooled MAE = 6.81 m on a 10-clip drivetrack-heavy val
+# sample. Hypothesis: per-frame CLS tokens are too compressed to encode
+# scene depth precisely for far scenes — they capture semantic content
+# but not the spatial cues (ground plane, vehicle/object sizes, road
+# texture) that anchor absolute depth.
+#
+# v4 adds spatial mean-pool of the DINO patch grid per frame, concatenates
+# with CLS, projects back to D via a single Linear(2D → D), then feeds
+# the result to the same Mamba3 temporal cross-attention. One additional
+# Linear (2D × D = 295k params) on top of the existing 1.20M trainable.
+#
+# Stratified val sampling (5 clips × 3 subsets = 15 total) is also added
+# so pstudio appears in every val pass (was 0 clips in v3 sample).
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  head_hidden: 384
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  param: exp
+  use_patches: true                    # ← v4 switch
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+
+train:
+  steps: 5000
+  warmup: 250
+  decay: 500
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  loss_form: log_L1

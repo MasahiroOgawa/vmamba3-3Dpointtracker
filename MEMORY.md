@@ -1,0 +1,27 @@
+- [Use uv for third-party repo venvs, not python -m venv](memory/feedback_uv_venv.md) — fork to MasahiroOgawa/, create feature/uv branch, add pyproject.toml, use uv run
+- [Diagrams first for cross-file plans](memory/feedback_diagrams_first.md) — add ASCII flowcharts (baseline/modified/diff) to the plan before file lists
+- [Prefer git submodule over pip for hackable upstream deps](memory/feedback_submodule_over_pip.md) — research/architecture deps go to `third_party/<name>/`
+- [Don't gate between pre-approved sequential steps](memory/feedback_dont_gate_planned_steps.md) — once a multi-step plan is agreed, execute through it without re-asking between steps
+- [/cleanup-commit-push between each step](memory/feedback_cleanup_between_steps.md) — each step lands as its own clean per-step commit + push
+- [Every step must report efficiency AND accuracy](memory/feedback_efficiency_and_accuracy_together.md) — every variant-vs-DA3 comparison reports both; reuse `eval_ckpt_sweep.py` / `eval_recon_metrics.py` / `eval_ray_metrics.py`
+- [No paper without competitive accuracy](memory/feedback_no_efficiency_only_paper.md) — efficiency-only paper framing is off the table; accuracy must reach DA3-SMALL (or better)
+- [Stay close to the DA3 paper setup](memory/feedback_stay_close_to_da3_paper.md) — fix root causes outside the DA3 pipeline before swapping loss/hyperparams; deviations need measured wins
+- [Never re-run a training that already produced its outputs](memory/feedback_never_rerun_training.md) — same recipe + seed + scene ⇒ reuse existing ckpts/eval logs; pass `--variants` to skip already-done variants
+- [Default loss form is original DA3, never Kendall-Gal](memory/feedback_da3_loss_default.md) — never pass `--use-kendall-gal` unless the user explicitly asks; CLI default is the paper form `c·|err| − λ·log(c)`
+- [Only notify on final output, not per step](memory/feedback_only_final_output.md) — for long runs, stay silent through intermediate events; respond at completion, real failure, or user query
+- [Avoid persistent `cd` in bash](memory/feedback_avoid_persistent_cd.md) — `cd <dir> && cmd` changes cwd for all later calls; use `make -C` or absolute paths instead
+- [DA3 bench: num_fusion_workers=1 + 22 GB systemd scope](memory/feedback_da3_bench_num_fusion_workers.md) — single fusion proc still OOMs at 28 GB, cascades to tmux death without cgroup isolation
+- [No auto-render tracking videos](memory/feedback_no_auto_render.md) — render only when user asks; use latest `ckpt_*.pt`; if none exists, wait
+- [Tracker ablation v6→v7→v8](memory/feedback_tracker_ablation_v6v7v8.md) — one set of fixes per run; implement→train→eval→commit before the next; per-run delta is the paper's ablation row
+- [Wrap tracker training in systemd-run scope](memory/feedback_tracker_train_systemd_scope.md) — `systemd-run --user --scope -p MemoryMax=18G`; defence-in-depth for systemd-oomd PSI pressure
+- [TAPVid loader: decode window only, no persistent_workers](memory/feedback_tapvid_dataloader_window_only.md) — `load_clip(path, frames=(s,e))` + `persistent_workers=False`; the actual fix for v7's RAM leak that systemd-oomd killed twice
+- [One unified YAML per ablation run](memory/feedback_one_unified_yaml_per_ablation.md) — every knob (model, data, train, loss) lives in `configs/<run>.yaml`; not split across files
+- [Output dirs use datetime-first naming](memory/feedback_output_dir_naming.md) — `result/<YYYYMMDD-HHMM>_<name>/` so `ls` sorts chronologically; datetime-last is forbidden
+- [SEA-RAFT flow tracker baseline](memory/project_searaft_flow_baseline.md) — training-free SEA-RAFT+DA3 replaces v31's collapsed Mamba-3; fixes zero-motion collapse, mean minival 3D-AJ 5.2%
+- [v32 flow-conditioned tracker](memory/project_v32_flow_conditioned_tracker.md) — learned Mamba-3 SSM on top of SEA-RAFT flow HURTS (3.4% vs 5.2%); training-free baseline stays best
+- [v33 depth-refined tracker](memory/project_v33_depth_refined_tracker.md) — depth-only Mamba-3 refinement (2D frozen) ALSO hurts (3.2% vs 5.2%); val L1 drops but AJ falls — loss/metric misalignment + overfit
+- [Absolute-metric eval](memory/project_metric3d_evaluation.md) — verdict reverses in real metres: v33 BEATS SEA-RAFT+DA3 (metric-AJ 0.180 vs 0.147, err 2.67 vs 4.29 m); leaderboard median scaling hid it. Paper gate: needs metric-capable baseline run by us
+- [TAPIP3D comparison pipeline](memory/project_tapip3d_comparison.md) — in-progress: DA3 depth running for adt (PID 2560696); then HDF5 packaging + TAPIP3D eval on same 150 minival clips
+- [SpatialTrackerV2 eval bugs](memory/project_spatrackerv2_bidir.md) — two-phase root cause: bidir+fixed_cam fix ran; second bug is track3d_pred+s_wind=60 vs track2d_pred+s_wind=500
+- [TrackCraft3R eval setup](memory/project_trackcraft3r_eval.md) — smoke test done; 480×832 ~32 min/clip → 79 h total; use PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+- [TikZ arrows: no overlap, no tangential, single-point contact](memory/feedback_tikz_arrow_no_overlap.md) — bypass pattern: exit .south, go below all boxes, rise to target .south

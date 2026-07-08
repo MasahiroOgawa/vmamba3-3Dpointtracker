@@ -1,0 +1,97 @@
+version: v18
+
+# v18 — predicted-scale tracker + path-length-normalised 3D loss.
+#
+# Diagnosis from v17 (DINOv3-small): training loss converges but the
+# motion-ratio metric stays around 50–70% on drivetrack and 10–20% on
+# pstudio. The model converges to "predict Δp̂ ≈ 0" because v11–v17's
+# loss `‖(p̂ − p*) / median(‖p*‖)‖²` divides by the SCENE-DEPTH scale
+# (a near-constant per clip), so the residual `p̂ − p*` is normalised
+# by something insensitive to actual motion — predicting tiny offsets
+# already sits at the loss floor.
+#
+# v18 design (user-driven):
+#   * Reconstruction unchanged from v11–v17:
+#       p̂(a_n, n) = p*_anchor(n)                                (GT anchor)
+#       p̂(t,   n) = p*_anchor + s · (cs[t] − cs[a_n])
+#     i.e. per-anchor bidirectional cumsum, with each delta now
+#     pre-multiplied by a per-clip scalar `s` from a new ScaleHead
+#     (pool per-frame CLS tokens → 2-layer MLP → softplus, init s ≈ 1).
+#   * 3D loss: `((p̂ − p*) / s_gt(t, n))²` summed over xyz, where
+#       s_gt(t, n) = path length of GT trajectory between a_n and t
+#     i.e. how far GT actually moved between those frames. This:
+#     (a) uses L² (smooth everywhere, unlike L1);
+#     (b) removes per-clip scale dependence — pstudio (s_gt ~ 5 cm at
+#         t=anchor+1) and drivetrack (s_gt ~ 1 m at t=anchor+1) produce
+#         comparable normalised residuals;
+#     (c) penalises the v17 failure mode: `Δp̂ ≈ 0` ⇒ residual = GT
+#         motion from anchor, denominator = GT path length from anchor,
+#         so normalised ≈ 1 per (t, n) — uniform across subsets.
+#   * 2D loss: v11–v17 form retained — `((π(p̂) − π(p*)) / image_size)²`
+#     summed over uv. Architectural-constant normalisation, not GT-derived.
+#
+# Everything else identical to v17: DINOv3-small encoder (frozen,
+# patch=16, 56×56 grid at 896 input), no fusion, same propagator,
+# same 40/5/5 minival split, same optimiser schedule.
+#
+# Inference protocol: same forward pass — `s` is predicted from
+# clip images by the ScaleHead at val/test time. No GT scaffold.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true                  # ← the v18 switch
+
+data:
+  subsets: [pstudio, drivetrack]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: minival
+    n_train: 40
+    n_val:   5
+    n_test:  5
+    seed:    42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  # v18 loss:
+  #   L_3D(t,n) = ((p̂(t,n) − p*(t,n)) / s_gt(t,n))²   summed over xyz
+  #   L_2D(t,n) = ((π(p̂) − π(p*)) / image_size)²       summed over uv  (v11–v17 form)
+  #   L_vis     = BCE over visibility logits
+  #
+  # `s_gt(t, n) = Σ_{τ=0..t} ‖Δp*(τ, n)‖` is the cumulative GT 3D
+  # path length from origin to frame t (same cumsum-from-zero
+  # convention as the predicted side). Removes per-clip scale
+  # dependence: drivetrack (~30 m) and pstudio (~1 m) give comparable
+  # normalised 3D residuals.
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

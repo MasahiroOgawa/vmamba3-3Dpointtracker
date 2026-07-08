@@ -1,0 +1,39 @@
+version: scale_est_v1
+
+# Standalone scene-scale estimator. Single output (per-clip s ∈ ℝ⁺ in metres),
+# single loss L1 |s_pred − s_gt|, where s_gt = median anchor-frame Z.
+#
+# Goal: confirm scale estimation IS easy in isolation. If this trains to a
+# small per-clip MAE quickly (within a few k steps), the joint tracker's
+# learning failure isn't on the scale side — the position/shape head is
+# the bottleneck. If even this simple sub-problem doesn't converge, our
+# loss-noise diagnosis is the dominant issue and we need a different fix.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  head_hidden: 384
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+
+train:
+  steps: 5000
+  warmup: 250
+  decay: 500
+  ckpt_every: 1000
+  val_every: 500
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0

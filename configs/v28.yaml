@@ -1,0 +1,89 @@
+version: v28
+
+# v28 — joint tracker with frozen pretrained scale module (from v4-rerun
+# scale_est, val pooled MAE = 1.38 m, drivetrack 2.71 m).
+#
+# Rationale: the v23-v27 trajectory all stalled at <2.2% AJ on TAPVid-3D
+# trying to learn scale + position jointly with various depth-normalised
+# losses. The user pivoted to test scale estimation in isolation; six
+# scale_est iterations confirmed scale alone caps at ~1.4 m pooled MAE
+# given this architecture / data scale. Now we freeze that pretrained
+# scale module and rebuild the JOINT tracker from v19's best-known loss
+# recipe (L1 in metric space, 7.9% AJ best so far), with the only change
+# being: don't train scale_head, use the pretrained ScaleEstimator instead.
+#
+# v19 recipe (preserved):
+#   * DINOv3-small encoder, frozen
+#   * Mamba3 SSD propagator, 1 iter, no correlation, level_sizes=[56]
+#   * 30k steps, batch=1, window=8 @ 896 px
+#   * TrackingLossV18: position L1 in metric space + 2D L1 + vis BCE
+#   * loss weights pos_3D = pos_2D = vis = 1
+#   * predict_scale: true (so the reconstruction is `anchor + s · cumsum(Δp̃)`)
+#
+# v28 change:
+#   * model.frozen_scale_estimator_ckpt — path to v4 ckpt_best.pt
+#   * model.frozen_scale_estimator_cfg — architecture knobs for ScaleEstimator
+#   * On-tracker `scale_head` is replaced by the pretrained module; its
+#     parameters stay frozen, no gradient. pred.scale comes from the
+#     pretrained ScaleEstimator's forward(video).
+#
+# Outcome target: improve over v19's 7.9% mean AJ by removing scale
+# learning noise. Position head is the only remaining trainable head
+# (xyz_head, vis_head, spawn_head); all gradient budget goes to position.
+
+model:
+  dim: 384
+  num_heads: 6
+  state_dim: 64
+  encoder_kind: dinov2
+  dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dinov2_image_size: 896
+  dinov2_fuse_layers: null
+  level_sizes: [56]
+  num_iters: 1
+  use_correlation: false
+  predict_scale: true
+  # v28: pretrained ScaleEstimator (v4 architecture, retrained 2026-05-31)
+  frozen_scale_estimator_ckpt: result/scale_est_v4_20260531-1659/ckpt_best.pt
+  frozen_scale_estimator_cfg:
+    dinov2_model: facebook/dinov3-vits16-pretrain-lvd1689m
+    dinov2_image_size: 896
+    num_heads: 6
+    state_dim: 64
+    head_hidden: 384
+    param: exp
+    use_patches: true
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 30000
+  warmup: 1000
+  decay: 3000
+  ckpt_every: 1000
+  val_every: 1000
+  log_every: 50
+  lr: 2.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 1
+  seed: 0
+  motion_check:
+    n_clips: 10
+    max_frames: 32
+
+loss:
+  weights:
+    pos_3D: 1.0
+    pos_2D: 1.0
+    vis:    1.0

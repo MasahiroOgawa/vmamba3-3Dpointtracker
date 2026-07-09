@@ -495,11 +495,26 @@ faithful, scale-sensitive extension rather than a re-implementation.
 Table~\ref{tab:median} reports median-scaled 3D-AJ.
 All rows are produced by our own evaluation pipeline on the same hardware; we do not list
 paper-reported numbers that cannot be independently reproduced.
-The training-free SEA-RAFT$+$DA3 baseline outperforms the sole independently-verified comparator
-(SpatialTrackerV2\,$^{*}$), while v33 \emph{loses} on this metric (it
-trades relative-structure quality for absolute-scale correctness; see \S\ref{sec:abs}).
-TAPIP3D~\cite{tapip3d} scores $\sim$0.30 on the (different, larger) full-eval split;
-a six-method minival comparison including TAPIP3D is in \S\ref{sec:sota}.
+The strongest result among the externally-published methods is \emph{DELTA}~\cite{delta}
+(DenseTrack3D, ICLR~2025): mean 3D-AJ $0.141$ (drivetrack / pstudio / adt $=0.130$ / $0.141$ / $0.152$),
+balanced across subsets and slightly ahead of our training-free SEA-RAFT$+$DA3 baseline ($0.117$).
+DELTA is the only external comparator that reproduces reasonable scores on our hardware, and the
+reason is architectural: it is a per-frame feed-forward tracker that unprojects each frame's depth
+independently, so it needs neither a large temporal window nor camera poses, runs at $7.7$\,fps
+(full minival in ${\sim}1$\,h) and fits comfortably in 12\,GB.
+Our learned v33 \emph{loses} on this scale-invariant metric (it trades relative-structure quality
+for absolute-scale correctness; see \S\ref{sec:abs}).
+
+The remaining external methods underperform for reasons specific to this 12\,GB GPU, \emph{not} an
+evaluation-harness artefact. SpatialTrackerV2\,$^{*}$ must run with $s_{\text{wind}}{=}60$ (the paper
+uses $s_{\text{wind}}{=}500$, requiring ${\sim}40$\,GB; see \S\ref{sec:spatrackerv2}), which caps its
+accuracy. TAPIP3D$+$DA3 collapses on the rotation-heavy egocentric subsets (adt $0.004$, pstudio
+$0.023$) because it aggregates tracks in a persistent world frame that must cancel camera motion;
+with monocular DA3 depth and no MegaSAM poses that aggregation fails. Crucially, TAPIP3D's \emph{own}
+official evaluator reproduces these same numbers on \texttt{da3\_minival} to three decimals, confirming
+the limitation is a genuine property of pose-free TAPIP3D$+$DA3 rather than a scoring bug. (On the
+different, larger full-eval split TAPIP3D~\cite{tapip3d} scores ${\sim}0.30$; the full six-method
+minival comparison is in \S\ref{sec:sota}.)
 TrackCraft3R~\cite{trackcraft3r} (CVPR~2025) reports Sim(3)-aligned AJ of $0.73$ (pstudio) and
 $0.86$ (adt) in the paper; under our standard protocol (all 150 clips, 50 per subset) it scores
 $0.013$ / $0.010$ / $0.003$ on pstudio / adt / drivetrack.
@@ -523,39 +538,27 @@ while drivetrack contains outdoor ego-motion scenes at scales $>$10\,m.
 \toprule
 Method & drivetrack & pstudio & adt & mean \\
 \midrule
-SpatialTrackerV2\,$^{*}$      & 0.017   & 0.012   & 0.025   & 0.018   \\
-DELTA + DA3\,$^{\S}$          & \textbf{0.130} & \textbf{0.141} & 0.152 & \textbf{0.141} \\
-\midrule
-SEA-RAFT + DA3 (baseline)      & 0.108 & 0.111 & 0.132 & 0.117 \\
-SEA-RAFT + MegaSAM             & 0.103 & 0.135 & \textbf{0.163} & 0.134 \\
-TAPIP3D + DA3\,$^{\dagger}$    & 0.065 & 0.023 & 0.004 & 0.030 \\
+\multicolumn{5}{l}{\emph{SOTA (external)}} \\
+SpatialTrackerV2\,$^{*}$         & 0.017 & 0.012 & 0.025 & 0.018 \\
+DELTA + DA3\,$^{\S}$             & \textbf{0.130} & \textbf{0.141} & 0.152 & \textbf{0.141} \\
+TAPIP3D + DA3\,$^{\dagger}$      & 0.065 & 0.023 & 0.004 & 0.030 \\
 TAPIP3D + MegaSAM\,$^{\ddagger}$ & 0.000 & 0.003 & 0.004 & 0.002 \\
-Ours (v33, DA3 depth)          & 0.057 & 0.041 & 0.123 & 0.074 \\
-Ours (v34, MegaSAM depth)      & 0.059 & 0.048 & 0.119 & 0.075 \\
-Ours (v35, DINOv3)             & 0.093 & 0.054 & 0.141 & 0.096 \\
-Ours (v36, DINOv3\,+\,bidir)  & 0.093 & 0.057 & 0.141 & 0.097 \\
+TrackCraft3R\,$^{\P}$            & 0.003 & 0.013 & 0.010 & 0.009 \\
 \midrule
-TrackCraft3R\,$^{\P}$          & 0.003 & 0.013 & 0.010 & 0.009 \\
+\multicolumn{5}{l}{\emph{Ours}} \\
+SEA-RAFT + DA3 (baseline)        & 0.108 & 0.111 & 0.132 & 0.117 \\
+SEA-RAFT + MegaSAM               & 0.103 & 0.135 & \textbf{0.163} & 0.134 \\
+Ours (v33, DA3 depth)            & 0.057 & 0.041 & 0.123 & 0.074 \\
+Ours (v34, MegaSAM depth)        & 0.059 & 0.048 & 0.119 & 0.075 \\
+Ours (v35, DINOv3)               & 0.093 & 0.054 & 0.141 & 0.096 \\
+Ours (v36, DINOv3\,+\,bidir)     & 0.093 & 0.057 & 0.141 & 0.097 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
-{\footnotesize $^{*}$ SpatialTrackerV2 evaluated on the same RTX\,4080\,Laptop (12\,GB) with
-$s_{\text{wind}}{=}60$ (paper uses $s_{\text{wind}}{=}500$, requiring ${\sim}40$\,GB); see \S\ref{sec:spatrackerv2}.
-$^{\S}$ DELTA~\cite{delta} (DenseTrack3D, ICLR\,2025), feed-forward, evaluated on the same hardware with
-our precomputed DA3 depth (7.7\,fps, full minival in ${\sim}1$\,h). Unlike the other external methods it
-is per-frame feed-forward (no camera-pose/world-space aggregation), so it needs neither the large window
-SpatialTrackerV2 requires nor the MegaSAM poses TAPIP3D depends on --- the reason it is the only external
-method that reproduces reasonable, subset-balanced scores on this GPU.
-$^{\dagger}$ TAPIP3D evaluated with our pipeline using its released checkpoint; its own official evaluator
-reproduces these same near-zero adt/pstudio numbers (adt\,0.004, pstudio\,0.023, drivetrack\,0.065 on
-\texttt{da3\_minival}), confirming this is a genuine limitation of pose-free TAPIP3D+DA3 on rotation-heavy
-egocentric scenes, not an evaluation-harness artifact.
-$^{\ddagger}$ Near-zero on all three subsets; DROID-SLAM fails on subsampled NPZ clips (see \S\ref{sec:megasam-fail}).
-$^{\P}$ TrackCraft3R~\cite{trackcraft3r} evaluated with our standard pipeline on all 150 clips (50 per subset).
-The near-zero drivetrack score reflects out-of-distribution failure: TCR's Wan2.1 video-diffusion backbone
-is trained on indoor/studio content, and outdoor ego-motion (drivetrack) is OOD.
-The paper reports Sim(3)-aligned AJ ($0.73$ pstudio, $0.86$ adt), which uses 7-DoF alignment and is
-not comparable to the 1-DoF median-scaled metric used in this table.}
+{\footnotesize All external comparators ($^{*}$SpatialTrackerV2, $^{\S}$DELTA$+$DA3,
+$^{\dagger}$TAPIP3D$+$DA3, $^{\ddagger}$TAPIP3D$+$MegaSAM, $^{\P}$TrackCraft3R) are discussed in the
+text above; $^{\ddagger}$ additionally see \S\ref{sec:megasam-fail} (DROID-SLAM failure) and
+$^{\P}$ \S\ref{sec:trackcraft3r}.}
 \end{table}
 
 \subsection{Absolute-metric results: the reversal}
@@ -581,19 +584,20 @@ All numbers are produced by our own evaluation pipeline on the same hardware.}
 \toprule
 Method & drivetrack & pstudio & adt & mean \\
 \midrule
-SpatialTrackerV2\,$^{*}$             & 0.008 & 0.192 & 0.179 & 0.126 \\
-DELTA + DA3\,$^{\S}$                 & 0.006 & 0.199 & \textbf{0.344} & 0.183 \\
+\multicolumn{5}{l}{\emph{SOTA (external)}} \\
+SpatialTrackerV2\,$^{*}$         & 0.008 & 0.192 & 0.179 & 0.126 \\
+DELTA + DA3\,$^{\S}$             & 0.006 & 0.199 & \textbf{0.344} & 0.183 \\
+TAPIP3D + DA3                    & 0.006 & 0.131 & 0.164 & 0.100 \\
+TAPIP3D + MegaSAM                & 0.000 & 0.000 & 0.000 & 0.000 \\
+TrackCraft3R\,$^{\P}$            & 0.002 & 0.025 & 0.032 & 0.020 \\
 \midrule
-SEA-RAFT + DA3 (baseline)  & 0.005 & 0.165 & 0.273 & 0.147 \\
-SEA-RAFT + MegaSAM         & 0.000 & 0.082 & 0.209 & 0.097 \\
-TAPIP3D + DA3              & 0.006 & 0.131 & 0.164 & 0.100 \\
-TAPIP3D + MegaSAM          & 0.000 & 0.000 & 0.000 & 0.000 \\
-Ours (v33, DA3 depth)      & 0.082 & 0.186 & 0.272 & 0.180 \\
-Ours (v34, MegaSAM depth)  & 0.001 & 0.092 & 0.208 & 0.100 \\
-Ours (v35, DINOv3)         & \textbf{0.130} & \textbf{0.274} & 0.298 & \textbf{0.234} \\
-Ours (v36, DINOv3\,+\,bidir) & \textbf{0.130} & 0.249 & 0.298 & 0.226 \\
-\midrule
-TrackCraft3R\,$^{\P}$         & 0.002 & 0.025 & 0.032 & 0.020 \\
+\multicolumn{5}{l}{\emph{Ours}} \\
+SEA-RAFT + DA3 (baseline)        & 0.005 & 0.165 & 0.273 & 0.147 \\
+SEA-RAFT + MegaSAM               & 0.000 & 0.082 & 0.209 & 0.097 \\
+Ours (v33, DA3 depth)            & 0.082 & 0.186 & 0.272 & 0.180 \\
+Ours (v34, MegaSAM depth)        & 0.001 & 0.092 & 0.208 & 0.100 \\
+Ours (v35, DINOv3)               & \textbf{0.130} & \textbf{0.274} & 0.298 & \textbf{0.234} \\
+Ours (v36, DINOv3\,+\,bidir)     & \textbf{0.130} & 0.249 & 0.298 & 0.226 \\
 \bottomrule
 \end{tabular}
 \\[2pt]

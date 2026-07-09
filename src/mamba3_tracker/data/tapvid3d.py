@@ -6,13 +6,19 @@ Each clip is one .npz with the following keys (confirmed against
     images_jpeg_bytes : (F,)  object array of JPEG-encoded bytes
     queries_xyt       : (N_q, 3) float32  — (x, y, t) of each query in pixels + frame
     tracks_XYZ        : (F, N_q, 3) float32  — GT 3D position per (frame, query)
-                                                  in the camera coordinate frame
+                                                  in the PER-FRAME camera coordinate frame
     visibility        : (F, N_q) bool
     fx_fy_cx_cy       : (4,) float64 — pinhole intrinsics
 
-Coordinate frame: TAPVid-3D releases tracks in *camera coordinates of the
-first frame* (per the TAPVid-3D paper §3.1). For training we keep them as-is;
-the camera is treated as fixed at the canonical pose.
+Coordinate frame: TAPVid-3D is a pose-free benchmark — tracks_XYZ[t] are given in
+the camera coordinate frame *of frame t* (NOT a fixed first-frame frame). Verified
+empirically: tracks_XYZ[t,n] projects with K to the frame-t query pixel to 0.00 px
+on every minival clip; the official metric's depth-adaptive threshold reads GT Z as
+the per-frame camera depth. Any tracker whose predictions are scored against this GT
+must therefore also be in per-frame camera coordinates (our SEA-RAFT+DA3 unproject
+and the DELTA/SpatialTracker external preds all satisfy this) — a world-frame or
+first-frame prediction would fail on rotation-heavy subsets (adt/pstudio) even
+though median-scaling makes it scale-invariant. See scripts/diagnose_external_pred.py.
 """
 
 from __future__ import annotations
@@ -32,13 +38,14 @@ SUBSETS = ("pstudio", "drivetrack", "adt")
 @dataclass
 class TAPVidClip:
     """One TAPVid-3D clip, decoded into tensors."""
-    images: torch.Tensor          # (F, 3, H, W) float32 in [0, 1]
-    queries_xyt: torch.Tensor     # (N_q, 3) float32
-    tracks_XYZ: torch.Tensor      # (F, N_q, 3) float32
-    visibility: torch.Tensor      # (F, N_q) bool
-    K: torch.Tensor               # (3, 3) float32
-    clip_id: str                  # filename stem (e.g. "boxes_12")
-    subset: str                   # "pstudio" | "drivetrack" | "adt"
+
+    images: torch.Tensor  # (F, 3, H, W) float32 in [0, 1]
+    queries_xyt: torch.Tensor  # (N_q, 3) float32
+    tracks_XYZ: torch.Tensor  # (F, N_q, 3) float32
+    visibility: torch.Tensor  # (F, N_q) bool
+    K: torch.Tensor  # (3, 3) float32
+    clip_id: str  # filename stem (e.g. "boxes_12")
+    subset: str  # "pstudio" | "drivetrack" | "adt"
 
     @property
     def F(self) -> int:
@@ -72,9 +79,7 @@ def _decode_jpeg_frames(jpeg_bytes_arr: np.ndarray) -> torch.Tensor:
 def _build_K(fx_fy_cx_cy: np.ndarray) -> torch.Tensor:
     fx, fy, cx, cy = (float(v) for v in fx_fy_cx_cy)
     K = torch.tensor(
-        [[fx, 0.0, cx],
-         [0.0, fy, cy],
-         [0.0, 0.0, 1.0]],
+        [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]],
         dtype=torch.float32,
     )
     return K

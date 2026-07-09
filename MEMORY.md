@@ -24,4 +24,6 @@
 - [TAPIP3D comparison pipeline](memory/project_tapip3d_comparison.md) — in-progress: DA3 depth running for adt (PID 2560696); then HDF5 packaging + TAPIP3D eval on same 150 minival clips
 - [SpatialTrackerV2 eval bugs](memory/project_spatrackerv2_bidir.md) — two-phase root cause: bidir+fixed_cam fix ran; second bug is track3d_pred+s_wind=60 vs track2d_pred+s_wind=500
 - [TrackCraft3R eval setup](memory/project_trackcraft3r_eval.md) — smoke test done; 480×832 ~32 min/clip → 79 h total; use PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+- [DELTA eval — fast SOTA that works on this PC](memory/project_delta_eval.md) — DenseTrack3D, mean minival norm 3D-AJ 14.1% (best external), 7.7 fps, own uv venv + eval_delta.py + adaptive interp for adt OOM
+- [External SOTA methods aren't lying](memory/project_external_methods_not_lying.md) — STV2/TAPIP3D/TrackCraft3R ~1-2% is genuine (VRAM/pose/OOD), scorer is correct; GT is per-frame camera; see scripts/diagnose_external_pred.py
 - [TikZ arrows: no overlap, no tangential, single-point contact](memory/feedback_tikz_arrow_no_overlap.md) — bypass pattern: exit .south, go below all boxes, rise to target .south

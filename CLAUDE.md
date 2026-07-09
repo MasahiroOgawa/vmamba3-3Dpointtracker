@@ -22,6 +22,7 @@ All external repos live at `~/proj/study/` (single shared clone) and are symlink
 | `third_party/SEA-RAFT` | `/home/mas/proj/study/SEA-RAFT` |
 | `third_party/SpaTrackerV2` | `/home/mas/proj/study/SpaTrackerV2` |
 | `third_party/TrackCraft3R` | `/home/mas/proj/study/TrackCraft3R` |
+| `third_party/DELTA_densetrack3d` | `/home/mas/proj/study/DELTA_densetrack3d` |
 | `third_party/visionMamba3` | proper git submodule (version-pinned) |
 
 Never edit files inside any `third_party/` entry.
@@ -29,12 +30,12 @@ Never edit files inside any `third_party/` entry.
 After cloning on a new machine:
 ```bash
 git submodule update --init
-for name in depth-anything-3 mamba-ssm SEA-RAFT SpaTrackerV2 TrackCraft3R; do
+for name in depth-anything-3 mamba-ssm SEA-RAFT SpaTrackerV2 TrackCraft3R DELTA_densetrack3d; do
   ln -s /home/mas/proj/study/$name third_party/$name
 done
 ```
 
-`SpaTrackerV2` and `TrackCraft3R` have their own uv venvs; run their eval scripts from within those directories.
+`SpaTrackerV2`, `TrackCraft3R`, and `DELTA_densetrack3d` have their own uv venvs; run their eval scripts from within those directories.
 
 ## Sudo
 

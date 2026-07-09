@@ -32,6 +32,7 @@ METHODS = [
     "TAPIP3D\n+DA3",
     "TAPIP3D\n+MegaSAM",
     "TrackCraft3R",
+    "DELTA\n+DA3",
     # ── Ours ─────────────────────────────────────────────────────────────────
     "SEA-RAFT+DA3\n(Ours)",
     "SEA-RAFT+MegaSAM\n(Ours)",
@@ -43,7 +44,7 @@ METHODS = [
 ]
 
 # Number of SOTA methods listed first; used to draw the group separator.
-SOTA_COUNT = 4
+SOTA_COUNT = 5
 
 SUBSET_COLORS = {
     "drivetrack": "#4878CF",  # steel blue
@@ -52,7 +53,6 @@ SUBSET_COLORS = {
 }
 
 HATCH_PENDING = "///"
-
 
 
 def build_data_tables() -> tuple[dict, dict]:
@@ -70,6 +70,7 @@ def build_data_tables() -> tuple[dict, dict]:
         "TAPIP3D+DA3":        {"drivetrack": 0.065,  "pstudio": 0.023,  "adt": 0.004},
         "TAPIP3D+MegaSAM":    {"drivetrack": 0.000,  "pstudio": 0.003,  "adt": 0.004},
         "TrackCraft3R":       {"drivetrack": 0.003,  "pstudio": 0.013,  "adt": 0.010},
+        "DELTA+DA3":          {"drivetrack": 0.130,  "pstudio": 0.141,  "adt": 0.152},
         # Ours ──────────────────────────────────────────────────────────────────
         "SEA-RAFT+DA3":       {"drivetrack": 0.108,  "pstudio": 0.111,  "adt": 0.132},
         "SEA-RAFT+MegaSAM":   {"drivetrack": 0.103,  "pstudio": 0.135,  "adt": 0.163},
@@ -85,6 +86,7 @@ def build_data_tables() -> tuple[dict, dict]:
         "TAPIP3D+DA3":        {"drivetrack": 0.006,  "pstudio": 0.131,  "adt": 0.164},
         "TAPIP3D+MegaSAM":    {"drivetrack": 0.000,  "pstudio": 0.000,  "adt": 0.000},
         "TrackCraft3R":       {"drivetrack": 0.002,  "pstudio": 0.025,  "adt": 0.032},
+        "DELTA+DA3":          {"drivetrack": 0.006,  "pstudio": 0.199,  "adt": 0.344},
         # Ours ──────────────────────────────────────────────────────────────────
         "SEA-RAFT+DA3":       {"drivetrack": 0.005,  "pstudio": 0.165,  "adt": 0.273},
         "SEA-RAFT+MegaSAM":   {"drivetrack": 0.000,  "pstudio": 0.082,  "adt": 0.209},
@@ -98,9 +100,18 @@ def build_data_tables() -> tuple[dict, dict]:
 
     # Map METHODS list → data dicts (same order as METHODS)
     _keys = [
-        "SpatialTrackerV2", "TAPIP3D+DA3", "TAPIP3D+MegaSAM", "TrackCraft3R",
-        "SEA-RAFT+DA3", "SEA-RAFT+MegaSAM", "SEA-RAFT+DA3 bidir",
-        "v33", "v34", "v35", "v36",
+        "SpatialTrackerV2",
+        "TAPIP3D+DA3",
+        "TAPIP3D+MegaSAM",
+        "TrackCraft3R",
+        "DELTA+DA3",
+        "SEA-RAFT+DA3",
+        "SEA-RAFT+MegaSAM",
+        "SEA-RAFT+DA3 bidir",
+        "v33",
+        "v34",
+        "v35",
+        "v36",
     ]
     NaN = float("nan")
     norm_aj: dict[int, dict[str, float]] = {}

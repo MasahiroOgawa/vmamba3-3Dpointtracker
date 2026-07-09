@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""WAFT optical flow as the 2D front-end (replacing SEA-RAFT) + DA3 depth
+unprojection on TAPVid-3D minival. Saves per-frame camera XYZ predictions in the
+eval_metric3d.py --method external format, so v37/v38 are scored by the exact same
+pipeline as the SEA-RAFT+DA3 baseline (only the flow network differs).
+
+  v37 = WAFT + DA3            (forward chaining)
+  v38 = WAFT + DA3, bidir     (--bidirectional; reversed-video backward flow)
+
+Run from WAFT's own venv (torch 2.7 / cu128):
+  cd ~/proj/study/WAFT
+  .venv/bin/python ~/proj/study/vmamba3-3Dpointtracker/scripts/eval_waft.py \\
+    --subsets drivetrack pstudio adt \\
+    --out-dir /home/mas/data/tapvid3d_baseline_preds/waft            # v37
+  ... add --bidirectional and --out-dir .../waft_bidir               # v38
+
+Mirrors scripts/eval_metric3d.py `_infer` (searaft branch): square image_size
+resize, anisotropic intrinsic scaling, flow chaining via the shared
+searaft_flow.track_clip, and _unproject_with_depth — reused verbatim below.
+"""
+
+import argparse
+import io
+import os
+import sys
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from PIL import Image
+from tqdm import tqdm
+
+WAFT_ROOT = Path("/home/mas/proj/study/WAFT")
+# DepthAnythingFeature loads 'depth-anything-ckpts/...' via a relative path at
+# construction, so the process CWD must be the WAFT repo root.
+os.chdir(WAFT_ROOT)
+sys.path.insert(0, str(WAFT_ROOT))
+PROJ = Path("/home/mas/proj/study/vmamba3-3Dpointtracker")
+sys.path.insert(0, str(PROJ / "src"))
+
+from config.parser import json_to_args  # noqa: E402
+from model import fetch_model  # noqa: E402
+from utils.utils import load_ckpt  # noqa: E402
+from inference_tools import InferenceWrapper  # noqa: E402
+from searaft_flow.flow_tracker import track_clip  # noqa: E402  (flow-model-agnostic)
+from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES  # noqa: E402
+
+TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
+DA3_ROOT = Path("/home/mas/data/tapvid3d_da3")
+
+
+class WAFTFlow:
+    """Adapts WAFT to the searaft_flow FlowModel interface: flow(img1,img2)->(B,2,H,W)."""
+
+    def __init__(self, wrapped: InferenceWrapper, device: torch.device):
+        self.wrapped = wrapped
+        self.device = device
+
+    @torch.no_grad()
+    def flow(self, img1: torch.Tensor, img2: torch.Tensor) -> torch.Tensor:
+        # img1/img2: (B,3,H,W) float RGB in [0,255] on device (WAFT normalizes internally)
+        out = self.wrapped.calc_flow(img1, img2)
+        return out["flow"][-1]
+
+
+def load_da3_depth(subset: str, clip_name: str, F_: int) -> np.ndarray:
+    p = DA3_ROOT / subset / clip_name
+    with np.load(p) as d:
+        q = d["depth_q"].astype(np.float32)[:F_]
+        d_min, d_max = float(d["d_min"]), float(d["d_max"])
+    return d_min + q * ((d_max - d_min) / 65535.0)
+
+
+def decode_images(jpeg_bytes_arr) -> np.ndarray:
+    """JPEG bytes -> (F,3,H,W) float32 in [0,1]."""
+    frames = [
+        np.asarray(Image.open(io.BytesIO(bytes(b))).convert("RGB"), dtype=np.float32)
+        / 255.0
+        for b in jpeg_bytes_arr
+    ]
+    return np.stack(frames).transpose(0, 3, 1, 2)
+
+
+def unproject(
+    uv: torch.Tensor, depth: torch.Tensor, K: torch.Tensor, image_size: int
+) -> torch.Tensor:
+    """Replicates mamba3_tracker.train.loss._unproject_with_depth for (F,N,2) uv.
+
+    uv (F,N,2) in square image_size pixels; depth (F,Hd,Wd) metres; K (3,3). -> (F,N,3).
+    """
+    F_, N, _ = uv.shape
+    Hd, Wd = depth.shape[-2:]
+    grid = (2.0 * uv / image_size - 1.0).view(F_, 1, N, 2)
+    z = F.grid_sample(
+        depth.unsqueeze(1),
+        grid,
+        mode="bilinear",
+        padding_mode="border",
+        align_corners=False,
+    ).view(F_, N)
+    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
+    u, v = uv[..., 0], uv[..., 1]
+    x = (u - cx) / fx * z
+    y = (v - cy) / fy * z
+    return torch.stack([x, y, z], dim=-1)
+
+
+@torch.no_grad()
+def infer_clip(
+    flow_model, data, subset, clip_name, image_size, fb_alpha, fb_beta, bidir, device
+):
+    imgs = decode_images(data["images_jpeg_bytes"])  # (F,3,H,W) in [0,1]
+    F_, _, H, W = imgs.shape
+    images = torch.from_numpy(imgs)
+    if (H, W) != (image_size, image_size):
+        images = F.interpolate(
+            images, size=(image_size, image_size), mode="bilinear", align_corners=False
+        )
+    images_255 = (images * 255.0).to(device)
+
+    sx, sy = image_size / float(W), image_size / float(H)
+    q = data["queries_xyt"].astype(np.float32)
+    queries_xy = torch.from_numpy(
+        np.stack([q[:, 0] * sx, q[:, 1] * sy], axis=-1)
+    ).float()
+    anchor_t = torch.from_numpy(q[:, 2]).long().clamp(0, F_ - 1)
+
+    uv, vis = track_clip(
+        flow_model,
+        images_255,
+        queries_xy,
+        anchor_t,
+        image_size,
+        fb_alpha,
+        fb_beta,
+        bidirectional=bidir,
+    )  # uv (F,N,2), vis (F,N) on CPU
+
+    depth = torch.from_numpy(load_da3_depth(subset, clip_name, F_)).float().to(device)
+    fx, fy, cx, cy = data["fx_fy_cx_cy"].astype(np.float32).tolist()
+    K = torch.tensor(
+        [[fx * sx, 0.0, cx * sx], [0.0, fy * sy, cy * sy], [0.0, 0.0, 1.0]],
+        device=device,
+    )
+    xyz = unproject(uv.to(device), depth, K, image_size)  # (F,N,3) per-frame camera
+    return xyz.cpu().numpy().astype(np.float32), vis.numpy().astype(np.float32)
+
+
+def build_flow(cfg_path: Path, ckpt: Path, device: torch.device) -> WAFTFlow:
+    args = json_to_args(str(cfg_path))
+    model = fetch_model(args)
+    load_ckpt(model, str(ckpt))
+    model = model.to(device).eval()
+    for p in model.parameters():
+        p.requires_grad_(False)
+    wrapped = InferenceWrapper(
+        model,
+        scale=args.scale,
+        train_size=args.image_size,
+        pad_to_train_size=False,
+        tiling=False,
+    )
+    return WAFTFlow(wrapped, device)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--subsets", nargs="+", default=["drivetrack", "pstudio", "adt"])
+    ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument(
+        "--cfg", type=Path, default=WAFT_ROOT / "config" / "a1" / "tar-c-t.json"
+    )
+    ap.add_argument(
+        "--ckpt", type=Path, default=WAFT_ROOT / "ckpts" / "waft_a1_recommended.pth"
+    )
+    # 512 ≈ WAFT's [432,960] training resolution: near-identical accuracy to 896
+    # but ~3x faster (896 is ~14h/run on this GPU, infeasible for the 150-clip minival).
+    ap.add_argument("--image-size", type=int, default=512)
+    ap.add_argument("--fb-alpha", type=float, default=0.05)
+    ap.add_argument("--fb-beta", type=float, default=1.0)
+    ap.add_argument("--bidirectional", action="store_true")
+    ap.add_argument("--limit", type=int, default=0)
+    args = ap.parse_args()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    flow_model = build_flow(args.cfg, args.ckpt, device)
+    print(
+        f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir={args.bidirectional}"
+    )
+
+    for subset in args.subsets:
+        if subset not in MINIVAL_FILES:
+            print(f"[warn] unknown subset {subset!r}, skip")
+            continue
+        out_sub = args.out_dir / subset
+        out_sub.mkdir(parents=True, exist_ok=True)
+        clips = MINIVAL_FILES[subset]
+        if args.limit:
+            clips = clips[: args.limit]
+        for clip_name in tqdm(clips, desc=subset):
+            out_path = out_sub / clip_name
+            if out_path.exists():
+                continue
+            # allow_pickle: images_jpeg_bytes is an object array; our own local
+            # TAPVid-3D benchmark files, not untrusted input.
+            data = dict(np.load(TAPVID3D_ROOT / subset / clip_name, allow_pickle=True))
+            try:
+                xyz, vis = infer_clip(
+                    flow_model,
+                    data,
+                    subset,
+                    clip_name,
+                    args.image_size,
+                    args.fb_alpha,
+                    args.fb_beta,
+                    args.bidirectional,
+                    device,
+                )
+                np.savez_compressed(out_path, tracks_XYZ=xyz, visibility=vis)
+                tqdm.write(
+                    f"[waft] {subset}/{clip_name}: N={xyz.shape[1]} F={xyz.shape[0]}"
+                )
+                torch.cuda.empty_cache()
+            except Exception as e:
+                torch.cuda.empty_cache()
+                tqdm.write(f"[error] {subset}/{clip_name}: {type(e).__name__}: {e}")
+
+    print(f"[waft] done -> {args.out_dir}")
+
+
+if __name__ == "__main__":
+    main()

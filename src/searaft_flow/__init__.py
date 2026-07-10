@@ -7,6 +7,6 @@ unprojection + TAPVid-3D metrics) is unchanged.
 """
 
 from .model import FlowModel
-from .flow_tracker import track_clip, track_clip_with_flow
+from .flow_tracker import track_clip, track_clip_with_flow, track_clip_fuse
 
-__all__ = ["FlowModel", "track_clip", "track_clip_with_flow"]
+__all__ = ["FlowModel", "track_clip", "track_clip_with_flow", "track_clip_fuse"]

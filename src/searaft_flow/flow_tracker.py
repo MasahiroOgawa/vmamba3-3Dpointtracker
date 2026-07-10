@@ -212,3 +212,74 @@ def track_clip_with_flow(
         flow_at[t] = _sample(fwd[t].to(device), uv[t], image_size)
 
     return uv.cpu(), vis.float().cpu(), flow_at.cpu()
+
+
+@torch.no_grad()
+def track_clip_fuse(
+    flow_model,
+    images: Tensor,  # (F, 3, S, S) float RGB in [0, 255]
+    queries_xy: Tensor,  # (N, 2) pixel coords in the S×S image space
+    anchor_t: Tensor,  # (N,) long frame index of each query
+    image_size: int,
+    fb_alpha: float = 0.05,
+    fb_beta: float = 1.0,
+) -> tuple[Tensor, Tensor]:
+    """Real bidirectional tracking: forward+backward flow FUSION per hop.
+
+    Each propagation step averages the forward flow and the negated backward flow
+    sampled at the forward-predicted point,
+        d = 0.5 * (d_fwd - d_bwd(p + d_fwd)),
+    genuinely coupling both flow directions *within* each step. This is the only
+    flow-chaining bidirectional that differs from the forward tracker: the
+    reversed-video flag in `track_clip`, and a two-pass whole-track average, both
+    reproduce the forward track exactly (the reversed pass re-runs the identical
+    flow chains). Visibility uses the forward-backward cycle-consistency test — a
+    point whose two flows disagree (|d_fwd + d_bwd| > tol) is marked occluded.
+    """
+    device = flow_model.device
+    F_, N = int(images.shape[0]), int(queries_xy.shape[0])
+    images = images.to(device)
+    uv = torch.zeros(F_, N, 2, device=device)
+    vis = torch.zeros(F_, N, dtype=torch.bool, device=device)
+    idx = torch.arange(N, device=device)
+    anchor_t = anchor_t.to(device).clamp(0, F_ - 1)
+    uv[anchor_t, idx] = queries_xy.to(device)
+    vis[anchor_t, idx] = True
+    if F_ == 1:
+        return uv.cpu(), vis.float().cpu()
+
+    fwd = [
+        flow_model.flow(images[t : t + 1], images[t + 1 : t + 2])[0].cpu().unsqueeze(0)
+        for t in range(F_ - 1)
+    ]
+    bwd = [
+        flow_model.flow(images[t + 1 : t + 2], images[t : t + 1])[0].cpu().unsqueeze(0)
+        for t in range(F_ - 1)
+    ]
+
+    def _fuse_step(primary, check, uv_t):
+        d_p = _sample(primary, uv_t, image_size)
+        cand = uv_t + d_p
+        d_c = _sample(check, cand, image_size)
+        d = 0.5 * (d_p - d_c)  # d_c ≈ -d_p for a consistent pair
+        return uv_t + d, _consistent(uv_t, d_p, d_c, fb_alpha, fb_beta)
+
+    for t in range(F_ - 1):  # forward sweep t -> t+1 (primary=fwd[t], check=bwd[t])
+        m = anchor_t <= t
+        if not m.any():
+            continue
+        nxt, ok = _fuse_step(fwd[t].to(device), bwd[t].to(device), uv[t])
+        uv[t + 1, m] = nxt[m]
+        vis[t + 1, m] = vis[t, m] & ok[m]
+
+    for t in range(
+        F_ - 1, 0, -1
+    ):  # backward sweep t -> t-1 (primary=bwd[t-1], check=fwd[t-1])
+        m = anchor_t >= t
+        if not m.any():
+            continue
+        prv, ok = _fuse_step(bwd[t - 1].to(device), fwd[t - 1].to(device), uv[t])
+        uv[t - 1, m] = prv[m]
+        vis[t - 1, m] = vis[t, m] & ok[m]
+
+    return uv.cpu(), vis.float().cpu()

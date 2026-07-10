@@ -4,15 +4,15 @@ unprojection on TAPVid-3D minival. Saves per-frame camera XYZ predictions in the
 eval_metric3d.py --method external format, so v37/v38 are scored by the exact same
 pipeline as the SEA-RAFT+DA3 baseline (only the flow network differs).
 
-  v37 = WAFT + DA3            (forward chaining)
-  v38 = WAFT + DA3, bidir     (--bidirectional; reversed-video backward flow)
+  v37 = WAFT + DA3            (forward-only flow chaining)
+  v38 = WAFT + DA3, bidir     (--bidir-fuse; forward+backward flow fusion per hop)
 
 Run from WAFT's own venv (torch 2.7 / cu128):
   cd ~/proj/study/WAFT
   .venv/bin/python ~/proj/study/vmamba3-3Dpointtracker/scripts/eval_waft.py \\
     --subsets drivetrack pstudio adt \\
     --out-dir /home/mas/data/tapvid3d_baseline_preds/waft            # v37
-  ... add --bidirectional and --out-dir .../waft_bidir               # v38
+  ... add --bidir-fuse and --out-dir .../waft_fuse                  # v38
 
 Mirrors scripts/eval_metric3d.py `_infer` (searaft branch): square image_size
 resize, anisotropic intrinsic scaling, flow chaining via the shared
@@ -43,7 +43,7 @@ from config.parser import json_to_args  # noqa: E402
 from model import fetch_model  # noqa: E402
 from utils.utils import load_ckpt  # noqa: E402
 from inference_tools import InferenceWrapper  # noqa: E402
-from searaft_flow.flow_tracker import track_clip  # noqa: E402  (flow-model-agnostic)
+from searaft_flow.flow_tracker import track_clip, track_clip_fuse  # noqa: E402
 from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES  # noqa: E402
 
 TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
@@ -126,16 +126,21 @@ def infer_clip(
     ).float()
     anchor_t = torch.from_numpy(q[:, 2]).long().clamp(0, F_ - 1)
 
-    uv, vis = track_clip(
-        flow_model,
-        images_255,
-        queries_xy,
-        anchor_t,
-        image_size,
-        fb_alpha,
-        fb_beta,
-        bidirectional=bidir,
-    )  # uv (F,N,2), vis (F,N) on CPU
+    if bidir:  # v38: forward+backward flow fusion per hop (real bidirectional)
+        uv, vis = track_clip_fuse(
+            flow_model, images_255, queries_xy, anchor_t, image_size, fb_alpha, fb_beta
+        )
+    else:  # v37: forward-only chaining (track_clip already fills both time directions)
+        uv, vis = track_clip(
+            flow_model,
+            images_255,
+            queries_xy,
+            anchor_t,
+            image_size,
+            fb_alpha,
+            fb_beta,
+            bidirectional=False,
+        )  # uv (F,N,2), vis (F,N) on CPU
 
     depth = torch.from_numpy(load_da3_depth(subset, clip_name, F_)).float().to(device)
     fx, fy, cx, cy = data["fx_fy_cx_cy"].astype(np.float32).tolist()
@@ -179,14 +184,19 @@ def main():
     ap.add_argument("--image-size", type=int, default=512)
     ap.add_argument("--fb-alpha", type=float, default=0.05)
     ap.add_argument("--fb-beta", type=float, default=1.0)
-    ap.add_argument("--bidirectional", action="store_true")
+    ap.add_argument(
+        "--bidir-fuse",
+        action="store_true",
+        help="v38: forward+backward flow fusion per hop (d=0.5*(d_fwd-d_bwd)), "
+        "with reject-on-inconsistency. Default off = v37 forward chaining.",
+    )
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     flow_model = build_flow(args.cfg, args.ckpt, device)
     print(
-        f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir={args.bidirectional}"
+        f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir_fuse={args.bidir_fuse}"
     )
 
     for subset in args.subsets:
@@ -214,7 +224,7 @@ def main():
                     args.image_size,
                     args.fb_alpha,
                     args.fb_beta,
-                    args.bidirectional,
+                    args.bidir_fuse,
                     device,
                 )
                 np.savez_compressed(out_path, tracks_XYZ=xyz, visibility=vis)

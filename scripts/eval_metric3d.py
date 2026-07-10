@@ -38,7 +38,7 @@ from mamba3_tracker.eval.tapvid3d_eval import (
     compute_clip_metrics_absolute,
 )
 from mamba3_tracker.train.loss import _unproject_with_depth
-from searaft_flow import FlowModel, track_clip
+from searaft_flow import FlowModel, track_clip, track_clip_fuse
 
 
 def _load_depth(
@@ -74,6 +74,7 @@ def _infer(
     max_frames,
     device,
     bidirectional=False,
+    bidir_fuse=False,
 ):
     """Return (pred_tracks (N,F,3) camera-frame XYZ, pred_vis (N,F))."""
     F_ = (
@@ -94,16 +95,27 @@ def _infer(
     queries_xy = torch.stack([q[:, 0] * sx, q[:, 1] * sy], dim=-1)
     anchor_t = q[:, 2].long().clamp(0, F_ - 1)
 
-    uv, vis = track_clip(
-        flow_model,
-        images_255.to(device),
-        queries_xy,
-        anchor_t,
-        image_size,
-        fb_alpha,
-        fb_beta,
-        bidirectional=bidirectional,
-    )
+    if bidir_fuse:  # forward+backward flow fusion per hop (real bidirectional)
+        uv, vis = track_clip_fuse(
+            flow_model,
+            images_255.to(device),
+            queries_xy,
+            anchor_t,
+            image_size,
+            fb_alpha,
+            fb_beta,
+        )
+    else:
+        uv, vis = track_clip(
+            flow_model,
+            images_255.to(device),
+            queries_xy,
+            anchor_t,
+            image_size,
+            fb_alpha,
+            fb_beta,
+            bidirectional=bidirectional,
+        )
     depth_t = _load_depth(da3_depth_root, clip.subset, clip.clip_id, F_).to(device)
     K = clip.K.clone()
     K[0] *= sx
@@ -199,6 +211,13 @@ def main() -> int:
         action="store_true",
         default=False,
         help="Run SEA-RAFT on reversed video for backward tracking (offline only; doubles flow compute)",
+    )
+    ap.add_argument(
+        "--bidir-fuse",
+        action="store_true",
+        default=False,
+        help="Real bidirectional 2D track: fuse forward+backward flow per hop "
+        "(d=0.5*(d_fwd-d_bwd)) with reject-on-inconsistency. Use for v36/v38-style variants.",
     )
     args = ap.parse_args()
 
@@ -305,6 +324,7 @@ def main() -> int:
                         args.max_frames,
                         device,
                         bidirectional=args.bidirectional,
+                        bidir_fuse=args.bidir_fuse,
                     )
                 # Align frame/point counts (released preds may truncate frames).
                 Fg = int(clip.tracks_XYZ.shape[0])

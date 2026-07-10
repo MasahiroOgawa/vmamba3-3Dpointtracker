@@ -392,6 +392,29 @@ cannot be tracked across the gap in either direction.}
 
 Consistent with the analysis above, v36 and v35 are effectively identical on all three subsets
 (Table~\ref{tab:median}, Table~\ref{tab:abs}); the reversed-video pass yields no measurable gain.
+Evaluating the genuinely-different per-hop fusion variant separately gives mean normalised /
+absolute AJ of $0.099$ / $0.226$ --- again indistinguishable from v35 ($0.096$ / $0.234$),
+confirming that no flow-chaining bidirectional scheme improves this pipeline.
+
+\subsection{v37--v39: WAFT optical-flow front-end}
+\label{sec:waft}
+WAFT~\cite{waft} (Warping-Alone Field Transforms, princeton-vl) is a stronger optical-flow
+network than SEA-RAFT. We swap it in as the 2D front-end, keeping everything downstream identical,
+and evaluate three variants (run at WAFT's $512$-px training resolution; scored by the same
+pipeline as every other row):
+\begin{itemize}
+  \item \textbf{v37 (WAFT $+$ DA3)} --- WAFT flow $+$ raw DA3 unprojection, no refiner. It beats the
+    SEA-RAFT$+$DA3 baseline on both metrics (normalised $0.117\!\to\!0.123$, absolute
+    $0.147\!\to\!0.159$): a better 2D track alone helps.
+  \item \textbf{v38 (WAFT $+$ DA3, bidir)} --- the per-hop forward$+$backward flow fusion of
+    \S\ref{sec:v36}. As expected it is $\approx$ v37 ($0.126$ / $0.159$); fusion adds nothing here.
+  \item \textbf{v39 (WAFT flow $+$ v35 depth refiner)} --- WAFT's 2D track fed into the v35
+    DINOv3-SSM depth refiner. This combines the best 2D front-end with depth-scale correction and
+    is our \textbf{best absolute-metric model}: metric-AJ $0.246$, beating the SEA-RAFT-fed v35
+    ($0.234$) on all three subsets (Table~\ref{tab:abs}). As with v35, the refiner trades
+    relative-structure quality for absolute-scale correctness, so v39's normalised AJ ($0.107$) sits
+    below WAFT$+$DA3 (v37, $0.123$).
+\end{itemize}
 
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
@@ -560,6 +583,9 @@ Ours (v33, DA3 depth)            & 0.057 & 0.041 & 0.123 & 0.074 \\
 Ours (v34, MegaSAM depth)        & 0.059 & 0.048 & 0.119 & 0.075 \\
 Ours (v35, DINOv3)               & 0.093 & 0.054 & 0.141 & 0.096 \\
 Ours (v36, DINOv3\,+\,bidir)     & 0.093 & 0.057 & 0.141 & 0.097 \\
+Ours (v37, WAFT flow)            & 0.115 & 0.116 & 0.137 & 0.123 \\
+Ours (v38, WAFT flow\,+\,bidir)  & 0.116 & 0.120 & 0.141 & 0.126 \\
+Ours (v39, WAFT flow\,$+$\,v35)  & 0.098 & 0.073 & 0.151 & 0.107 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -572,14 +598,16 @@ $^{\P}$ \S\ref{sec:trackcraft3r}.}
 \subsection{Absolute-metric results: the reversal}
 \label{sec:abs}
 Under the absolute-metric protocol the ranking \emph{reverses} (Table~\ref{tab:abs},
-Fig.~\ref{fig:reversal}). Our best model v35 (DINOv3 image conditioning) outperforms
-all methods on absolute metric-AJ.
-Against the DA3 baseline: metric-AJ $+59\%$ ($0.147\!\to\!0.234$),
+Fig.~\ref{fig:reversal}). Our best model is v39 (WAFT flow $+$ the v35 depth refiner;
+\S\ref{sec:waft}), which tops absolute metric-AJ at $0.246$; the SEA-RAFT-fed v35 follows
+at $0.234$. Taking v35 vs.\ the DA3 baseline: metric-AJ $+59\%$ ($0.147\!\to\!0.234$),
 mean error $-55\%$ ($4.29\!\to\!1.91$\,m). Against TAPIP3D$+$DA3: metric-AJ
 $+134\%$ ($0.100\!\to\!0.234$). The gain is most concentrated where DA3's scale is most
 wrong --- far-field \emph{drivetrack}, metric-AJ $0.005\!\to\!0.130$ ($26\times$) ---
-while near-field \emph{adt} sees moderate improvement.
-The leaderboard's median scaling hides all of this: v35's normalised 3D-AJ is
+while near-field \emph{adt} sees moderate improvement. Swapping the SEA-RAFT front-end for
+WAFT (v39) lifts every subset again (drivetrack $0.130\!\to\!0.141$, pstudio $0.274\!\to\!0.279$,
+adt $0.298\!\to\!0.318$).
+The leaderboard's median scaling hides all of this: v35/v39's normalised 3D-AJ is
 \emph{lower} than SEA-RAFT$+$MegaSAM (Table~\ref{tab:median}).
 
 \begin{table}[h]
@@ -604,8 +632,11 @@ SEA-RAFT + DA3 (baseline)        & 0.005 & 0.165 & 0.273 & 0.147 \\
 SEA-RAFT + MegaSAM               & 0.000 & 0.082 & 0.209 & 0.097 \\
 Ours (v33, DA3 depth)            & 0.082 & 0.186 & 0.272 & 0.180 \\
 Ours (v34, MegaSAM depth)        & 0.001 & 0.092 & 0.208 & 0.100 \\
-Ours (v35, DINOv3)               & \textbf{0.130} & \textbf{0.274} & 0.298 & \textbf{0.234} \\
-Ours (v36, DINOv3\,+\,bidir)     & \textbf{0.130} & 0.249 & 0.298 & 0.226 \\
+Ours (v35, DINOv3)               & 0.130 & 0.274 & 0.298 & 0.234 \\
+Ours (v36, DINOv3\,+\,bidir)     & 0.130 & 0.249 & 0.298 & 0.226 \\
+Ours (v37, WAFT flow)            & 0.005 & 0.181 & 0.289 & 0.159 \\
+Ours (v38, WAFT flow\,+\,bidir)  & 0.005 & 0.181 & 0.292 & 0.159 \\
+Ours (v39, WAFT flow\,$+$\,v35)  & \textbf{0.141} & \textbf{0.279} & 0.318 & \textbf{0.246} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -663,8 +694,8 @@ instead of the window-local \texttt{track3d\_pred}) recovers only ${\sim}0.2$--$
 points, while the remaining ${\sim}24$ pp gap is attributable to the window-length difference.
 Our evaluation of SpatialTrackerV2 is therefore a \emph{same-hardware, same-constraints} baseline:
 the reported scores reflect what SpatialTrackerV2 achieves within the 12\,GB budget, on the
-same clips as our own method.  Our best model (v35, DINOv3 depth conditioning) achieves
-$14.1\%$ normalised 3D-AJ on adt under these identical conditions, exceeding our SpaTrackerV2
+same clips as our own method.  Our best model (v39, WAFT flow $+$ v35 refiner) achieves
+$15.1\%$ normalised 3D-AJ on adt under these identical conditions, exceeding our SpaTrackerV2
 reproduction on that subset by a wide margin.
 
 \paragraph{TAPIP3D + DA3.}
@@ -720,8 +751,8 @@ Results are shown in Tables~\ref{tab:median} and~\ref{tab:abs}.
 On the leaderboard (scale-invariant) metric, TCR scores $1.3\%$ / $1.0\%$ / $0.3\%$
 on pstudio / adt / drivetrack (mean $0.9\%$) --- below all our baselines.
 On the absolute metric, TCR scores $2.5\%$ / $3.2\%$ / $0.2\%$ (mean $2.0\%$).
-Our best model v35 outperforms TCR on absolute metric-AJ by $12\times$ overall
-($23.4\%$ vs $2.0\%$) and by $16\times$ on drivetrack ($13.0\%$ vs $0.2\%$) where TCR
+Our best model v39 outperforms TCR on absolute metric-AJ by $12\times$ overall
+($24.6\%$ vs $2.0\%$) and by $70\times$ on drivetrack ($14.1\%$ vs $0.2\%$) where TCR
 effectively fails.
 
 The low drivetrack score is an out-of-distribution failure: Wan2.1 is primarily trained on
@@ -755,7 +786,8 @@ TrackCraft3R's low drivetrack bar reflects an OOD failure (see \S\ref{sec:trackc
 \centering
 \includegraphics[width=\textwidth]{figs/fig2_absolute_aj}
 \caption{Same methods, absolute metric-AJ (fixed-metre thresholds 1\,cm--2.56\,m; higher
-better). v35 leads all methods despite ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
+better). v39 (WAFT flow $+$ v35 refiner) leads all methods, ahead of the SEA-RAFT-fed v35,
+despite both ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \label{fig:6method-abs}
 \end{figure}
 
@@ -828,6 +860,8 @@ SEA-RAFT $+$ DA3 (baseline)$^{\star}$  & 12.4 & 0        \\
 v33 (depth refiner)$^{\star}$          & 12.5 & 0.40\,M  \\
 v35 (DINOv3 $+$ SSM)$^{\star,\dagger}$ & 7.7  & 0.44\,M  \\
 v36 (bidir $+$ v35)$^{\star}$          & 6.2  & 0.44\,M  \\
+v37 (WAFT $+$ DA3)$^{\star}$           & ${\approx}7.7$ & 0        \\
+v39 (WAFT flow $+$ v35)$^{\star}$      & ${\approx}6.3$ & 0.44\,M  \\
 \midrule
 TAPIP3D$^{\star}$                      & ${\approx}3.1$  & --- \\
 SpatialTrackerV2 (s\_wind\,=\,60)      & ${\approx}4.0$  & --- \\
@@ -886,6 +920,7 @@ our pipeline is competitive on both quality and efficiency axes.
 \bibitem{tapip3d} \textit{TAPIP3D: Tracking Any Point in Persistent 3D Geometry}, 2025.
 \bibitem{trackcraft3r} Nam et al., \textit{TrackCraft3R: Repurposing Video Diffusion Transformers for Dense 3D Tracking}, arXiv:2605.12587, 2025.
 \bibitem{delta} Ngo et al., \textit{DELTA: Dense Efficient Long-range 3D Tracking for Any video} (DenseTrack3D), ICLR 2025, arXiv:2410.24211.
+\bibitem{waft} Wang et al., \textit{WAFT: Warping-Alone Field Transforms for Optical Flow}, princeton-vl, 2025.
 \bibitem{zoedepth} Bhat et al., \textit{ZoeDepth: Zero-shot Transfer by Combining Relative and Metric Depth}, arXiv 2302.12288, 2023.
 \end{thebibliography}
 

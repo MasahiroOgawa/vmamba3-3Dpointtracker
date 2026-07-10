@@ -41,6 +41,9 @@ METHODS = [
     "MegaSAM+SSM\n(Ours)",
     "DINOv3+SSM\n(Ours)",
     "DINOv3+SSM\nbidir (Ours)",
+    "WAFT+DA3\n(v37)",
+    "WAFT+DA3\nbidir (v38)",
+    "WAFT+v35\n(v39)",
 ]
 
 # Number of SOTA methods listed first; used to draw the group separator.
@@ -79,6 +82,9 @@ def build_data_tables() -> tuple[dict, dict]:
         "v34":                {"drivetrack": 0.059,  "pstudio": 0.048,  "adt": 0.119},
         "v35":                {"drivetrack": 0.093,  "pstudio": 0.054,  "adt": 0.141},
         "v36":                {"drivetrack": 0.093,  "pstudio": 0.057,  "adt": 0.141},
+        "WAFT+DA3":           {"drivetrack": 0.115,  "pstudio": 0.116,  "adt": 0.137},
+        "WAFT+DA3 bidir":     {"drivetrack": 0.116,  "pstudio": 0.120,  "adt": 0.141},
+        "WAFT+v35":           {"drivetrack": 0.098,  "pstudio": 0.073,  "adt": 0.151},
     }
     data_abs = {
         # SOTA ──────────────────────────────────────────────────────────────────
@@ -95,6 +101,9 @@ def build_data_tables() -> tuple[dict, dict]:
         "v34":                {"drivetrack": 0.001,  "pstudio": 0.092,  "adt": 0.208},
         "v35":                {"drivetrack": 0.130,  "pstudio": 0.274,  "adt": 0.298},
         "v36":                {"drivetrack": 0.130,  "pstudio": 0.249,  "adt": 0.298},
+        "WAFT+DA3":           {"drivetrack": 0.005,  "pstudio": 0.181,  "adt": 0.289},
+        "WAFT+DA3 bidir":     {"drivetrack": 0.005,  "pstudio": 0.181,  "adt": 0.292},
+        "WAFT+v35":           {"drivetrack": 0.141,  "pstudio": 0.279,  "adt": 0.318},
     }
     # fmt: on
 
@@ -112,6 +121,9 @@ def build_data_tables() -> tuple[dict, dict]:
         "v34",
         "v35",
         "v36",
+        "WAFT+DA3",
+        "WAFT+DA3 bidir",
+        "WAFT+v35",
     ]
     NaN = float("nan")
     norm_aj: dict[int, dict[str, float]] = {}

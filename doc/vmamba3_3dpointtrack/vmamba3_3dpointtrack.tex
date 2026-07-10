@@ -338,9 +338,17 @@ Both heads are zero-initialised: v35 starts exactly at the v33 output.}
 \subsection{v36: bidirectional flow}
 \label{sec:v36}
 
-v36 uses the same v35 architecture but runs SEA-RAFT twice --- once forward and once on the
-time-reversed video --- and averages the two 2D track estimates before passing them to the SSM
-(Fig.~\ref{fig:v36-flow}).
+v36 uses the same v35 architecture; only the 2D front-end changes. It additionally runs SEA-RAFT
+on the \emph{time-reversed} video and uses that flow to track the frames \emph{before} each query's
+anchor --- the ``reversed-video backward pass'' (Fig.~\ref{fig:v36-flow}).
+\emph{Important caveat.} A two-frame flow model's output $\mathrm{flow}(I_a,I_b)$ does not depend on
+playback direction, so the reversed-video flow $\mathrm{flow}(I_t,I_{t-1})$ is \emph{identical} to
+the direct backward flow the forward tracker already uses. The reversed-video pass therefore leaves
+the 2D track unchanged: v36 is effectively identical to v35, and the sub-$0.003$ differences in
+Tables~\ref{tab:median}--\ref{tab:abs} are run-to-run (GPU) nondeterminism, not a real effect. The
+only flow-chaining scheme that genuinely differs fuses the forward and backward flow \emph{within}
+each propagation step, $\mathbf{d}=\tfrac12(\mathbf{d}^{\rightarrow}-\mathbf{d}^{\leftarrow})$, which
+we evaluate separately.
 
 \begin{figure}[h]
 \centering
@@ -357,7 +365,7 @@ time-reversed video --- and averages the two 2D track estimates before passing t
   \node[fwd, below right=8mm and 20mm of vid] (bwd) {SEA-RAFT\\(reversed video)};
   % merge
   \node[mrg, right=14mm of vid, yshift=0mm]
-    (merge) at ($(fwd.east)!0.5!(bwd.east)+(8mm,0)$) {average\\$+$ flip time};
+    (merge) at ($(fwd.east)!0.5!(bwd.east)+(8mm,0)$) {reversed flow\\for $t<$ anchor\\(flip time)};
   % v35 SSM
   \node[learn, right=8mm of merge] (v35) {v35 SSM\\(Fig.~\ref{fig:v35-arch})};
   % output
@@ -373,17 +381,17 @@ time-reversed video --- and averages the two 2D track estimates before passing t
   \draw[arr] (merge) -- (v35);
   \draw[arr] (v35) -- (out);
 \end{tikzpicture}
-\caption{v36 pipeline. The v35 SSM is unchanged; SEA-RAFT runs on both the original and the
-time-reversed video, the two 2D track estimates are averaged (and the reversed-video result is
-flipped back to forward time), then passed to v35 as the starting 2D positions.
-Bidirectional flow improves coverage of points that are temporarily occluded in the forward
-direction but visible in the backward pass.}
+\caption{v36 pipeline. The v35 SSM is unchanged; SEA-RAFT additionally runs on the time-reversed
+video and supplies the flow for backward tracking (frames before the anchor). For a two-frame flow
+model this reversed-video flow is \emph{identical} to the direct backward flow, so the reversed-video
+pass does not change the 2D track --- v36 $\equiv$ v35 (see \S\ref{sec:v36}). It does \emph{not}
+recover occluded points: an occlusion is symmetric in time, so a query anchored on one side of it
+cannot be tracked across the gap in either direction.}
 \label{fig:v36-flow}
 \end{figure}
 
-The gain from v36 over v35 is small on all three subsets (Table~\ref{tab:median},
-Table~\ref{tab:abs}): bidirectional flow helps drivetrack (moving camera; occlusions are common)
-but the pstudio improvement is marginal (fixed cameras; occlusion patterns are nearly symmetric).
+Consistent with the analysis above, v36 and v35 are effectively identical on all three subsets
+(Table~\ref{tab:median}, Table~\ref{tab:abs}); the reversed-video pass yields no measurable gain.
 
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
@@ -736,7 +744,9 @@ Figures~\ref{fig:6method-norm} and~\ref{fig:6method-abs} summarise the seven-met
 \centering
 \includegraphics[width=\textwidth]{figs/fig1_normalized_aj}
 \caption{Method comparison on TAPVid-3D minival, normalised median-AJ (leaderboard metric,
-scale-invariant). Higher is better. ``bidir'' = bidirectional SEA-RAFT flow (reversed-video backward pass).
+scale-invariant). Higher is better. ``bidir'' = reversed-video backward pass, which for a two-frame
+flow model is equivalent to the forward tracker (\S\ref{sec:v36}), so the ``bidir'' bars match their
+non-bidir counterparts up to run-to-run nondeterminism.
 TrackCraft3R's low drivetrack bar reflects an OOD failure (see \S\ref{sec:trackcraft3r}).}
 \label{fig:6method-norm}
 \end{figure}

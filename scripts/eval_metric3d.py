@@ -75,6 +75,7 @@ def _infer(
     device,
     bidirectional=False,
     bidir_fuse=False,
+    waft_pred_dir=None,
 ):
     """Return (pred_tracks (N,F,3) camera-frame XYZ, pred_vis (N,F))."""
     F_ = (
@@ -95,7 +96,28 @@ def _infer(
     queries_xy = torch.stack([q[:, 0] * sx, q[:, 1] * sy], dim=-1)
     anchor_t = q[:, 2].long().clamp(0, F_ - 1)
 
-    if bidir_fuse:  # forward+backward flow fusion per hop (real bidirectional)
+    K = clip.K.clone()
+    K[0] *= sx
+    K[1] *= sy
+
+    if waft_pred_dir is not None:
+        # Use WAFT's 2D track as the flow front-end for the refiner: recover uv by
+        # projecting the saved WAFT per-frame camera XYZ with K (at this image_size).
+        # Projection is exact & resolution-invariant, so WAFT's native (512) track
+        # maps directly onto this 896 grid. The refiner then re-samples/corrects
+        # DA3 depth at uv — i.e. WAFT flow + v35 depth refinement.
+        wp = Path(waft_pred_dir).expanduser() / clip.subset / (clip.clip_id + ".npz")
+        with np.load(wp) as wd:
+            xyz_w = np.asarray(wd["tracks_XYZ"][:F_], dtype=np.float32)  # (F,N,3)
+            vis_w = np.asarray(wd["visibility"][:F_]).astype(np.float32)  # (F,N)
+        fx, fy = float(K[0, 0]), float(K[1, 1])
+        cx, cy = float(K[0, 2]), float(K[1, 2])
+        zc = np.clip(xyz_w[..., 2], 1e-6, None)
+        u = fx * xyz_w[..., 0] / zc + cx
+        v = fy * xyz_w[..., 1] / zc + cy
+        uv = torch.from_numpy(np.stack([u, v], axis=-1)).float()  # (F,N,2)
+        vis = torch.from_numpy(vis_w).float()
+    elif bidir_fuse:  # forward+backward flow fusion per hop (real bidirectional)
         uv, vis = track_clip_fuse(
             flow_model,
             images_255.to(device),
@@ -117,10 +139,7 @@ def _infer(
             bidirectional=bidirectional,
         )
     depth_t = _load_depth(da3_depth_root, clip.subset, clip.clip_id, F_).to(device)
-    K = clip.K.clone()
-    K[0] *= sx
-    K[1] *= sy
-    K_t = K.unsqueeze(0).to(device)
+    K_t = K.unsqueeze(0).to(device)  # K computed above (scaled to image_size)
     uv_d = uv.unsqueeze(0).to(device)
 
     if method == "searaft":
@@ -219,6 +238,14 @@ def main() -> int:
         help="Real bidirectional 2D track: fuse forward+backward flow per hop "
         "(d=0.5*(d_fwd-d_bwd)) with reject-on-inconsistency. Use for v36/v38-style variants.",
     )
+    ap.add_argument(
+        "--waft-pred-dir",
+        type=Path,
+        default=None,
+        help="Use a WAFT prediction dir (tapvid3d_baseline_preds/waft) as the 2D flow "
+        "front-end instead of SEA-RAFT: uv is recovered by projecting the saved WAFT XYZ. "
+        "Combine with --method v35 for 'WAFT flow + v35 depth refiner' (v39).",
+    )
     args = ap.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +258,9 @@ def main() -> int:
         if args.pred_dir is None:
             ap.error("--method external requires --pred-dir")
         print(f"[metric3d] external predictions from {args.pred_dir}")
+    elif args.waft_pred_dir is not None:
+        # 2D track comes from WAFT preds; no SEA-RAFT flow model needed (saves VRAM).
+        print(f"[metric3d] WAFT 2D front-end from {args.waft_pred_dir}")
     else:
         flow_model = FlowModel(device, url=args.url, iters=args.iters, scale=args.scale)
     if args.method == "v33":
@@ -325,6 +355,7 @@ def main() -> int:
                         device,
                         bidirectional=args.bidirectional,
                         bidir_fuse=args.bidir_fuse,
+                        waft_pred_dir=args.waft_pred_dir,
                     )
                 # Align frame/point counts (released preds may truncate frames).
                 Fg = int(clip.tracks_XYZ.shape[0])

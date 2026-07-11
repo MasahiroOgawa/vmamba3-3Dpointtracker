@@ -19,7 +19,7 @@ every frame — the 2D track is mathematically untouched.
 The Δlog-z head is zero-initialised, so at step 0 `z = z_raw` and the model
 reproduces the training-free SEA-RAFT+DA3 baseline exactly.
 
-Notation follows doc/mamba3_3dpoint_tracking.tex §6.
+Notation follows doc/vmamba3_3dpointtrack/vmamba3_3dpointtrack.tex.
 """
 
 from __future__ import annotations

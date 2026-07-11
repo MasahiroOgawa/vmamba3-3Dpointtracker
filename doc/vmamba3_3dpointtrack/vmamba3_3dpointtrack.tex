@@ -56,29 +56,39 @@ v33, that refines depth.
 
 \begin{figure}[h]
 \centering
-\begin{tikzpicture}[node distance=7mm and 12mm]
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[node distance=9mm and 12mm]
   \node[io] (vid) {video\\$\{I_t\}$};
   \node[frozen, right=of vid] (flow) {SEA-RAFT\\flow (frozen)};
   \node[frozen, right=of flow] (chain) {flow\\chaining};
   \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
-  \node[frozen, below=10mm of flow] (da3) {DA3 metric\\depth (frozen)};
-  \node[block, below=10mm of uv] (unp) {unproject\\$\to$ 3D};
-  \node[learn, right=of unp] (v33) {v33 Mamba-3\\depth refiner};
-  \node[io, right=of v33] (out) {3D track\\$\hat{\mathbf X}_t$};
+  \node[frozen, below=17mm of flow] (da3) {DA3 metric\\depth (frozen)};
+  % refiner inputs (yellow) — the SAME yellow input box as Fig 3 / Fig 5.
+  \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
+  % the single learned module (large blue box); internals in Fig 3 / Fig 5.
+  \node[learn, minimum width=30mm, minimum height=14mm, right=13mm of inp] (ref)
+    {\textbf{learned}\\\textbf{depth refiner}\\{\scriptsize v33: Fig.~\ref{fig:arch}\ \ v35: Fig.~\ref{fig:v35-arch}}};
+  \node[io, right=13mm of ref] (out) {3D track\\$\hat{\mathbf X}_t$};
 
   \draw[arr] (vid) -- (flow);
   \draw[arr] (flow) -- (chain);
   \draw[arr] (chain) -- (uv);
   \draw[arr] (vid.south) |- (da3.west);
-  \draw[arr] (uv) -- (unp);
-  \draw[arr] (da3) -- (unp);
-  \draw[arr] (unp) -- (v33);
-  \draw[arr] (v33) -- (out);
-  \draw[arr] (uv.south) to[bend left=12] node[right,font=\scriptsize]{frozen ray} (v33.north);
-\end{tikzpicture}
-\caption{Pipeline. Grey = frozen / training-free; blue = the only learned module ($0.40$M params).
-The 2D track and visibility from SEA-RAFT are \emph{never} modified; v33 refines depth along each
-point's fixed pixel ray, so the 2D reprojection is invariant by construction (Fig.~\ref{fig:ray}).}
+  \draw[arr] (uv) -- (inp) node[midway, right, font=\scriptsize] {ray $\mathbf{r}(\mathbf{u}_t)$};
+  \draw[arr] (da3.east) -- (inp.west) node[midway, above, font=\scriptsize] {$z_{\text{raw}}$};
+  \draw[arr] (inp) -- (ref);
+  \draw[arr] (ref) -- (out);
+\end{tikzpicture}%
+}
+\caption{Overall pipeline. Grey = frozen / training-free; the \textbf{large blue box} is the only
+learned module ($0.40$M params); its internals are Fig.~\ref{fig:arch} (v33) and
+Fig.~\ref{fig:v35-arch} (v35). SEA-RAFT's 2D track $\mathbf{u}_t$ (and visibility) are \emph{never}
+modified. The refiner's \emph{inputs} (yellow box) --- the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$
+(from $\mathbf{u}_t$ and the intrinsics), DA3's raw depth $z_{\text{raw}}$, and visibility $v$ --- are
+exactly the yellow input boxes that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and
+Fig.~\ref{fig:v35-arch} (v35 additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The
+box corrects depth along the frozen ray and unprojects to 3D, so the 2D reprojection is invariant by
+construction (Fig.~\ref{fig:ray}).}
 \label{fig:pipeline}
 \end{figure}
 
@@ -126,11 +136,10 @@ ray (Fig.~\ref{fig:ray}).
   \filldraw[gray] (2.0,0.24) circle (1.6pt) node[above,font=\scriptsize]{$z_{\text{raw}}$ (DA3)};
   \filldraw[blue!60!black] (3.1,0.37) circle (1.8pt) node[below,font=\scriptsize]{$z=z_{\text{raw}}e^{\Delta\log z}$ (v33)};
   \draw[arr,densely dashed] (2.0,0.24) -- (3.05,0.36);
-  \node[font=\scriptsize,align=left] at (2.4,-1.0)
-    {only depth slides along the ray\\$\Rightarrow$ 2D projection unchanged};
 \end{tikzpicture}
-\caption{Depth-along-ray refinement. The tracked pixel (hence the ray direction) is frozen;
-v33 only moves the point's depth, so the predicted 2D track and visibility are invariant.}
+\caption{Depth-along-ray refinement. The tracked pixel (hence the ray direction) is frozen, so
+\emph{only the depth slides along the ray} and the 2D projection is unchanged: v33 moves the point's
+depth alone, leaving the predicted 2D track and visibility invariant.}
 \label{fig:ray}
 \end{figure}
 
@@ -192,10 +201,19 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
   % z_raw bypass arrow: down from zraw.south, right below all boxes, up to mul.south
   \coordinate (bypasswa) at ($(zraw.south)+(0,-3mm)$);
   \draw[arr,rounded corners=2pt] (zraw.south) -- (bypasswa) -- (bypasswa -| mul.south) -- (mul.south);
-  \node[font=\scriptsize, above=2mm of m1, align=center]
+  \node[font=\scriptsize, above=2mm of m1, align=center] (ann)
     {state dim 64, 4 heads};
+  % Blue container wraps ONLY the learned internals; the yellow I/O boxes (input, z_t,
+  % z_raw bypass) sit OUTSIDE it — they cross the boundary of the blue box of Fig 1.
+  \begin{scope}[on background layer]
+    \node[draw=blue!55!black, dashed, thick, rounded corners, fill=blue!4,
+          fit=(emb)(m1)(head)(mul)(ann), inner sep=4mm, inner ysep=5mm,
+          label={[font=\scriptsize\bfseries, blue!45!black]above:{$=$ the blue ``depth refiner'' box of Fig.~\ref{fig:pipeline}}}] {};
+  \end{scope}
 \end{tikzpicture}
-\caption{v33 architecture. Input abbreviations: $\mathbf{r}{=}(\text{ray}_x,\text{ray}_y)$,
+\caption{v33 architecture --- the inside of the blue box in Fig.~\ref{fig:pipeline}.
+Input abbreviations: $\mathbf{r}{=}(\text{ray}_x,\text{ray}_y)$ is the frozen pixel ray from the 2D
+track $\mathbf{u}_t$,
 $z/z_{\!r}{=}z_{\text{raw}}/z_{\text{ref}}$, $v{=}$visibility.
 \textbf{Bypass}: $z_{\text{raw}}$ (DA3 metric depth) skips the SSM entirely and is multiplied
 back in at the end — the SSM is a \emph{relative corrector} that predicts the factor
@@ -248,6 +266,7 @@ consistent (Fig.~\ref{fig:v35-concept}).
 
 \begin{figure}[h]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[scale=1.0]
   \coordinate (cam) at (0,0);
   \draw[fill=black!12,draw=black!50] (cam) -- (4.2,1.2) -- (4.2,-1.2) -- cycle;
@@ -272,21 +291,20 @@ consistent (Fig.~\ref{fig:v35-concept}).
   \node[draw=green!60!black,fill=green!8,rounded corners,font=\scriptsize,inner sep=2pt,align=center]
     at (2.4,-1.05) {depth patch\\$5{\times}5$};
   \draw[-{Stealth[length=1.8mm]},green!60!black] (2.4,-0.75) -- (2.2,0.23);
-  % bottom note
-  \node[font=\scriptsize,align=left] at (2.0,-1.65)
-    {New SSM inputs (orange/green) $\Rightarrow$ informed $\Delta\mathbf{u}$ avoids depth-discontinuity artefacts.
-     Depth is re-sampled at $\mathbf{u}_0{+}\Delta\mathbf{u}$ before applying $\Delta\!\log z$.};
-\end{tikzpicture}
-\caption{v35 joint correction. Two new inputs (DINOv3 appearance features and a local $5{\times}5$
-depth patch) give the SSM the context needed to predict $\Delta\mathbf{u}$ safely.
-Unlike v32, which nudged the pixel blindly and crossed depth discontinuities, v35's 2D correction
-is conditioned on local appearance and local depth structure.
-Depth is re-sampled at the shifted pixel before $e^{\Delta\!\log z}$ rescales it.}
+\end{tikzpicture}%
+}
+\caption{v35 joint correction. Two new inputs --- the DINOv3 appearance feature (orange) and a local
+$5{\times}5$ depth patch (green) --- give the SSM the context to predict a 2D shift $\Delta\mathbf{u}$
+safely. Unlike v32, which nudged the pixel blindly and crossed depth discontinuities, v35's 2D
+correction is conditioned on local appearance and local depth structure, so the informed
+$\Delta\mathbf{u}$ avoids depth-discontinuity artefacts. Depth is then re-sampled at the shifted pixel
+$\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
 \label{fig:v35-concept}
 \end{figure}
 
 \begin{figure}[h]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
     node distance=4mm and 6mm,
     new/.style={rectangle, rounded corners, draw=orange!70!black, fill=orange!8,
@@ -302,7 +320,7 @@ Depth is re-sampled at the shifted pixel before $e^{\Delta\!\log z}$ rescales it
   % depth map: same row as depth patch
   \node[io, right=6mm of dino] (dm) {depth map (DA3)};
   % ── embed ─────────────────────────────────────────────────────────
-  \node[block, below=14mm of patch] (emb) {MLP embed\\{\scriptsize 128-D}};
+  \node[block, below=20mm of patch] (emb) {MLP embed\\{\scriptsize 128-D}};
   % ── SSM ───────────────────────────────────────────────────────────
   \node[learn, right=8mm of emb] (ssm) {Mamba-3 SSD\\{\scriptsize $\times 2$, causal}};
   % ── output heads ($\Delta\!\log z$ upper, $\Delta\mathbf{u}$ lower) ─
@@ -328,8 +346,16 @@ Depth is re-sampled at the shifted pixel before $e^{\Delta\!\log z}$ rescales it
   \draw[arr] (dm.east) -- ($(dm.east -| zout.west)+(-3mm,0)$) -- ($(zout.west)+(-3mm,0)$) -- (zout.west);
   \node[font=\scriptsize,gray,align=center,above=1.5mm of uvout]
     {\footnotesize re-sample DA3 depth at $\mathbf{u}_t$};
-\end{tikzpicture}
-\caption{v35 architecture (extends Fig.~\ref{fig:arch}).
+  % Same blue container as Fig 3: this whole module is the blue box of Fig 1.
+  \begin{scope}[on background layer]
+    \node[draw=blue!55!black, dashed, thick, rounded corners, fill=blue!4,
+          fit=(emb)(ssm)(dz)(duv), inner sep=4mm, inner ysep=5mm,
+          label={[font=\scriptsize\bfseries, blue!45!black]above:{$=$ the blue ``depth refiner'' box of Fig.~\ref{fig:pipeline}}}] {};
+  \end{scope}
+\end{tikzpicture}%
+}
+\caption{v35 architecture (extends Fig.~\ref{fig:arch}) --- again the inside of the blue box in
+Fig.~\ref{fig:pipeline}.
 \textcolor{orange!80!black}{Orange} nodes are new relative to v33.
 $\mathbf{u}_0$ is the 2-D pixel position from SEA-RAFT optical flow (Fig.~\ref{fig:v36-flow});
 it determines the ray direction $\mathbf{r}(\mathbf{u}_0)$, the centre of the $5{\times}5$ depth
@@ -361,6 +387,7 @@ we evaluate separately.
 
 \begin{figure}[h]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
     node distance=5mm and 10mm,
     fwd/.style={rectangle, rounded corners, draw=blue!60, fill=blue!6,
@@ -389,7 +416,8 @@ we evaluate separately.
   \draw[arr] (bwd.east) -| (merge.south);
   \draw[arr] (merge) -- (v35);
   \draw[arr] (v35) -- (out);
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{v36 pipeline. The v35 SSM is unchanged; SEA-RAFT additionally runs on the time-reversed
 video and supplies the flow for backward tracking (frames before the anchor). For a two-frame flow
 model this reversed-video flow is \emph{identical} to the direct backward flow, so the reversed-video

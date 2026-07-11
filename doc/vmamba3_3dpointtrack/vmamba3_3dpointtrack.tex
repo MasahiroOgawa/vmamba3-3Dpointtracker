@@ -257,8 +257,10 @@ v35 gives it that context through two new per-track inputs:
   at object boundaries, the very features that caused v32 to overshoot.
 \end{itemize}
 
-A second output head (also zero-initialised) predicts a 2D correction $\Delta\mathbf{u}$, bounded
-by $\tanh(\cdot)\!\cdot\!2$ to $\pm 2$\,px.  Crucially, after $\Delta\mathbf{u}$ shifts the pixel,
+A second output head (also zero-initialised) predicts a 2D correction $\Delta\mathbf{u}$. Its raw
+output is passed through a $\tanh$ (which limits it to $[-1,1]$) and then scaled by $2$, i.e.\
+$\Delta\mathbf{u} = 2\tanh(\cdot)$, so the pixel can shift by at most $\pm 2$\,px.
+Crucially, after $\Delta\mathbf{u}$ shifts the pixel,
 depth is \emph{re-sampled} at the corrected position from the DA3 depth map before
 $\Delta\!\log z$ is applied.  This ensures the depth and 2D corrections remain geometrically
 consistent (Fig.~\ref{fig:v35-concept}).
@@ -324,7 +326,7 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
   \node[learn, right=8mm of emb] (ssm) {Mamba-3 SSD\\{\scriptsize $\times 2$, causal}};
   % ── output heads ($\Delta\!\log z$ upper, $\Delta\mathbf{u}$ lower) ─
   \node[block, above right=2mm and 35mm of ssm] (dz)  {$\Delta\!\log z$~head\\{\scriptsize 0-init}};
-  \node[block, below right=5mm and 35mm of ssm] (duv) {$\Delta\mathbf{u}$~head\\{\scriptsize 0-init, $\tanh\!\cdot\!2$}};
+  \node[block, below right=5mm and 35mm of ssm] (duv) {$\Delta\mathbf{u}$~head\\{\scriptsize 0-init, $2\tanh$}};
   % ── outputs ───────────────────────────────────────────────────────
   \node[io, right=6mm of dz]  (zout)  {$z_t = z_{\rm new}\!\cdot e^{\Delta\!\log z}$};
   \node[io, right=6mm of duv] (uvout) {$\mathbf{u}_t = \mathbf{u}_0+\Delta\mathbf{u}$};
@@ -361,7 +363,7 @@ it determines the ray direction $\mathbf{r}(\mathbf{u}_0)$, the centre of the $5
 patch, and the location at which the DINOv3 feature is sampled.
 All three inputs are concatenated and fed through the Mamba-3 SSD layers (the same
 causal SSD stack as v33, now carrying appearance and local-geometry context).
-A second head produces $\Delta\mathbf{u}$ (bounded to $\pm 2$\,px by $\tanh$).
+A second head produces $\Delta\mathbf{u} = 2\tanh(\cdot)$ (bounded to $\pm 2$\,px).
 Depth is then re-sampled at the corrected pixel $\mathbf{u}_t = \mathbf{u}_0 + \Delta\mathbf{u}$
 from the DA3 depth map, and $\Delta\!\log z$ rescales it.
 Both heads are zero-initialised: v35 starts exactly at the v33 output.}

@@ -223,9 +223,18 @@ away from a depth discontinuity.
 v35 gives it that context through two new per-track inputs:
 
 \begin{itemize}
-\item \textbf{DINOv3 appearance features} (64-D): sampled from a frozen ViT-S/16 DINOv2
-  backbone at the current track position.  These provide a local visual ``fingerprint'' of the
-  tracked object, allowing the SSM to detect when the 2D position has drifted off the target.
+\item \textbf{DINOv3 appearance features} (64-D): sampled from a frozen ViT-S/16
+  \emph{DINOv3}~\cite{dinov3} backbone (\texttt{dinov3-vits16-pretrain-lvd1689m}) at the current
+  track position. These provide a local visual ``fingerprint'' of the tracked object, allowing the
+  SSM to detect when the 2D position has drifted off the target.
+  We use DINOv3 rather than DINOv2 specifically for its \emph{dense} (patch-level) features. DINOv3
+  is Meta's 2025 self-supervised ViT, trained on ${\sim}1.7$B images (LVD-1689M, ${\sim}12\times$
+  DINOv2's 142M) with a \emph{Gram-anchoring} loss that keeps the patch-token feature map sharp and
+  spatially consistent throughout the long training schedule --- DINOv2's dense features, by
+  contrast, degrade as pre-training progresses. Since we sample a single feature vector at each
+  track pixel, this patch-level fidelity is exactly what matters, so DINOv3's dense maps are a
+  better fit than DINOv2's here. (The encoder class in our code is still named \texttt{DINOv2Encoder}
+  for legacy reasons, but it loads the DINOv3 weights above.)
 \item \textbf{Local depth patch} ($5{\times}5 = 25$ values): DA3 depths in a neighbourhood of
   the track point, normalised to the centre depth.  This directly exposes depth discontinuities
   at object boundaries, the very features that caused v32 to overshoot.
@@ -921,6 +930,7 @@ our pipeline is competitive on both quality and efficiency axes.
 \bibitem{trackcraft3r} Nam et al., \textit{TrackCraft3R: Repurposing Video Diffusion Transformers for Dense 3D Tracking}, arXiv:2605.12587, 2025.
 \bibitem{delta} Ngo et al., \textit{DELTA: Dense Efficient Long-range 3D Tracking for Any video} (DenseTrack3D), ICLR 2025, arXiv:2410.24211.
 \bibitem{waft} Wang et al., \textit{WAFT: Warping-Alone Field Transforms for Optical Flow}, princeton-vl, 2025.
+\bibitem{dinov3} Sim\'eoni et al., \textit{DINOv3}, Meta AI, 2025 (self-supervised ViT trained on LVD-1689M with Gram-anchoring for high-resolution dense features).
 \bibitem{zoedepth} Bhat et al., \textit{ZoeDepth: Zero-shot Transfer by Combining Relative and Metric Depth}, arXiv 2302.12288, 2023.
 \end{thebibliography}
 

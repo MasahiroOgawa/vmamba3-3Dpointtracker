@@ -590,7 +590,7 @@ official evaluator reproduces these same numbers on \texttt{da3\_minival} to thr
 the limitation is a genuine property of pose-free TAPIP3D$+$DA3 rather than a scoring bug. (On the
 different, larger full-eval split TAPIP3D~\cite{tapip3d} scores ${\sim}0.30$; the full six-method
 minival comparison is in \S\ref{sec:sota}.)
-TrackCraft3R~\cite{trackcraft3r} (CVPR~2025) reports Sim(3)-aligned AJ of $0.73$ (pstudio) and
+TrackCraft3R~\cite{trackcraft3r} (arXiv~2026) reports Sim(3)-aligned AJ of $0.73$ (pstudio) and
 $0.86$ (adt) in the paper; under our standard protocol (all 150 clips, 50 per subset) it scores
 $0.013$ / $0.010$ / $0.003$ on pstudio / adt / drivetrack.
 The gap arises from two compounding factors:
@@ -786,7 +786,7 @@ the NPZ distribution format makes that condition impossible to reproduce from mi
 
 \paragraph{TrackCraft3R.}
 \label{sec:trackcraft3r}
-TrackCraft3R~\cite{trackcraft3r} (CVPR~2025) repurposes the Wan2.1-T2V-1.3B video diffusion
+TrackCraft3R~\cite{trackcraft3r} (arXiv~2026) repurposes the Wan2.1-T2V-1.3B video diffusion
 transformer for dense 3D tracking via single-step regression.
 We evaluate it on all 150 minival clips using our standard pipeline (windowed inference,
 12 frames per window, query-centric windows normalised to frame-0 camera space).

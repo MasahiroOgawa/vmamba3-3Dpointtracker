@@ -303,7 +303,7 @@ consistent (Fig.~\ref{fig:v35-concept}).
 \end{tikzpicture}%
 }
 \caption{v35 joint correction. Two new inputs --- the DINOv3 appearance feature (orange) and a local
-$5{\times}5$ depth patch (green) --- give the SSM the context to predict a 2D shift $\Delta\mathbf{u}$
+$5{\times}5$ depth patch (green) --- give the model the context to predict a 2D shift $\Delta\mathbf{u}$
 safely. Unlike v32, which nudged the pixel blindly and crossed depth discontinuities, v35's 2D
 correction is conditioned on local appearance and local depth structure, so the informed
 $\Delta\mathbf{u}$ avoids depth-discontinuity artefacts. Depth is then re-sampled at the shifted pixel
@@ -369,8 +369,8 @@ Fig.~\ref{fig:pipeline}.
 $\mathbf{u}_0$ is the 2-D pixel position from SEA-RAFT optical flow (Fig.~\ref{fig:v36-flow});
 it determines the ray direction $\mathbf{r}(\mathbf{u}_0)$, the centre of the $5{\times}5$ depth
 patch, and the location at which the DINOv3 feature is sampled.
-All three inputs are concatenated and fed through the Mamba-3 SSD layers (the same
-causal SSD stack as v33, now carrying appearance and local-geometry context).
+All three inputs are concatenated, embedded by the MLP, and then fed through the Mamba-3 SSD
+layers (the same causal SSD stack as v33, now carrying appearance and local-geometry context).
 A second head produces $\Delta\mathbf{u} = 2\tanh(\cdot)$ (bounded to $\pm 2$\,px).
 Depth is then re-sampled at the corrected pixel $\mathbf{u}_t = \mathbf{u}_0 + \Delta\mathbf{u}$
 from the DA3 depth map, and $\Delta\!\log z$ rescales it.

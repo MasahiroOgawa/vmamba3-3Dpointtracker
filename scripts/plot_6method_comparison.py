@@ -5,7 +5,7 @@ Figure 2: Absolute metric-AJ (fixed-metre thresholds, real 3D accuracy)
 
 Methods:
   SOTA: SpatialTrackerV2, TAPIP3D+DA3, TAPIP3D+MegaSAM, TrackCraft3R
-  Ours: SEA-RAFT+DA3, SEA-RAFT+MegaSAM, bidir, v33, v34, v35, v36
+  Ours: SEA-RAFT+DA3, SEA-RAFT+MegaSAM, bidir, v33–v39
 
 Run after each new eval completes to update the figures.
 NaN values are shown as hatched empty bars labelled "N/A".
@@ -34,16 +34,19 @@ METHODS = [
     "TrackCraft3R",
     "DELTA\n+DA3",
     # ── Ours ─────────────────────────────────────────────────────────────────
-    "SEA-RAFT+DA3\n(Ours)",
-    "SEA-RAFT+MegaSAM\n(Ours)",
-    "SEA-RAFT+DA3\nbidir (Ours)",
-    "DA3+SSM\n(Ours)",
-    "MegaSAM+SSM\n(Ours)",
-    "DINOv3+SSM\n(Ours)",
-    "DINOv3+SSM\nbidir (Ours)",
-    "WAFT+DA3\n(v37)",
-    "WAFT+DA3\nbidir (v38)",
-    "WAFT+v35\n(v39)",
+    # The "Ours" group header disambiguates authorship, so labels omit "(Ours)".
+    # DA3 is the common depth backbone across v33–v39, so it is dropped; only the
+    # distinguishing components (flow front-end, non-DA3 depth, refiner) are shown.
+    "SEA-RAFT\n(baseline)",
+    "SEA-RAFT\n+MegaSAM",
+    "SEA-RAFTbidir\n(baseline)",
+    "v33\n(SEARAFT\n+mamba3)",
+    "v34\n(SEARAFT\n+MegaSAM\n+mamba3)",
+    "v35\n(SEARAFT\n+vmamba3)",
+    "v36\n(SEARAFTbidir\n+vmamba3)",
+    "v37\n(WAFT)",
+    "v38\n(WAFTbidir)",
+    "v39\n(WAFT\n+vmamba3)",
 ]
 
 # Number of SOTA methods listed first; used to draw the group separator.
@@ -149,7 +152,7 @@ def make_figure(
     group_w = n_subsets * bar_w + group_gap
     x_centers = np.arange(n_methods) * group_w
 
-    fig, ax = plt.subplots(figsize=(14, 5))
+    fig, ax = plt.subplots(figsize=(17, 5.5))
 
     offsets = np.linspace(-(n_subsets - 1) / 2, (n_subsets - 1) / 2, n_subsets) * bar_w
     legend_handles = []
@@ -220,7 +223,7 @@ def make_figure(
         legend_handles.append(patch)
 
     ax.set_xticks(x_centers)
-    ax.set_xticklabels(METHODS, fontsize=9)
+    ax.set_xticklabels(METHODS, fontsize=7.5)
     ax.set_ylabel(ylabel, fontsize=10)
     ax.set_title(title, fontsize=11, pad=10)
     ax.legend(handles=legend_handles, fontsize=9, framealpha=0.85)

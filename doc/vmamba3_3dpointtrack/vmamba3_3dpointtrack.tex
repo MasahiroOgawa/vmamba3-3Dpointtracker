@@ -293,14 +293,13 @@ consistent (Fig.~\ref{fig:v35-concept}).
     node[below right,font=\scriptsize,blue!60!black]{$z_t$ (v35)};
   \draw[arr,densely dashed,black!60] (2.2,0.26) -- (3.35,0.57)
     node[midway,above,font=\scriptsize]{$\Delta\!\log z$};
-  % DINOv3 annotation
+  % DINOv3 and depth-patch inputs: spaced apart, both pointing to the Δlog z correction arrow.
   \node[draw=orange!70!black,fill=orange!8,rounded corners,font=\scriptsize,inner sep=2pt,align=center]
-    at (0.9,-1.05) {DINOv3\\feat (64-D)};
-  \draw[-{Stealth[length=1.8mm]},orange!70!black] (0.9,-0.75) -- (0.9,-0.06);
-  % depth patch annotation
+    (dinobox) at (1.6,-1.25) {DINOv3\\feat (64-D)};
+  \draw[-{Stealth[length=1.8mm]},orange!70!black] (dinobox.north) -- (2.55,0.35);
   \node[draw=green!60!black,fill=green!8,rounded corners,font=\scriptsize,inner sep=2pt,align=center]
-    at (2.4,-1.05) {depth patch\\$5{\times}5$};
-  \draw[-{Stealth[length=1.8mm]},green!60!black] (2.4,-0.75) -- (2.2,0.23);
+    (patchbox) at (3.5,-1.25) {depth patch\\$5{\times}5$};
+  \draw[-{Stealth[length=1.8mm]},green!60!black] (patchbox.north) -- (2.95,0.46);
 \end{tikzpicture}%
 }
 \caption{v35 joint correction. Two new inputs --- the DINOv3 appearance feature (orange) and a local

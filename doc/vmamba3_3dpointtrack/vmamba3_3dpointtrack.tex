@@ -252,9 +252,18 @@ v35 gives it that context through two new per-track inputs:
   track pixel, this patch-level fidelity is exactly what matters, so DINOv3's dense maps are a
   better fit than DINOv2's here. (The encoder class in our code is still named \texttt{DINOv2Encoder}
   for legacy reasons, but it loads the DINOv3 weights above.)
-\item \textbf{Local depth patch} ($5{\times}5 = 25$ values): DA3 depths in a neighbourhood of
-  the track point, normalised to the centre depth.  This directly exposes depth discontinuities
-  at object boundaries, the very features that caused v32 to overshoot.
+\item \textbf{Local depth patch} (25 values). We read the DA3 depth at a $5{\times}5$ grid of points
+  centred on the tracked pixel $\mathbf{u}_0$: 25 points in total, each one bilinearly-interpolated
+  depth value. Along each axis the five points sit at offsets
+  $\{-2,-1,0,1,2\}\times(\text{image\_size}/14)$ pixels from $\mathbf{u}_0$, so the grid spacing and
+  extent scale with the input size. \emph{Concretely, for our $896$-px inputs} the spacing is
+  $896/14 = 64$\,px: the five offsets are $\{-128,-64,0,+64,+128\}$\,px, so the grid spans a
+  $256{\times}256$-px window around the point. We then divide all 25 depths by the depth at the
+  \emph{centre} point, giving 25 scale-invariant depth \emph{ratios} (the centre ratio is exactly
+  $1$), and concatenate all 25 into the SSM input. Passing ratios rather than raw depths lets the SSM
+  read local depth \emph{structure} --- the relative jumps that mark object boundaries --- independent
+  of how far away the point is; this is the depth-discontinuity cue that v32 lacked and overshot
+  without.
 \end{itemize}
 
 A second output head (also zero-initialised) predicts a 2D correction $\Delta\mathbf{u}$. Its raw

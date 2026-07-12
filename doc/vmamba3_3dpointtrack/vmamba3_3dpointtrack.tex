@@ -24,22 +24,34 @@
 }
 
 \title{\textbf{Flow-Conditioned Metric 3D Point Tracking}\\[2pt]
-\large SEA-RAFT optical flow $+$ Depth-Anything-3 metric depth $+$ a Mamba-3 depth refiner}
+\large Optical flow $+$ metric depth $+$ a DINOv3-conditioned Mamba-3 depth refiner}
 \author{Masahiro Ogawa}
 \date{\today}
 
 \begin{document}
 \maketitle
 
-\noindent
-This note documents the \emph{methodology} and \emph{evaluation} of our 3D point tracker.
-The system tracks query points in 3D over a monocular video by (i) propagating each query in 2D
-with frozen SEA-RAFT optical flow~\cite{searaft}, (ii) lifting the 2D track to metric 3D with
-frozen Depth-Anything-3 (DA3) metric depth~\cite{da3}, and (iii) refining only the per-point
-\emph{depth along its (fixed) pixel ray} with a tiny causal Mamba-3 state-space model~\cite{mamba3}.
-Evaluation is on TAPVid-3D~\cite{tapvid3d}, where we additionally introduce an
-\emph{absolute-metric} protocol that exposes real-world depth quality hidden by the standard
-scale-invariant leaderboard metric.
+\begin{abstract}
+We address tracking query points in \emph{metric} 3D across a monocular video, where the
+quantity that ultimately governs real-world accuracy is the per-point depth. Rather than learning
+tracking end-to-end, we compose two frozen, well-understood front-ends --- dense optical
+flow~\cite{searaft,waft} for 2D correspondence and a monocular metric-depth
+network~\cite{da3} for the third dimension --- and learn only the residual they cannot supply:
+the depth along each point's (fixed) pixel ray, refined by a tiny causal Mamba-3 state-space
+model~\cite{mamba3} conditioned on DINOv3~\cite{dinov3} appearance features. This isolates the
+single degree of freedom that determines 3D error, while keeping the model small ($\sim$0.5\,M
+parameters) and the pipeline interpretable.
+On the TAPVid-3D~\cite{tapvid3d} minival benchmark, our best configuration (WAFT flow $+$
+Depth-Anything-3 depth $+$ the DINOv3-conditioned refiner) attains the highest \emph{absolute}
+metric accuracy of all methods evaluated under identical conditions --- mean metric-AJ $0.246$,
+ahead of strong feed-forward 3D trackers --- confirming that a targeted depth-only refinement
+recovers real-world 3D structure that scale-invariant training leaves on the table. To measure
+this we introduce an absolute-metric evaluation protocol that scores error at fixed metre
+thresholds, exposing depth quality that the standard scale-invariant leaderboard metric hides.
+A companion reliability analysis --- reproduced with each competitor's own official evaluator ---
+explains why several published 3D trackers collapse under a fixed monocular, single-GPU budget,
+separating genuine method limitations from evaluation artefacts.
+\end{abstract}
 
 \tableofcontents
 

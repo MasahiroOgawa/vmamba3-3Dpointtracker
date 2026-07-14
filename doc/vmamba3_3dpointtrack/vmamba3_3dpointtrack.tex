@@ -498,12 +498,15 @@ depth on drivetrack (ratio $1.06$, including the far field), is roughly neutral 
 and does not fix pstudio (both $\approx0.7$ --- a separate, unsolved bias). Because the tracker consumes a
 precomputed depth cache, this is a drop-in backbone swap: re-cache depth with the nested model and re-run.
 
-\paragraph{Result (drivetrack).}
-The swap is decisive. On drivetrack minival the WAFT$+$DA3-Giant baseline (no refiner) reaches
-\textbf{absolute metric-AJ $0.146$} with median 3D error $2.5$\,m --- versus $0.005$ for the same baseline
-on the old \texttt{DA3Metric-Large} depth, and even beating the full v39 pipeline ($0.141$, which needed
-the learned refiner). Far-field error collapses from ${\sim}27$\,m to $2.5$\,m. (Full-minival numbers
-in Table~\ref{tab:abs} once adt/pstudio are re-cached.)
+\paragraph{Result (whole minival).}
+The swap fixes the drivetrack collapse. As a training-free baseline (no refiner), WAFT$+$DA3-Giant scores
+on \emph{absolute} metric-AJ: drivetrack $0.146$, adt $0.285$, pstudio $0.192$ (mean $\mathbf{0.208}$) ---
+versus the same baseline on the old \texttt{DA3Metric-Large} depth (v37: drivetrack $0.005$, mean $0.159$).
+The entire gain is drivetrack, where far-field error collapses from ${\sim}27$\,m to a $2.5$\,m median;
+adt/pstudio are essentially unchanged (both depth models are already near-metric there). On the
+scale-invariant leaderboard metric the swap barely moves the number (mean $0.093$), because median
+rescaling removes exactly the global scale it corrects. The depth swap alone does not yet beat the current
+best v39 ($0.246$ absolute), which carries the learned refiner --- closing that gap is v41 (below).
 
 \paragraph{Relation to v42.}
 This is what motivates deferring the world-frame v42 below: v42 recovers metric scale the hard way (learned
@@ -776,6 +779,7 @@ v36, SEA-RAFTbidir+DA3+vmamba3     & 0.093 & 0.057 & 0.141 & 0.097 \\
 v37, WAFT+DA3            & 0.115 & 0.116 & 0.137 & 0.123 \\
 v38, WAFTbidir+DA3  & 0.116 & 0.120 & 0.141 & 0.126 \\
 v39, WAFT+DA3+vmamba3  & 0.098 & 0.073 & 0.151 & 0.107 \\
+v40, WAFT+DA3-Giant (no refiner)  & 0.118 & 0.039 & 0.123 & 0.093 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -827,6 +831,7 @@ v36, SEA-RAFTbidir+DA3+vmamba3     & 0.130 & 0.249 & 0.298 & 0.226 \\
 v37, WAFT+DA3            & 0.005 & 0.181 & 0.289 & 0.159 \\
 v38, WAFTbidir+DA3  & 0.005 & 0.181 & 0.292 & 0.159 \\
 v39, WAFT+DA3+vmamba3  & \textbf{0.141} & \textbf{0.279} & 0.318 & \textbf{0.246} \\
+v40, WAFT+DA3-Giant (no refiner)  & 0.146 & 0.192 & 0.285 & 0.208 \\
 \bottomrule
 \end{tabular}
 \\[2pt]

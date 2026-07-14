@@ -74,6 +74,7 @@ def main() -> int:
                     help="DA3-Large at 504² won't fit a full ADT clip (300 frames) in "
                          "<=12 GiB. Process this many frames per DA3 forward and "
                          "concatenate depth outputs along the frame axis.")
+    ap.add_argument("--minival", action="store_true", help="only the 150 minival clips")
     ap.add_argument("--skip-existing", action="store_true", default=True)
     ap.add_argument("--no-skip-existing", dest="skip_existing", action="store_false")
     args = ap.parse_args()
@@ -86,6 +87,10 @@ def main() -> int:
         args.data_root, subsets=args.subsets,
     )
     all_clips: list[Path] = sorted({*train_clips, *test_clips})
+    if args.minival:
+        from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES
+        allow = {n for s in args.subsets for n in MINIVAL_FILES.get(s, [])}
+        all_clips = [p for p in all_clips if p.name in allow]
     if args.clips > 0:
         all_clips = all_clips[: args.clips]
     print(f"[da3-precompute] {len(all_clips)} clips "

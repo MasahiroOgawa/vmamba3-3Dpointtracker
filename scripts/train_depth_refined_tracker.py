@@ -585,6 +585,12 @@ def main() -> int:
     dump_resolved(cfg_snapshot, args.out_dir / "cfg.json")
 
     start_step = 0
+    if args.init_ckpt is not None and _find_latest_ckpt(args.out_dir) is None:
+        # weights-only warm-start (no optim/sched/step); a resume ckpt in out_dir overrides.
+        st = torch.load(Path(args.init_ckpt).expanduser(), map_location=device, weights_only=False)
+        missing, unexpected = model.load_state_dict(st["model"], strict=False)
+        print(f"[train] warm-started from {args.init_ckpt} "
+              f"(missing={len(missing)} unexpected={len(unexpected)})", flush=True)
     latest = _find_latest_ckpt(args.out_dir)
     if latest is not None:
         st = torch.load(latest, map_location=device, weights_only=False)

@@ -13,9 +13,10 @@ Output per clip: <out-dir>/<subset>/<clip_name>.npz
   tracks_XYZ  (F, N, 3)  float32  per-frame camera-space XYZ (matches GT convention)
   visibility  (F, N)     float32  0/1
 
-Depth: by default the repo's precomputed Depth-Anything-3 metric depth
-(/home/mas/data/tapvid3d_da3), so this is the "DELTA+DA3" data point — consistent
-with the other +DA3 baselines in the comparison figure. DELTA's per-frame camera
+Depth: by default the precomputed DA3-l (da3metric-large) metric depth
+(/home/mas/data/tapvid3d_da3), so this is the "DELTA+DA3-l" data point — consistent
+with the other +DA3-l baselines in the comparison figure. Override the DA3_ROOT env
+var with ~/data/tapvid3d_da3nested to produce the "DELTA+DA3-g" (nested-giant) point. DELTA's per-frame camera
 XYZ come from xyz = inv(K) @ [u,v,1] * depth (see convert_trajs_uvd_to_trajs_3d),
 so passing the true intrinsics K as predefined_intrs is what makes the output
 metric and in the same frame as the TAPVid-3D GT.
@@ -23,6 +24,7 @@ metric and in the same frame as the TAPVid-3D GT.
 
 import argparse
 import io
+import os
 import sys
 from pathlib import Path
 
@@ -48,7 +50,9 @@ from densetrack3d.models.predictor.predictor import Predictor3D  # noqa: E402
 from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES  # noqa: E402
 
 TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
-DA3_ROOT = Path("/home/mas/data/tapvid3d_da3")
+# DA3-l (da3metric-large) by default; override with DA3_ROOT env var to swap in
+# DA3-g (nested-giant, ~/data/tapvid3d_da3nested) for the DA3-g re-eval.
+DA3_ROOT = Path(os.environ.get("DA3_ROOT", "/home/mas/data/tapvid3d_da3"))
 
 
 def load_da3_depth(subset: str, clip_name: str, F: int) -> np.ndarray:

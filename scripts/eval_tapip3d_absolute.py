@@ -55,17 +55,28 @@ SUBSET_CONFIG_NAMES = {
 }
 
 
-def build_dataset(subset: str) -> BaseDataset:
+def build_dataset(subset: str, da3g_anno_root: Path | None = None) -> BaseDataset:
     cfg = BaseDataset.load_config(SUBSET_CONFIG_NAMES[subset])
-    return BaseDataset.from_config(cfg)
+    ds = BaseDataset.from_config(cfg)
+    if da3g_anno_root is not None:
+        # Swap DA3-l annotations for DA3-g by repointing the provider's lazily-read
+        # depth/intrinsics/extrinsics paths at the DA3-g h5 baked by make_da3g_annotations.py.
+        # Keeps the DA3-l configs (and side-by-side comparison) untouched.
+        new = str(Path(da3g_anno_root).expanduser() / f"{subset}_da3g_minival" / "da3")
+        ov = ds.data_provider.anno_config.overrides
+        ov.depths = new
+        ov.intrinsics = new
+        ov.extrinsics = new
+    return ds
 
 
 @torch.no_grad()
 def run_subset(
-    model, device, subset: str, pred_dir: Path, overwrite: bool
+    model, device, subset: str, pred_dir: Path, overwrite: bool,
+    da3g_anno_root: Path | None = None,
 ) -> list[dict]:
     pred_dir.mkdir(parents=True, exist_ok=True)
-    ds = build_dataset(subset)
+    ds = build_dataset(subset, da3g_anno_root)
     loader = DataLoader(
         ds, batch_size=1, shuffle=False, num_workers=0, collate_fn=SliceData.collate
     )
@@ -167,6 +178,9 @@ def main():
         "--out-dir", type=Path, default=REPO_ROOT / "result" / "tapip3d_absolute_eval"
     )
     ap.add_argument("--overwrite", action="store_true")
+    ap.add_argument("--da3g-anno-root", type=Path, default=None,
+                    help="if set, use DA3-g annotations under this root "
+                         "(<root>/<subset>_da3g_minival/da3) instead of the DA3-l configs")
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -181,7 +195,8 @@ def main():
     all_clips = []
     for subset in args.subsets:
         sub_pred_dir = pred_dir / subset
-        clips = run_subset(model, device, subset, sub_pred_dir, args.overwrite)
+        clips = run_subset(model, device, subset, sub_pred_dir, args.overwrite,
+                           args.da3g_anno_root)
         (results_dir / f"{subset}.json").write_text(json.dumps(clips, indent=2))
         all_clips.extend(clips)
         import numpy as np

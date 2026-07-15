@@ -53,7 +53,9 @@ from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES  # noqa: E402
 
 # ── paths ────────────────────────────────────────────────────────────────────
 TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
-DA3_ROOT = Path("/home/mas/data/tapvid3d_da3")
+# DA3-l (da3metric-large) by default; override with DA3_ROOT env var to swap in
+# DA3-g (nested-giant, ~/data/tapvid3d_da3nested) for the DA3-g re-eval.
+DA3_ROOT = Path(os.environ.get("DA3_ROOT", "/home/mas/data/tapvid3d_da3"))
 TCR_CKPT = TCR_ROOT / "checkpoints" / "trackcraft3r" / "model.safetensors"
 WAN_MODEL_ID = str(TCR_ROOT / "checkpoints" / "wan_models" / "Wan-AI" / "Wan2.1-T2V-1.3B")
 NULL_CTX_CACHE = TCR_ROOT / "checkpoints" / "null_context.pt"

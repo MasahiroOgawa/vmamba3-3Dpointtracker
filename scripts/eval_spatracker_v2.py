@@ -16,6 +16,7 @@ Output format per clip: <out-dir>/<subset>/<clip_name>.npz
 
 import argparse
 import io
+import os
 import sys
 import types
 from pathlib import Path
@@ -112,7 +113,9 @@ def reproject_2d3d(uvd: torch.Tensor, K: np.ndarray) -> np.ndarray:
 
 # ── data roots ───────────────────────────────────────────────────────────────
 TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
-DA3_ROOT = Path("/home/mas/data/tapvid3d_da3")
+# DA3-l (da3metric-large) by default; override with DA3_ROOT env var to swap in
+# DA3-g (nested-giant, ~/data/tapvid3d_da3nested) for the DA3-g re-eval.
+DA3_ROOT = Path(os.environ.get("DA3_ROOT", "/home/mas/data/tapvid3d_da3"))
 
 # ── TAPVid-3D minival clip lists — imported from canonical source above ───────
 

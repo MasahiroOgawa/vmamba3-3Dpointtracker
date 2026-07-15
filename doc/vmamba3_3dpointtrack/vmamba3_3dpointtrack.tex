@@ -204,24 +204,26 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
   \node[learn, right=of emb] (m1) {Mamba-3\\{\scriptsize causal$\times$2}};
   \node[block, right=of m1] (head) {$\Delta\!\log z$\\{\scriptsize head (0-init)}};
   \node[io, right=of head] (z) {$z_t = z_{\text{raw}}\,e^{\Delta\!\log z}$};
-  % z_raw enters from the LEFT (a refiner input, matching Fig.~\ref{fig:pipeline}); it is
-  % combined *inside* the refiner, so its arrow runs through the top of the blue box into z_t.
-  \node[io, above=9mm of in] (zraw) {$z_{\text{raw}}$ {\scriptsize (DA3-l, bypasses SSM)}};
+  % final 3D output box, OUTSIDE the refiner (matches Fig.~\ref{fig:pipeline}).
+  \node[io, right=9mm of z] (out) {3D track\\$\mathbf{X}_t$};
+  % z_raw enters from the LEFT (a refiner input, matching Fig.~\ref{fig:pipeline}); combined inside.
+  \node[io, above=1mm of in] (zraw) {$z_{\text{raw}}$ {\scriptsize (DA3-l, bypasses SSM)}};
   % Arrows: SSM path
   \draw[arr] (in) -- (emb);
   \draw[arr] (emb) -- (m1);
   \draw[arr] (m1) -- (head);
   \draw[arr] (head) -- (z);
-  % z_raw path: into the refiner from the left, across its upper region, combined at the output z_t.
-  \draw[arr] (zraw) |- ([yshift=3mm]head.north) -| (z.north);
-  \node[font=\scriptsize, below=2mm of m1, align=center] (ann)
-    {state dim 64, 4 heads};
-  % Blue container wraps ONLY the learned internals; the yellow I/O boxes (input, z_t,
-  % z_raw bypass) sit OUTSIDE it — they cross the boundary of the blue box of Fig 1.
+  \draw[arr] (z) -- (out);
+  % z_raw path: straight right from its right side, then a clean drop into z_t (combined inside).
+  \draw[arr] (zraw.east) -| (z.north);
+  % Raise ONLY the box top (coordinate at the z_raw arrow height) so the arrow runs inside it.
+  \coordinate (zrband) at (zraw.east -| z);
+  % Solid blue container = the learned depth refiner (the blue box of Fig.~\ref{fig:pipeline});
+  % z_t sits inside; the yellow inputs (left) and the 3D-track output (right) sit outside.
   \begin{scope}[on background layer]
-    \node[draw=blue!55!black, dashed, thick, rounded corners, fill=blue!4,
-          fit=(emb)(m1)(head)(ann), inner sep=4mm, inner ysep=5mm,
-          label={[font=\scriptsize\bfseries, blue!45!black]above:{$=$ the blue ``depth refiner'' box of Fig.~\ref{fig:pipeline}}}] {};
+    \node[draw=blue!60!black, thick, rounded corners, fill=blue!4,
+          fit=(emb)(m1)(head)(z)(zrband), inner xsep=4mm, inner ysep=4mm,
+          label={[font=\scriptsize\bfseries, blue!45!black]above:{learned depth refiner}}] {};
   \end{scope}
 \end{tikzpicture}
 \caption{v33 architecture --- the inside of the blue box in Fig.~\ref{fig:pipeline}.
@@ -329,54 +331,54 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
 \centering
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
-    node distance=4mm and 6mm,
+    node distance=4mm and 8mm,
+    io/.append style={minimum width=22mm},
     new/.style={rectangle, rounded corners, draw=orange!70!black, fill=orange!8,
-      minimum height=9mm, minimum width=22mm, align=center, font=\small},
+      minimum height=8mm, minimum width=22mm, align=center, font=\small},
   ]
-  % ── inputs (top row): patch and dino as anchors ───────────────────
-  \node[new] (patch) {depth patch\\{\scriptsize $5{\times}5$}};
-  \node[new, right=6mm of patch] (dino) {DINOv3 feat\\{\scriptsize 64-D}};
-  % u0 top-aligned with depth patch; r(u0) stacked below
-  \node[io, anchor=north east] (uv0) at ($(patch.north west)+(-6mm,0)$)
-    {$\mathbf{u}_0$ (SEA-RAFT)\\{\scriptsize 2-D flow}};
-  \node[io, below=5mm of uv0] (in1) {$[\mathbf{r}(\mathbf{u}_0),\,z/z_r,\,v]$\\{\scriptsize 4-D}};
-  % depth map (z_raw): top-LEFT, a refiner input matching Fig.~\ref{fig:pipeline};
-  % combined *inside* the refiner (its arrow runs through the top of the blue box into z_t).
-  \node[io, left=6mm of uv0] (dm) {depth map (DA3-l)};
-  % ── embed ─────────────────────────────────────────────────────────
-  \node[block, below=20mm of patch] (emb) {MLP embed\\{\scriptsize 128-D}};
-  % ── SSM ───────────────────────────────────────────────────────────
+  % ── inputs: one left column, stacked top-to-bottom (common with the paper figure) ──
+  \node[io] (in1) {$[\mathbf{r}(\mathbf{u}_0),\,z/z_r,\,v]$\\{\scriptsize 4-D}};
+  \node[new, below=3mm of in1] (patch) {depth patch\\{\scriptsize $5{\times}5$}};
+  \node[new, below=3mm of patch] (dino) {DINOv3 feat\\{\scriptsize 64-D}};
+  % ── embed, centred vertically on the input stack ──────────────────
+  \coordinate (embw) at ($(in1.east)!0.5!(dino.east)$);
+  \node[block, anchor=west] (emb) at ([xshift=14mm]embw) {MLP embed\\{\scriptsize 128-D}};
   \node[learn, right=8mm of emb] (ssm) {Mamba-3 SSD\\{\scriptsize $\times 2$, causal}};
-  % ── output heads ($\Delta\!\log z$ upper, $\Delta\mathbf{u}$ lower) ─
-  \node[block, above right=2mm and 35mm of ssm] (dz)  {$\Delta\!\log z$~head\\{\scriptsize 0-init}};
-  \node[block, below right=5mm and 35mm of ssm] (duv) {$\Delta\mathbf{u}$~head\\{\scriptsize 0-init, $2\tanh$}};
-  % ── outputs ───────────────────────────────────────────────────────
+  \node[block, above right=3mm and 15mm of ssm] (dz)  {$\Delta\!\log z$~head\\{\scriptsize 0-init}};
+  \node[block, below right=3mm and 15mm of ssm] (duv) {$\Delta\mathbf{u}$~head\\{\scriptsize 0-init, $2\tanh$}};
   \node[io, right=6mm of dz]  (zout)  {$z_t = z_{\rm new}\!\cdot e^{\Delta\!\log z}$};
   \node[io, right=6mm of duv] (uvout) {$\mathbf{u}_t = \mathbf{u}_0+\Delta\mathbf{u}$};
+  % z_raw (depth map): top-left refiner input; combined inside the refiner.
+  \node[io, above=3mm of in1] (dm) {depth map (DA3-l)};
   % ── arrows ────────────────────────────────────────────────────────
-  \draw[arr] (uv0) -- (in1);
-  \draw[arr] (in1.south) |- (emb.west);
-  \draw[arr] (patch.south) -- (emb.north);
-  \draw[arr,rounded corners=2pt] (dino.south) -- ++(0,-4mm) coordinate (aux)
-    -- (aux -| emb.north east) -- (emb.north east);
+  \draw[arr] (in1.east)   -- (emb.west);
+  \draw[arr] (patch.east) -- (emb.west);
+  \draw[arr] (dino.east)  -- (emb.west);
   \draw[arr] (emb) -- (ssm);
   \coordinate (ssmfork) at ($(ssm.east)+(8mm,0)$);
-  \draw (ssm.east) -- (ssmfork);
+  \draw[thick] (ssm.east) -- (ssmfork);
   \fill (ssmfork) circle[radius=1pt];
-  \draw[arr] (ssmfork) -- (ssmfork |- dz.west) -- (dz.west);
-  \draw[arr] (ssmfork) -- (ssmfork |- duv.west) -- (duv.west);
+  \draw[arr] (ssmfork) |- (dz.west);
+  \draw[arr] (ssmfork) |- (duv.west);
   \draw[arr] (dz)  -- (zout);
   \draw[arr] (duv) -- (uvout);
-  % z_raw path: into the refiner from the left, across its upper region, combined at the output z_t.
-  \draw[arr] (dm) |- ([yshift=3mm]dz.north) -| (zout.north);
-  \node[font=\scriptsize,gray,align=center] at ($(ssm.east)+(13mm,7mm)$)
-    {re-sample DA3-l\\at $\mathbf{u}_t$};
-  % Same blue container as Fig 3: this whole module is the blue box of Fig 1.
+  % z_raw path: straight right from its right side, then a clean drop into z_t (combined inside).
+  \draw[arr] (dm.east) -| (zout.north)
+    node[near end,left=1pt,font=\scriptsize,gray,align=center]{re-sample\\DA3-l at $\mathbf{u}_t$};
+  % Solid blue container = the learned depth refiner; named so the output box sits outside it.
   \begin{scope}[on background layer]
-    \node[draw=blue!55!black, dashed, thick, rounded corners, fill=blue!4,
-          fit=(emb)(ssm)(dz)(duv), inner sep=4mm, inner ysep=5mm,
-          label={[font=\scriptsize\bfseries, blue!45!black]above:{$=$ the blue ``depth refiner'' box of Fig.~\ref{fig:pipeline}}}] {};
+    \node[draw=blue!60!black, thick, rounded corners, fill=blue!4,
+          fit=(emb)(ssm)(dz)(duv)(zout)(uvout), inner xsep=4mm, inner ysep=8mm,
+          label={[font=\scriptsize\bfseries, blue!45!black]above:{learned depth refiner}}] (refbox) {};
   \end{scope}
+  % final 3D output box, clearly OUTSIDE the refiner box.
+  \node[io, right=9mm of refbox.east] (out) {3D track\\$\mathbf{X}_t$};
+  % z_t and u_t merge and enter the 3D-track box at its left centre (matches Fig.~\ref{fig:pipeline}).
+  \coordinate (omerge) at ($(out.west)+(-5mm,0)$);
+  \draw[thick] (zout.east)  -| (omerge);
+  \draw[thick] (uvout.east) -| (omerge);
+  \fill (omerge) circle[radius=1pt];
+  \draw[arr] (omerge) -- (out.west);
 \end{tikzpicture}%
 }
 \caption{v35 architecture (extends Fig.~\ref{fig:arch}) --- again the inside of the blue box in

@@ -63,7 +63,7 @@ Given a video $\{I_t\}_{t=1}^{F}$ and query points $\{(\mathbf{u}_n, a_n)\}_{n=1
 position $\mathbf{u}_n$ at anchor frame $a_n$), the goal is a 3D track
 $\hat{\mathbf X}\in\mathbb{R}^{F\times N\times 3}$ and visibility $\hat v\in\{0,1\}^{F\times N}$.
 Our pipeline (Fig.~\ref{fig:pipeline}) has a \emph{training-free} baseline --- SEA-RAFT
-flow-chaining for the 2D track plus DA3 unprojection for 3D --- and a small \emph{learned} module,
+flow-chaining for the 2D track plus DA3-l unprojection for 3D --- and a small \emph{learned} module,
 v33, that refines depth.
 
 \begin{figure}[h]
@@ -74,7 +74,7 @@ v33, that refines depth.
   \node[frozen, right=of vid] (flow) {SEA-RAFT\\flow (frozen)};
   \node[frozen, right=of flow] (chain) {flow\\chaining};
   \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
-  \node[frozen, below=17mm of flow] (da3) {DA3 metric\\depth (frozen)};
+  \node[frozen, below=17mm of flow] (da3) {DA3-l metric\\depth (frozen)};
   % refiner inputs (yellow) — the SAME yellow input box as Fig 3 / Fig 5.
   \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
   % the single learned module (large blue box); internals in Fig 3 / Fig 5.
@@ -96,7 +96,7 @@ v33, that refines depth.
 learned module ($0.40$M params); its internals are Fig.~\ref{fig:arch} (v33) and
 Fig.~\ref{fig:v35-arch} (v35). SEA-RAFT's 2D track $\mathbf{u}_t$ (and visibility) are \emph{never}
 modified. The refiner's \emph{inputs} (yellow box) --- the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$
-(from $\mathbf{u}_t$ and the intrinsics), DA3's raw depth $z_{\text{raw}}$, and visibility $v$ --- are
+(from $\mathbf{u}_t$ and the intrinsics), DA3-l's raw depth $z_{\text{raw}}$, and visibility $v$ --- are
 exactly the yellow input boxes that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and
 Fig.~\ref{fig:v35-arch} (v35 additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The
 box corrects depth along the frozen ray and unprojects to 3D, so the 2D reprojection is invariant by
@@ -120,7 +120,10 @@ a hop is consistent iff $\lVert \mathbf{d}^{\rightarrow}+\mathbf{d}^{\leftarrow}
 strong on its own and is held \emph{fixed} for everything downstream.
 
 \subsection{Metric depth and differentiable unprojection}
-DA3 supplies a per-frame metric depth map $D_t$ (absolute metres). We sample it at the tracked
+We use two Depth-Anything-3~(DA3) metric-depth models: \textbf{DA3-l} (\texttt{DA3Metric-Large},
+0.35\,B) for all results through v39, and \textbf{DA3-g} (\texttt{DA3Nested-Giant-Large}, 1.4\,B)
+from v40 onward (\S\ref{sec:v40}); a bare ``DA3'' refers to DA3-l.
+DA3-l supplies a per-frame metric depth map $D_t$ (absolute metres). We sample it at the tracked
 pixel and unproject with the pinhole intrinsics $K=(f_x,f_y,c_x,c_y)$:
 \begin{equation}
 z_t = \mathcal{S}(D_t,\mathbf{u}_t),\qquad
@@ -128,11 +131,11 @@ z_t = \mathcal{S}(D_t,\mathbf{u}_t),\qquad
 \label{eq:unproject}
 \end{equation}
 Sampling is done with \texttt{grid\_sample} so gradients flow to the (refined) depth; the depth
-model itself is frozen. The baseline \emph{SEA-RAFT$+$DA3} tracker is exactly
-Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3.
+model itself is frozen. The baseline \emph{SEA-RAFT$+$DA3-l} tracker is exactly
+Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3-l.
 
 \subsection{v33: Mamba-3 depth-along-ray refiner (the method)}
-DA3 metric depth is accurate in \emph{relative} structure but carries a global scale bias
+DA3-l metric depth is accurate in \emph{relative} structure but carries a global scale bias
 (e.g.\ $\sim$40\% on far-field driving scenes). v33 learns a small temporal correction to the
 depth, leaving the 2D track untouched. The key design choice: with the pixel $\mathbf{u}_t$ frozen,
 the only 3D degree of freedom that preserves the 2D reprojection is the depth $z_t$ along the pixel
@@ -145,7 +148,7 @@ ray (Fig.~\ref{fig:ray}).
   \draw[fill=black!12,draw=black!50] (cam) -- (4.2,1.1) -- (4.2,-1.1) -- cycle;
   \node[font=\scriptsize,left] at (cam) {camera};
   \draw[arr,blue!60!black,thick] (cam) -- (4.6,0.55) node[right,font=\scriptsize]{pixel ray $(u,v)$ fixed};
-  \filldraw[gray] (2.0,0.24) circle (1.6pt) node[above,font=\scriptsize]{$z_{\text{raw}}$ (DA3)};
+  \filldraw[gray] (2.0,0.24) circle (1.6pt) node[above,font=\scriptsize]{$z_{\text{raw}}$ (DA3-l)};
   \filldraw[blue!60!black] (3.1,0.37) circle (1.8pt) node[below,font=\scriptsize]{$z=z_{\text{raw}}e^{\Delta\log z}$ (v33)};
   \draw[arr,densely dashed] (2.0,0.24) -- (3.05,0.36);
 \end{tikzpicture}
@@ -159,7 +162,7 @@ depth alone, leaving the predicted 2D track and visibility invariant.}
 feature: the normalised ray direction $\big(\tfrac{u-c_x}{f_x},\tfrac{v-c_y}{f_y}\big)$,
 the depth ratio $z_{\text{raw}}/z_{\text{ref}}$ ($z_{\text{ref}}=$ per-clip median depth), and
 the visibility flag.  The SSM \emph{does not see $z_{\text{raw}}$ directly}; it only sees the
-scale-normalised ratio.  This is a deliberate training-stability choice: DA3 depths span
+scale-normalised ratio.  This is a deliberate training-stability choice: DA3-l depths span
 $\sim$1\,m (\emph{adt}) to $\sim$20\,m (\emph{drivetrack}), and an unnormalised input would
 require the same network weights to operate across a 20$\times$ dynamic range.
 
@@ -178,7 +181,7 @@ scene vs.\ an indoor one).  A natural future improvement is to also feed $\log z
 as a scalar context token, giving the SSM direct access to the clip-level scale without
 sacrificing the per-point normalisation.
 
-Zero-initialising the head means v33 starts exactly at the SEA-RAFT$+$DA3 baseline and only
+Zero-initialising the head means v33 starts exactly at the SEA-RAFT$+$DA3-l baseline and only
 learns improvements.  The model has $\approx0.40$M trainable parameters.
 
 \begin{figure}[h]
@@ -201,16 +204,17 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
   \node[learn, right=of emb] (m1) {Mamba-3\\{\scriptsize causal$\times$2}};
   \node[block, right=of m1] (head) {$\Delta\!\log z$\\{\scriptsize head (0-init)}};
   \node[io, right=of head] (z) {$z_t = z_{\text{raw}}\,e^{\Delta\!\log z}$};
-  % z_raw bypass (below)
-  \node[io, below=9mm of m1] (zraw) {$z_{\text{raw}}$ {\scriptsize (DA3, bypasses SSM)}};
+  % z_raw enters from the LEFT (a refiner input, matching Fig.~\ref{fig:pipeline}); it is
+  % combined *inside* the refiner, so its arrow runs through the top of the blue box into z_t.
+  \node[io, above=9mm of in] (zraw) {$z_{\text{raw}}$ {\scriptsize (DA3-l, bypasses SSM)}};
   % Arrows: SSM path
   \draw[arr] (in) -- (emb);
   \draw[arr] (emb) -- (m1);
   \draw[arr] (m1) -- (head);
   \draw[arr] (head) -- (z);
-  % z_raw bypass arrow: right from zraw.east, then up into z.south (short L).
-  \draw[arr,rounded corners=2pt] (zraw.east) -- (zraw.east -| z.south) -- (z.south);
-  \node[font=\scriptsize, above=2mm of m1, align=center] (ann)
+  % z_raw path: into the refiner from the left, across its upper region, combined at the output z_t.
+  \draw[arr] (zraw) |- ([yshift=3mm]head.north) -| (z.north);
+  \node[font=\scriptsize, below=2mm of m1, align=center] (ann)
     {state dim 64, 4 heads};
   % Blue container wraps ONLY the learned internals; the yellow I/O boxes (input, z_t,
   % z_raw bypass) sit OUTSIDE it — they cross the boundary of the blue box of Fig 1.
@@ -224,7 +228,7 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
 Input abbreviations: $\mathbf{r}{=}(\text{ray}_x,\text{ray}_y)$ is the frozen pixel ray from the 2D
 track $\mathbf{u}_t$,
 $z/z_{\!r}{=}z_{\text{raw}}/z_{\text{ref}}$, $v{=}$visibility.
-\textbf{Bypass}: $z_{\text{raw}}$ (DA3 metric depth) skips the SSM entirely and is multiplied
+\textbf{Bypass}: $z_{\text{raw}}$ (DA3-l metric depth) skips the SSM entirely and is multiplied
 back in at the end — the SSM is a \emph{relative corrector} that predicts the factor
 $e^{\Delta\log z}$, not an absolute depth.
 \textbf{causal$\times$2}: two causal Mamba-3 layers (past-only; enables streaming).
@@ -236,7 +240,7 @@ to multi-head attention but computed as a linear recurrence.}
 \subsection{Why depth-only (and not 2D)}
 An earlier variant (v32) added a learned 2D residual $\Delta\mathbf{u}$ on top of SEA-RAFT. It
 \emph{degraded} accuracy: SEA-RAFT's 2D track is already near-optimal, and small nudges push the
-sampling location across DA3 depth discontinuities (object boundaries), flipping points out of the
+sampling location across DA3-l depth discontinuities (object boundaries), flipping points out of the
 correctness band. v33 therefore freezes the 2D track entirely and refines depth only --- the lever
 that actually carries the error.
 
@@ -262,7 +266,7 @@ v35 gives it that context through two new per-track inputs:
   track pixel, this patch-level fidelity is exactly what matters, so DINOv3's dense maps are a
   better fit than DINOv2's here. (The encoder class in our code is still named \texttt{DINOv2Encoder}
   for legacy reasons, but it loads the DINOv3 weights above.)
-\item \textbf{Local depth patch} (25 values). We read the DA3 depth at a $5{\times}5$ grid of points
+\item \textbf{Local depth patch} (25 values). We read the DA3-l depth at a $5{\times}5$ grid of points
   centred on the tracked pixel $\mathbf{u}_0$: 25 points in total, each one bilinearly-interpolated
   depth value. Along each axis the five points sit at offsets
   $\{-2,-1,0,1,2\}\times(\text{image\_size}/14)$ pixels from $\mathbf{u}_0$, so the grid spacing and
@@ -280,7 +284,7 @@ A second output head (also zero-initialised) predicts a 2D correction $\Delta\ma
 output is passed through a $\tanh$ (which limits it to $[-1,1]$) and then scaled by $2$, i.e.\
 $\Delta\mathbf{u} = 2\tanh(\cdot)$, so the pixel can shift by at most $\pm 2$\,px.
 Crucially, after $\Delta\mathbf{u}$ shifts the pixel,
-depth is \emph{re-sampled} at the corrected position from the DA3 depth map before
+depth is \emph{re-sampled} at the corrected position from the DA3-l depth map before
 $\Delta\!\log z$ is applied.  This ensures the depth and 2D corrections remain geometrically
 consistent (Fig.~\ref{fig:v35-concept}).
 
@@ -336,8 +340,9 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
   \node[io, anchor=north east] (uv0) at ($(patch.north west)+(-6mm,0)$)
     {$\mathbf{u}_0$ (SEA-RAFT)\\{\scriptsize 2-D flow}};
   \node[io, below=5mm of uv0] (in1) {$[\mathbf{r}(\mathbf{u}_0),\,z/z_r,\,v]$\\{\scriptsize 4-D}};
-  % depth map: same row as depth patch
-  \node[io, right=6mm of dino] (dm) {depth map (DA3)};
+  % depth map (z_raw): top-LEFT, a refiner input matching Fig.~\ref{fig:pipeline};
+  % combined *inside* the refiner (its arrow runs through the top of the blue box into z_t).
+  \node[io, left=6mm of uv0] (dm) {depth map (DA3-l)};
   % ── embed ─────────────────────────────────────────────────────────
   \node[block, below=20mm of patch] (emb) {MLP embed\\{\scriptsize 128-D}};
   % ── SSM ───────────────────────────────────────────────────────────
@@ -362,9 +367,10 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
   \draw[arr] (ssmfork) -- (ssmfork |- duv.west) -- (duv.west);
   \draw[arr] (dz)  -- (zout);
   \draw[arr] (duv) -- (uvout);
-  \draw[arr] (dm.east) -- ($(dm.east -| zout.west)+(-3mm,0)$) -- ($(zout.west)+(-3mm,0)$) -- (zout.west);
-  \node[font=\scriptsize,gray,align=center,above=1.5mm of uvout]
-    {\footnotesize re-sample DA3 depth at $\mathbf{u}_t$};
+  % z_raw path: into the refiner from the left, across its upper region, combined at the output z_t.
+  \draw[arr] (dm) |- ([yshift=3mm]dz.north) -| (zout.north);
+  \node[font=\scriptsize,gray,align=center] at ($(ssm.east)+(13mm,7mm)$)
+    {re-sample DA3-l\\at $\mathbf{u}_t$};
   % Same blue container as Fig 3: this whole module is the blue box of Fig 1.
   \begin{scope}[on background layer]
     \node[draw=blue!55!black, dashed, thick, rounded corners, fill=blue!4,
@@ -383,7 +389,7 @@ All three inputs are concatenated, embedded by the MLP, and then fed through the
 layers (the same causal SSD stack as v33, now carrying appearance and local-geometry context).
 A second head produces $\Delta\mathbf{u} = 2\tanh(\cdot)$ (bounded to $\pm 2$\,px).
 Depth is then re-sampled at the corrected pixel $\mathbf{u}_t = \mathbf{u}_0 + \Delta\mathbf{u}$
-from the DA3 depth map, and $\Delta\!\log z$ rescales it.
+from the DA3-l depth map, and $\Delta\!\log z$ rescales it.
 Both heads are zero-initialised: v35 starts exactly at the v33 output.}
 \label{fig:v35-arch}
 \end{figure}
@@ -459,27 +465,27 @@ network than SEA-RAFT. We swap it in as the 2D front-end, keeping everything dow
 and evaluate three variants (run at WAFT's $512$-px training resolution; scored by the same
 pipeline as every other row):
 \begin{itemize}
-  \item \textbf{v37 (WAFT $+$ DA3)} --- WAFT flow $+$ raw DA3 unprojection, no refiner. It beats the
-    SEA-RAFT$+$DA3 baseline on both metrics (normalised $0.117\!\to\!0.123$, absolute
+  \item \textbf{v37 (WAFT $+$ DA3-l)} --- WAFT flow $+$ raw DA3-l unprojection, no refiner. It beats the
+    SEA-RAFT$+$DA3-l baseline on both metrics (normalised $0.117\!\to\!0.123$, absolute
     $0.147\!\to\!0.159$): a better 2D track alone helps.
-  \item \textbf{v38 (WAFT $+$ DA3, bidir)} --- the per-hop forward$+$backward flow fusion of
+  \item \textbf{v38 (WAFT $+$ DA3-l, bidir)} --- the per-hop forward$+$backward flow fusion of
     \S\ref{sec:v36}. As expected it is $\approx$ v37 ($0.126$ / $0.159$); fusion adds nothing here.
   \item \textbf{v39 (WAFT flow $+$ v35 depth refiner)} --- WAFT's 2D track fed into the v35
     DINOv3-SSM depth refiner. This combines the best 2D front-end with depth-scale correction and
     is our \textbf{best absolute-metric model}: metric-AJ $0.246$, beating the SEA-RAFT-fed v35
     ($0.234$) on all three subsets (Table~\ref{tab:abs}). As with v35, the refiner trades
     relative-structure quality for absolute-scale correctness, so v39's normalised AJ ($0.107$) sits
-    below WAFT$+$DA3 (v37, $0.123$).
+    below WAFT$+$DA3-l (v37, $0.123$).
 \end{itemize}
 
-\subsection{v40: WAFT $+$ DA3-Giant metric depth (no refiner)}
+\subsection{v40: WAFT $+$ DA3-g metric depth (no refiner)}
 \label{sec:v40}
 \emph{Pipeline: WAFT flow $+$ \texttt{DA3Nested-Giant-Large} metric depth, unprojected directly (no
 learned refiner). A pure depth-backbone swap on the training-free baseline.}
 
 \paragraph{Diagnosis.}
 Investigating the drivetrack far-field collapse (absolute-AJ $\approx0.005$, Table~\ref{tab:abs}) we
-measured, at the ground-truth tracked pixels, the ratio of our cached DA3 depth to true depth. The current
+measured, at the ground-truth tracked pixels, the ratio of our cached metric depth to true depth. The current
 backbone, \texttt{DA3Metric-Large} (0.35\,B), systematically \emph{under-predicts} drivetrack depth by
 almost a factor of two, and the bias worsens with range:
 \begin{center}\small
@@ -487,8 +493,8 @@ almost a factor of two, and the bias worsens with range:
 \toprule
 $\mathrm{median}(\hat z/z^{\ast})$ & drivetrack & adt & pstudio \\
 \midrule
-\texttt{DA3Metric-Large} (current) & $0.56$ (far $0.53$) & $0.98$ & $0.74$ \\
-\texttt{DA3Nested-Giant-Large} (1.4\,B) & $\mathbf{1.06}$ (far $1.06$) & $0.94$ & $0.70$ \\
+\texttt{DA3Metric-Large} (DA3-l, current) & $0.56$ (far $0.53$) & $0.98$ & $0.74$ \\
+\texttt{DA3Nested-Giant-Large} (DA3-g, 1.4\,B) & $\mathbf{1.06}$ (far $1.06$) & $0.94$ & $0.70$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -499,7 +505,7 @@ and does not fix pstudio (both $\approx0.7$ --- a separate, unsolved bias). Beca
 precomputed depth cache, this is a drop-in backbone swap: re-cache depth with the nested model and re-run.
 
 \paragraph{Result (whole minival).}
-The swap fixes the drivetrack collapse. As a training-free baseline (no refiner), WAFT$+$DA3-Giant scores
+The swap fixes the drivetrack collapse. As a training-free baseline (no refiner), WAFT$+$DA3-g scores
 on \emph{absolute} metric-AJ: drivetrack $0.146$, adt $0.285$, pstudio $0.192$ (mean $\mathbf{0.208}$) ---
 versus the same baseline on the old \texttt{DA3Metric-Large} depth (v37: drivetrack $0.005$, mean $0.159$).
 The entire gain is drivetrack, where far-field error collapses from ${\sim}27$\,m to a $2.5$\,m median;
@@ -514,19 +520,19 @@ pose $+$ triangulation), whereas the far-field problem is dominated by a depth-m
 bigger depth model fixes directly. Caveats: the nested model is 1.4\,B ($\sim$$4\times$ slower,
 non-commercial license) and its metric scale is mildly resolution-sensitive.
 
-\subsection{v41: DA3-Giant depth $+$ vmamba3 refiner}
+\subsection{v41: DA3-g depth $+$ vmamba3 refiner}
 \label{sec:v41}
-\emph{Status: training pending. Pipeline: WAFT $+$ DA3-Giant depth $+$ the vmamba3 refiner, with the
+\emph{Status: training pending. Pipeline: WAFT $+$ DA3-g depth $+$ the vmamba3 refiner, with the
 refiner \textbf{retrained on the new metric depth}.}
 
 v41 adds the v35 DINOv3-conditioned refiner back on top of the v40 baseline. Crucially, the refiner must be
-\textbf{retrained on DA3-Giant depth}: the v39 refiner was trained on the $0.55\times$-biased
+\textbf{retrained on DA3-g depth}: the v39 refiner was trained on the $0.55\times$-biased
 \texttt{DA3Metric-Large} depth and learned to scale depth up, so applied zero-shot to the now-metric
-DA3-Giant depth it \emph{over-corrects} (drivetrack absolute-AJ collapses to $0.003$, median error
+DA3-g depth it \emph{over-corrects} (drivetrack absolute-AJ collapses to $0.003$, median error
 $18.6$\,m). After retraining, the refiner's role shifts from fixing a gross scale bias (now unnecessary) to
 the residual along-ray and $\Delta\mathbf{u}$ corrections and occlusion handling, so the expected gain over
 the v40 baseline ($0.146$) is smaller than v39's gain over its baseline was. Requires precomputing
-DA3-Giant depth for the training split before training.
+DA3-g depth for the training split before training.
 
 \subsection{v42: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:v42}
@@ -559,7 +565,7 @@ $\mathbf{X}^{w}_0$. This buys two things the per-frame formulation cannot:
   noisy per-frame monocular depth can be averaged/optimised across frames.
   \item \textbf{Parallax triangulation.} With relative pose known, a static point seen from a moving camera
   can be \emph{triangulated}, which is far more accurate than monocular depth at range. This directly
-  attacks the far-field bottleneck, correcting DA3's depth-scale bias rather than only refining along the
+  attacks the far-field bottleneck, correcting DA3-l's depth-scale bias rather than only refining along the
   ray (\S\ref{sec:v42-gate}).
 \end{enumerate}
 
@@ -721,7 +727,7 @@ All rows are produced by our own evaluation pipeline on the same hardware; we do
 paper-reported numbers that cannot be independently reproduced.
 The strongest result among the externally-published methods is \emph{DELTA}~\cite{delta}
 (DenseTrack3D, ICLR~2025): mean 3D-AJ $0.141$ (drivetrack / pstudio / adt $=0.130$ / $0.141$ / $0.152$),
-balanced across subsets and slightly ahead of our training-free SEA-RAFT$+$DA3 baseline ($0.117$).
+balanced across subsets and slightly ahead of our training-free SEA-RAFT$+$DA3-l baseline ($0.117$).
 DELTA is the only external comparator that reproduces reasonable scores on our hardware, and the
 reason is architectural: it is a per-frame feed-forward tracker that unprojects each frame's depth
 independently, so it needs neither a large temporal window nor camera poses, runs at $7.7$\,fps
@@ -732,11 +738,11 @@ for absolute-scale correctness; see \S\ref{sec:abs}).
 The remaining external methods underperform for reasons specific to this 12\,GB GPU, \emph{not} an
 evaluation-harness artefact. SpatialTrackerV2\,$^{*}$ must run with $s_{\text{wind}}{=}60$ (the paper
 uses $s_{\text{wind}}{=}500$, requiring ${\sim}40$\,GB; see \S\ref{sec:spatrackerv2}), which caps its
-accuracy. TAPIP3D$+$DA3 collapses on the rotation-heavy egocentric subsets (adt $0.004$, pstudio
+accuracy. TAPIP3D$+$DA3-l collapses on the rotation-heavy egocentric subsets (adt $0.004$, pstudio
 $0.023$) because it aggregates tracks in a persistent world frame that must cancel camera motion;
-with monocular DA3 depth and no MegaSAM poses that aggregation fails. Crucially, TAPIP3D's \emph{own}
+with monocular DA3-l depth and no MegaSAM poses that aggregation fails. Crucially, TAPIP3D's \emph{own}
 official evaluator reproduces these same numbers on \texttt{da3\_minival} to three decimals, confirming
-the limitation is a genuine property of pose-free TAPIP3D$+$DA3 rather than a scoring bug. (On the
+the limitation is a genuine property of pose-free TAPIP3D$+$DA3-l rather than a scoring bug. (On the
 different, larger full-eval split TAPIP3D~\cite{tapip3d} scores ${\sim}0.30$; the full six-method
 minival comparison is in \S\ref{sec:sota}.)
 TrackCraft3R~\cite{trackcraft3r} (arXiv~2026) reports Sim(3)-aligned AJ of $0.73$ (pstudio) and
@@ -764,27 +770,27 @@ Method & drivetrack & pstudio & adt & mean \\
 \midrule
 \multicolumn{5}{l}{\emph{SOTA (external)}} \\
 SpatialTrackerV2\,$^{*}$         & 0.017 & 0.012 & 0.025 & 0.018 \\
-DELTA + DA3\,$^{\S}$             & \textbf{0.130} & \textbf{0.141} & 0.152 & \textbf{0.141} \\
-TAPIP3D + DA3\,$^{\dagger}$      & 0.065 & 0.023 & 0.004 & 0.030 \\
+DELTA + DA3-l\,$^{\S}$             & \textbf{0.130} & \textbf{0.141} & 0.152 & \textbf{0.141} \\
+TAPIP3D + DA3-l\,$^{\dagger}$      & 0.065 & 0.023 & 0.004 & 0.030 \\
 TAPIP3D + MegaSAM\,$^{\ddagger}$ & 0.000 & 0.003 & 0.004 & 0.002 \\
 TrackCraft3R\,$^{\P}$            & 0.003 & 0.013 & 0.010 & 0.009 \\
 \midrule
 \multicolumn{5}{l}{\emph{Ours}} \\
-SEA-RAFT + DA3 (baseline)        & 0.108 & 0.111 & 0.132 & 0.117 \\
+SEA-RAFT + DA3-l (baseline)        & 0.108 & 0.111 & 0.132 & 0.117 \\
 SEA-RAFT + MegaSAM               & 0.103 & 0.135 & \textbf{0.163} & 0.134 \\
-v33, SEA-RAFT+DA3+mamba3            & 0.057 & 0.041 & 0.123 & 0.074 \\
+v33, SEA-RAFT+DA3-l+mamba3            & 0.057 & 0.041 & 0.123 & 0.074 \\
 v34, SEA-RAFT+MegaSAM+mamba3        & 0.059 & 0.048 & 0.119 & 0.075 \\
-v35, SEA-RAFT+DA3+vmamba3               & 0.093 & 0.054 & 0.141 & 0.096 \\
-v36, SEA-RAFTbidir+DA3+vmamba3     & 0.093 & 0.057 & 0.141 & 0.097 \\
-v37, WAFT+DA3            & 0.115 & 0.116 & 0.137 & 0.123 \\
-v38, WAFTbidir+DA3  & 0.116 & 0.120 & 0.141 & 0.126 \\
-v39, WAFT+DA3+vmamba3  & 0.098 & 0.073 & 0.151 & 0.107 \\
-v40, WAFT+DA3-Giant (no refiner)  & 0.118 & 0.039 & 0.123 & 0.093 \\
+v35, SEA-RAFT+DA3-l+vmamba3               & 0.093 & 0.054 & 0.141 & 0.096 \\
+v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.093 & 0.057 & 0.141 & 0.097 \\
+v37, WAFT+DA3-l            & 0.115 & 0.116 & 0.137 & 0.123 \\
+v38, WAFTbidir+DA3-l  & 0.116 & 0.120 & 0.141 & 0.126 \\
+v39, WAFT+DA3-l+vmamba3  & 0.098 & 0.073 & 0.151 & 0.107 \\
+v40, WAFT+DA3-g (no refiner)  & 0.118 & 0.039 & 0.123 & 0.093 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
-{\footnotesize All external comparators ($^{*}$SpatialTrackerV2, $^{\S}$DELTA$+$DA3,
-$^{\dagger}$TAPIP3D$+$DA3, $^{\ddagger}$TAPIP3D$+$MegaSAM, $^{\P}$TrackCraft3R) are discussed in the
+{\footnotesize All external comparators ($^{*}$SpatialTrackerV2, $^{\S}$DELTA$+$DA3-l,
+$^{\dagger}$TAPIP3D$+$DA3-l, $^{\ddagger}$TAPIP3D$+$MegaSAM, $^{\P}$TrackCraft3R) are discussed in the
 text above; $^{\ddagger}$ additionally see \S\ref{sec:megasam-fail} (DROID-SLAM failure) and
 $^{\P}$ \S\ref{sec:trackcraft3r}.}
 \end{table}
@@ -794,9 +800,9 @@ $^{\P}$ \S\ref{sec:trackcraft3r}.}
 Under the absolute-metric protocol the ranking \emph{reverses} (Table~\ref{tab:abs},
 Fig.~\ref{fig:reversal}). Our best model is v39 (WAFT flow $+$ the v35 depth refiner;
 \S\ref{sec:waft}), which tops absolute metric-AJ at $0.246$; the SEA-RAFT-fed v35 follows
-at $0.234$. Taking v35 vs.\ the DA3 baseline: metric-AJ $+59\%$ ($0.147\!\to\!0.234$),
-mean error $-55\%$ ($4.29\!\to\!1.91$\,m). Against TAPIP3D$+$DA3: metric-AJ
-$+134\%$ ($0.100\!\to\!0.234$). The gain is most concentrated where DA3's scale is most
+at $0.234$. Taking v35 vs.\ the DA3-l baseline: metric-AJ $+59\%$ ($0.147\!\to\!0.234$),
+mean error $-55\%$ ($4.29\!\to\!1.91$\,m). Against TAPIP3D$+$DA3-l: metric-AJ
+$+134\%$ ($0.100\!\to\!0.234$). The gain is most concentrated where DA3-l's scale is most
 wrong --- far-field \emph{drivetrack}, metric-AJ $0.005\!\to\!0.130$ ($26\times$) ---
 while near-field \emph{adt} sees moderate improvement. Swapping the SEA-RAFT front-end for
 WAFT (v39) lifts every subset again (drivetrack $0.130\!\to\!0.141$, pstudio $0.274\!\to\!0.279$,
@@ -816,27 +822,27 @@ Method & drivetrack & pstudio & adt & mean \\
 \midrule
 \multicolumn{5}{l}{\emph{SOTA (external)}} \\
 SpatialTrackerV2\,$^{*}$         & 0.008 & 0.192 & 0.179 & 0.126 \\
-DELTA + DA3\,$^{\S}$             & 0.006 & 0.199 & \textbf{0.344} & 0.183 \\
-TAPIP3D + DA3                    & 0.006 & 0.131 & 0.164 & 0.100 \\
+DELTA + DA3-l\,$^{\S}$             & 0.006 & 0.199 & \textbf{0.344} & 0.183 \\
+TAPIP3D + DA3-l                    & 0.006 & 0.131 & 0.164 & 0.100 \\
 TAPIP3D + MegaSAM                & 0.000 & 0.000 & 0.000 & 0.000 \\
 TrackCraft3R\,$^{\P}$            & 0.002 & 0.025 & 0.032 & 0.020 \\
 \midrule
 \multicolumn{5}{l}{\emph{Ours}} \\
-SEA-RAFT + DA3 (baseline)        & 0.005 & 0.165 & 0.273 & 0.147 \\
+SEA-RAFT + DA3-l (baseline)        & 0.005 & 0.165 & 0.273 & 0.147 \\
 SEA-RAFT + MegaSAM               & 0.000 & 0.082 & 0.209 & 0.097 \\
-v33, SEA-RAFT+DA3+mamba3            & 0.082 & 0.186 & 0.272 & 0.180 \\
+v33, SEA-RAFT+DA3-l+mamba3            & 0.082 & 0.186 & 0.272 & 0.180 \\
 v34, SEA-RAFT+MegaSAM+mamba3        & 0.001 & 0.092 & 0.208 & 0.100 \\
-v35, SEA-RAFT+DA3+vmamba3               & 0.130 & 0.274 & 0.298 & 0.234 \\
-v36, SEA-RAFTbidir+DA3+vmamba3     & 0.130 & 0.249 & 0.298 & 0.226 \\
-v37, WAFT+DA3            & 0.005 & 0.181 & 0.289 & 0.159 \\
-v38, WAFTbidir+DA3  & 0.005 & 0.181 & 0.292 & 0.159 \\
-v39, WAFT+DA3+vmamba3  & \textbf{0.141} & \textbf{0.279} & 0.318 & \textbf{0.246} \\
-v40, WAFT+DA3-Giant (no refiner)  & 0.146 & 0.192 & 0.285 & 0.208 \\
+v35, SEA-RAFT+DA3-l+vmamba3               & 0.130 & 0.274 & 0.298 & 0.234 \\
+v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.130 & 0.249 & 0.298 & 0.226 \\
+v37, WAFT+DA3-l            & 0.005 & 0.181 & 0.289 & 0.159 \\
+v38, WAFTbidir+DA3-l  & 0.005 & 0.181 & 0.292 & 0.159 \\
+v39, WAFT+DA3-l+vmamba3  & \textbf{0.141} & \textbf{0.279} & 0.318 & \textbf{0.246} \\
+v40, WAFT+DA3-g (no refiner)  & 0.146 & 0.192 & 0.285 & 0.208 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
 {\footnotesize $^{*}$ SpatialTrackerV2 evaluated with $s_{\text{wind}}{=}60$ on RTX\,4080\,Laptop (12\,GB); see Table~\ref{tab:median} footnote.
-$^{\S}$ DELTA$+$DA3, feed-forward on the same hardware; see Table~\ref{tab:median} footnote. On the absolute
+$^{\S}$ DELTA$+$DA3-l, feed-forward on the same hardware; see Table~\ref{tab:median} footnote. On the absolute
 metric it attains the best \emph{adt} score of any method ($0.344$), but its far-field \emph{drivetrack}
 depth scale (like all DA3-based methods) keeps its mean below our v35.
 $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} footnote for explanation of low scores vs.\ the paper's Sim(3)-aligned numbers.}
@@ -893,8 +899,8 @@ same clips as our own method.  Our best model (v39, WAFT flow $+$ v35 refiner) a
 $15.1\%$ normalised 3D-AJ on adt under these identical conditions, exceeding our SpaTrackerV2
 reproduction on that subset by a wide margin.
 
-\paragraph{TAPIP3D + DA3.}
-Using the same DA3 depth as our pipeline, TAPIP3D~\cite{tapip3d} scores higher than v33 on the
+\paragraph{TAPIP3D + DA3-l.}
+Using the same DA3-l depth as our pipeline, TAPIP3D~\cite{tapip3d} scores higher than v33 on the
 normalised leaderboard metric (drivetrack $0.065$ vs $0.057$, pstudio $0.023$ vs $0.041$), but
 \emph{lower} on the absolute metric: mean metric-AJ $0.100$ vs $0.180$ ($-44\%$).
 This reversal arises because TAPIP3D's point-trajectory model optimises for relative
@@ -1023,7 +1029,7 @@ v33 pulls the predicted tracks toward the true metric depth.
 \begin{minipage}{0.49\textwidth}\centering
   \includegraphics[width=\textwidth]{figs/qual_adt_v33_3d.png}\\{\footnotesize v33}
 \end{minipage}
-\caption{adt (egocentric, $\sim$1\,m): near-field, where DA3 is already accurate (tie).}
+\caption{adt (egocentric, $\sim$1\,m): near-field, where DA3-l is already accurate (tie).}
 \label{fig:qual-adt}
 \end{figure}
 
@@ -1039,7 +1045,7 @@ predicted (solid) vs ground truth (dashed).}
 \begin{table}[h]
 \centering
 \caption{Inference throughput on RTX\,4080 (12\,GB), measured on TAPVid-3D minival.
-         Methods marked $^{\star}$ load depth from a shared DA3-Large precompute
+         Methods marked $^{\star}$ load depth from a shared DA3-l precompute
          cache rather than running depth estimation online;
          SpatialTrackerV2 uses its own internal depth model.
          Our lightweight SSM refiner adds modest overhead over the baseline while
@@ -1049,13 +1055,13 @@ predicted (solid) vs ground truth (dashed).}
 \toprule
 Method & fps & trainable params \\
 \midrule
-DA3 depth (shared precompute)$^{\star}$ & ${\approx}10$ & 0 \\
+DA3-l depth (shared precompute)$^{\star}$ & ${\approx}10$ & 0 \\
 \midrule
-SEA-RAFT $+$ DA3 (baseline)$^{\star}$  & 12.4 & 0        \\
+SEA-RAFT $+$ DA3-l (baseline)$^{\star}$  & 12.4 & 0        \\
 v33 (depth refiner)$^{\star}$          & 12.5 & 0.40\,M  \\
 v35 (DINOv3 $+$ SSM)$^{\star,\dagger}$ & 7.7  & 0.44\,M  \\
 v36 (bidir $+$ v35)$^{\star}$          & 6.2  & 0.44\,M  \\
-v37 (WAFT $+$ DA3)$^{\star}$           & ${\approx}7.7$ & 0        \\
+v37 (WAFT $+$ DA3-l)$^{\star}$           & ${\approx}7.7$ & 0        \\
 v39 (WAFT flow $+$ v35)$^{\star}$      & ${\approx}6.3$ & 0.44\,M  \\
 \midrule
 TAPIP3D$^{\star}$                      & ${\approx}3.1$  & --- \\
@@ -1066,7 +1072,7 @@ TrackCraft3R$^{\S}$                    & ${\approx}0.06$ & --- \\
 \end{tabular}
 \\[2pt]
 {\footnotesize
-$^{\star}$ Loads precomputed DA3-Large depth from cache; not counted in fps.
+$^{\star}$ Loads precomputed DA3-l depth from cache; not counted in fps.
 The preprocessing runs at ${\approx}10$\,fps on the same GPU and is a one-time
 offline step shared by all such methods.
 $^{\dagger}$ v35 throughput measured on the drivetrack subset only.
@@ -1093,7 +1099,7 @@ than our baseline (12.4\,fps).
 
 Our method achieves this throughput advantage because the Mamba-3 SSD refiner processes
 all $N$ tracks jointly in a single causal sweep per frame (no per-window restarts),
-and the 0.44\,M-parameter SSM adds modest overhead over the frozen SEA-RAFT $+$ DA3 baseline.
+and the 0.44\,M-parameter SSM adds modest overhead over the frozen SEA-RAFT $+$ DA3-l baseline.
 TAPIP3D (${\approx}3.1$\,fps) and SpatialTrackerV2 (${\approx}4.0$\,fps) are substantially
 slower than our pipeline despite relying on simpler (non-diffusion) architectures,
 indicating that their multi-frame windowing and cost-volume computations are the bottleneck.

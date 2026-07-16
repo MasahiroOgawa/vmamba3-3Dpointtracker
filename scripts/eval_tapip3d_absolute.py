@@ -86,6 +86,8 @@ def run_subset(
         seq_name = sample.seq_name[0]  # e.g. "tapvid3d_xxxx.npz" or "basketball_5.npz"
         clip_id = seq_name.removesuffix(".npz")  # strip extension
         out_path = pred_dir / f"{clip_id}.npz"
+        if out_path.exists() and not overwrite:
+            continue  # already generated; scored separately by eval_metric3d --method external
 
         # cache GT on CPU before moving sample to device
         gt_s = sample.with_annot_mode("gt")
@@ -110,32 +112,28 @@ def run_subset(
         K_256[1, 2] *= sy
         intr_params = np.array([K_256[0, 0], K_256[1, 1], K_256[0, 2], K_256[1, 2]])
 
-        if out_path.exists() and not overwrite:
-            npz = np.load(out_path)
-            tracks = npz["tracks_XYZ"]  # (T, N, 3)
-            vis = npz["visibility"]  # (T, N)
-        else:
-            sample = sample.to(device)
-            est = sample.with_annot_mode("est")
-
-            preds, _ = _inference_with_grid(
-                grid_size=8,
-                model=model,
-                video=est.rgbs,
-                depths=est.depths,
-                num_iters=6,
-                query_point=est.query_point,
-                intrinsics=est.intrinsics,
-                extrinsics=est.extrinsics,
-                flags=est.flags,
-                depth_roi=est.depth_roi,
-            )
-            # preds.coords: (1, T, N, 3) camera-frame metric XYZ
-            tracks = preds.coords[0].cpu().numpy().astype(np.float32)  # (T, N, 3)
-            vis = preds.visibs[0].cpu().numpy() > 0.5  # (T, N)
-            np.savez_compressed(out_path, tracks_XYZ=tracks, visibility=vis)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        sample = sample.to(device)
+        est = sample.with_annot_mode("est")
+        preds, _ = _inference_with_grid(
+            grid_size=8,
+            model=model,
+            video=est.rgbs,
+            depths=est.depths,
+            num_iters=6,
+            query_point=est.query_point,
+            intrinsics=est.intrinsics,
+            extrinsics=est.extrinsics,
+            flags=est.flags,
+            depth_roi=est.depth_roi,
+        )
+        # preds.coords: (1, T, N, 3) camera-frame metric XYZ
+        tracks = preds.coords[0].cpu().numpy().astype(np.float32)  # (T, N, 3)
+        vis = preds.visibs[0].cpu().numpy() > 0.5  # (T, N)
+        np.savez_compressed(out_path, tracks_XYZ=tracks, visibility=vis)
+        # Free the per-clip GPU tensors before the next iteration.
+        del preds, est, sample
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         F_ = min(tracks.shape[0], gt_xyz.shape[0])
         N_ = min(tracks.shape[1], gt_xyz.shape[1])

@@ -527,33 +527,58 @@ non-commercial license) and its metric scale is mildly resolution-sensitive.
 The v40 result raises a fair question: is the drivetrack gain specific to our pipeline, or does the DA3-l
 scale bias hurt \emph{every} method that lifts 2D tracks with DA3 depth? To answer it we re-ran each
 external baseline that consumes DA3 depth --- SEA-RAFT$+$DA3, WAFT$+$DA3 (=v40), DELTA, SpatialTrackerV2,
-and TAPIP3D --- swapping only the depth cache from DA3-l to DA3-g (Table~\ref{tab:da3g-reeval}); the 2D
+and TAPIP3D --- swapping only the depth cache from DA3-l to DA3-g
+(Tables~\ref{tab:da3l-sota}--\ref{tab:da3g-sota}, Fig.~\ref{fig:da3g-reeval}); the 2D
 front-ends, models, and eval protocol are unchanged. (The DA3-l-trained \emph{refiners} v33/v35/v39 are
 excluded: fed DA3-g zero-shot they over-correct, cf.\ \S\ref{sec:v41}. TrackCraft3R is excluded on cost,
 $31$\,min/clip.)
 
 \begin{table}[h]
 \centering
-\caption{Absolute metric-AJ (higher better) on TAPVid-3D minival, DA3-l $\rightarrow$ DA3-g, per subset.
-Every method that \emph{directly unprojects} DA3 depth gains sharply on far-field drivetrack (the
-scale-biased subset) and is roughly neutral elsewhere; SpatialTrackerV2, which uses depth only as a weak
-window-local prior, barely moves.
-$^{\dagger}$SpatialTrackerV2 DA3-g adt on $22/50$ clips ($s_{\text{wind}}{=}60$ OOM on the rest under the
-larger metric depths). $^{\ddagger}$TAPIP3D DA3-g adt OOM-limited; mean over drivetrack$+$pstudio only
-(DA3-l shown on the same two subsets for a matched comparison).}
-\label{tab:da3g-reeval}
+\caption{External SOTA on \textbf{DA3-l} depth (old \texttt{DA3Metric-Large}): absolute metric-AJ on
+TAPVid-3D minival (higher better), per subset.}
+\label{tab:da3l-sota}
 \begin{tabular}{lcccc}
 \toprule
-Method (metric-AJ) & drivetrack & pstudio & adt & mean \\
+Method $+$ DA3-l & drivetrack & pstudio & adt & mean \\
 \midrule
-SEA-RAFT$+$DA3        & $0.005\!\to\!\mathbf{0.136}$ & $0.165\!\to\!0.175$ & $0.273\!\to\!0.269$ & $0.147\!\to\!\mathbf{0.193}$ \\
-WAFT$+$DA3 (v40)      & $0.005\!\to\!\mathbf{0.146}$ & $0.181\!\to\!0.192$ & $0.289\!\to\!0.285$ & $0.159\!\to\!\mathbf{0.208}$ \\
-DELTA                 & $0.006\!\to\!\mathbf{0.164}$ & $0.199\!\to\!0.194$ & $0.344\!\to\!0.324$ & $0.183\!\to\!\mathbf{0.227}$ \\
-SpatialTrackerV2      & $0.008\!\to\!0.043$ & $0.192\!\to\!0.184$ & $0.179\!\to\!0.170^{\dagger}$ & $0.126\!\to\!0.132$ \\
-TAPIP3D               & $0.006\!\to\!\mathbf{0.110}$ & $0.131\!\to\!0.148$ & $0.164\!\to\!\text{--}^{\ddagger}$ & $0.100\!\to\!0.129^{\ddagger}$ \\
+SEA-RAFT         & 0.005 & 0.165 & 0.273 & 0.147 \\
+WAFT (v37)       & 0.005 & 0.181 & 0.289 & 0.159 \\
+DELTA            & 0.006 & 0.199 & 0.344 & 0.183 \\
+SpatialTrackerV2 & 0.008 & 0.192 & 0.179 & 0.126 \\
+TAPIP3D          & 0.006 & 0.131 & 0.164 & 0.100 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{table}[h]
+\centering
+\caption{External SOTA on \textbf{DA3-g} depth (new \texttt{DA3Nested-Giant-Large}): absolute metric-AJ on
+TAPVid-3D minival (higher better), per subset. $^{\dagger}$adt on $22/50$ clips ($s_{\text{wind}}{=}60$
+OOM on the rest under the larger metric depths). $^{\ddagger}$adt OOM-limited; mean over
+drivetrack$+$pstudio only.}
+\label{tab:da3g-sota}
+\begin{tabular}{lcccc}
+\toprule
+Method $+$ DA3-g & drivetrack & pstudio & adt & mean \\
+\midrule
+SEA-RAFT         & \textbf{0.136} & 0.175 & 0.269 & \textbf{0.193} \\
+WAFT (v40)       & \textbf{0.146} & 0.192 & 0.285 & \textbf{0.208} \\
+DELTA            & \textbf{0.164} & 0.194 & 0.324 & \textbf{0.227} \\
+SpatialTrackerV2 & 0.043 & 0.184 & $0.170^{\dagger}$ & 0.132 \\
+TAPIP3D          & \textbf{0.110} & 0.148 & --$^{\ddagger}$ & $0.129^{\ddagger}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{figs/da3g_reeval.pdf}
+\caption{DA3-l vs DA3-g absolute metric-AJ for the external baselines: far-field drivetrack (left, where
+the DA3-l scale bias bites) and the mean (right). Every direct-unprojection method jumps on drivetrack;
+SpatialTrackerV2 (weak depth prior) barely moves.}
+\label{fig:da3g-reeval}
+\end{figure}
 
 The pattern is unambiguous: on \emph{drivetrack} the DA3-l$\to$DA3-g swap lifts absolute metric-AJ by
 $18$--$29\times$ for every method that unprojects depth directly (SEA-RAFT, WAFT, DELTA, TAPIP3D all jump

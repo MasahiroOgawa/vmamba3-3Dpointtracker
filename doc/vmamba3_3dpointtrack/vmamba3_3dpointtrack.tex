@@ -528,7 +528,7 @@ The v40 result raises a fair question: is the drivetrack gain specific to our pi
 scale bias hurt \emph{every} method that lifts 2D tracks with DA3 depth? To answer it we re-ran each
 external baseline that consumes DA3 depth --- SEA-RAFT$+$DA3, WAFT$+$DA3 (=v40), DELTA, SpatialTrackerV2,
 and TAPIP3D --- swapping only the depth cache from DA3-l to DA3-g
-(Tables~\ref{tab:da3l-sota}--\ref{tab:da3g-sota}, Fig.~\ref{fig:da3g-reeval}); the 2D
+(Tables~\ref{tab:da3l-sota}--\ref{tab:da3g-sota}, Figs.~\ref{fig:da3l-reeval}--\ref{fig:da3g-reeval}); the 2D
 front-ends, models, and eval protocol are unchanged. (The DA3-l-trained \emph{refiners} v33/v35/v39 are
 excluded: fed DA3-g zero-shot they over-correct, cf.\ \S\ref{sec:v41}. TrackCraft3R could not be
 re-run: its $1.3$\,B video-diffusion pipeline runs out of memory on the $12$\,GB GPU under DA3-g's
@@ -574,10 +574,19 @@ TAPIP3D          & 0.110 & 0.148 & --$^{\ddagger}$ & $0.129^{\ddagger}$ \\
 
 \begin{figure}[h]
 \centering
+\includegraphics[width=\linewidth]{figs/da3l_reeval.pdf}
+\caption{External baselines on \textbf{DA3-l} depth, per subset: normalized 3D-AJ (left) and absolute
+metric-AJ (right). Metric-AJ on drivetrack is near-zero for every direct-unprojection method (the DA3-l
+far-field scale collapse).}
+\label{fig:da3l-reeval}
+\end{figure}
+
+\begin{figure}[h]
+\centering
 \includegraphics[width=\linewidth]{figs/da3g_reeval.pdf}
-\caption{DA3-l vs DA3-g absolute metric-AJ for the external baselines: far-field drivetrack (left, where
-the DA3-l scale bias bites) and the mean (right). Every direct-unprojection method jumps on drivetrack;
-SpatialTrackerV2 (weak depth prior) barely moves.}
+\caption{External baselines on \textbf{DA3-g} depth, per subset: normalized 3D-AJ (left) and absolute
+metric-AJ (right). Compared with Fig.~\ref{fig:da3l-reeval}, drivetrack metric-AJ jumps for every
+direct-unprojection method while the normalized metric is nearly unchanged; TAPIP3D adt is OOM-limited.}
 \label{fig:da3g-reeval}
 \end{figure}
 
@@ -665,13 +674,46 @@ DA3-g & $0.777$ (v40) & $0.734$ (v41) & $\phantom{0}-6\%$ \\
 \end{tabular}
 \end{table}
 
-\subsection{v41b: pstudio-weighted retrain (systematic-vs-noise check)}
+\subsection{v41b: pstudio-only retrain (systematic-vs-noise check)}
 \label{sec:v41b}
-\emph{In progress.} \S\ref{sec:v41} left one alternative open: DA3-g's un-correctable pstudio error might
-be intrinsic noise, or merely under-weighted in training (pstudio is only $3.5\%$ of clips). To decide, we
-retrain the v41 refiner with the pstudio loss up-weighted and re-measure the refiner's effect on pstudio
-depth (cf.\ Table~\ref{tab:v41-refiner}). If the error still fails to drop, the noise explanation holds.
-Results to follow.
+\S\ref{sec:v41} left one alternative open: DA3-g's stubborn pstudio error might be intrinsic noise, or
+merely under-weighted in training (pstudio is only ${\sim}2.4\%$ of training clips). To decide, we fine-tune
+the v41 refiner on \emph{pstudio only} (all $106$ pstudio training clips, DA3-g depth, warm-started from
+v41) --- giving the refiner maximal opportunity to learn the pstudio correction --- and re-evaluate on the
+$50$ held-out pstudio minival clips (Table~\ref{tab:v41b}).
+
+\begin{table}[h]
+\centering
+\caption{Pstudio-only retrain (v41b): held-out pstudio minival depth error and absolute metric-AJ.
+Focusing the refiner on pstudio helps (error $0.734\!\to\!0.563$\,m), but plateaus well above what the same
+refiner reaches on DA3-l (v39, $0.348$\,m) --- a residual noise floor no weighting closes.}
+\label{tab:v41b}
+\begin{tabular}{lcc}
+\toprule
+pstudio pipeline & err median (m) & metric-AJ \\
+\midrule
+raw DA3-g (no refiner, v40)          & 0.777 & 0.192 \\
+DA3-g $+$ standard refiner (v41)     & 0.734 & 0.198 \\
+DA3-g $+$ pstudio-only refiner (v41b) & 0.563 & 0.225 \\
+DA3-l $+$ refiner (v39)              & \textbf{0.348} & \textbf{0.279} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The answer is \emph{both, but noise binds}. Under-weighting was real but partial: 100\,\% pstudio focus does
+help (error $0.734\!\to\!0.563$\,m, metric-AJ $0.198\!\to\!0.225$), so some of DA3-g's pstudio error is
+systematic and the standard v41 genuinely under-served pstudio. But it \emph{plateaus at $0.563$\,m and
+cannot reach DA3-l's $0.348$\,m} --- and v39 hit that from the \emph{same} $106$ clips at far less weight,
+so the gap is the depth, not the data budget. That residual is the intrinsic near-field noise: DA3-g's
+studio depth cannot be refined as low as DA3-l's, full stop.
+
+\textbf{Consequence for a single method.} Even an optimally pstudio-weighted single DA3-g pipeline tops out
+near $0.225$ metric-AJ on pstudio; plugged into the per-subset numbers (drivetrack $0.166$, adt $0.285$)
+the mean is ${\approx}0.225$, still \emph{below} v39's $0.246$ --- DA3-g's drivetrack win ($+0.025$) cannot
+offset its near-field noise floor (pstudio $-0.054$, adt $-0.033$). So \textbf{v39 (DA3-l) is the ceiling
+for a single method}; only the per-domain hybrid (\S\ref{sec:v41}) beats it. The DA3-g swap is a far-field
+lever, not a route to a single SOTA pipeline; beating v39 everywhere needs a depth model that is metric
+\emph{and} low-noise in the near field, which the giant nested model is not.
 
 \subsection{v42: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:v42}

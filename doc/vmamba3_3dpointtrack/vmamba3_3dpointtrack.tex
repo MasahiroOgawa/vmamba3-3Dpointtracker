@@ -530,8 +530,9 @@ external baseline that consumes DA3 depth --- SEA-RAFT$+$DA3, WAFT$+$DA3 (=v40),
 and TAPIP3D --- swapping only the depth cache from DA3-l to DA3-g
 (Tables~\ref{tab:da3l-sota}--\ref{tab:da3g-sota}, Fig.~\ref{fig:da3g-reeval}); the 2D
 front-ends, models, and eval protocol are unchanged. (The DA3-l-trained \emph{refiners} v33/v35/v39 are
-excluded: fed DA3-g zero-shot they over-correct, cf.\ \S\ref{sec:v41}. TrackCraft3R is excluded on cost,
-$31$\,min/clip.)
+excluded: fed DA3-g zero-shot they over-correct, cf.\ \S\ref{sec:v41}. TrackCraft3R could not be
+re-run: its $1.3$\,B video-diffusion pipeline runs out of memory on the $12$\,GB GPU under DA3-g's
+larger metric depths, on top of its $31$\,min/clip cost.)
 
 \begin{table}[h]
 \centering
@@ -591,17 +592,47 @@ tracker, and the bigger DA3-g backbone fixes it for all of them.
 
 \subsection{v41: DA3-g depth $+$ vmamba3 refiner}
 \label{sec:v41}
-\emph{Status: training pending. Pipeline: WAFT $+$ DA3-g depth $+$ the vmamba3 refiner, with the
-refiner \textbf{retrained on the new metric depth}.}
-
-v41 adds the v35 DINOv3-conditioned refiner back on top of the v40 baseline. Crucially, the refiner must be
-\textbf{retrained on DA3-g depth}: the v39 refiner was trained on the $0.55\times$-biased
+v41 puts the v35 DINOv3-conditioned refiner back on top of the v40 baseline, but the refiner is
+\textbf{retrained on DA3-g depth}. The v39 refiner was trained on the $0.55\times$-biased
 \texttt{DA3Metric-Large} depth and learned to scale depth up, so applied zero-shot to the now-metric
 DA3-g depth it \emph{over-corrects} (drivetrack absolute-AJ collapses to $0.003$, median error
-$18.6$\,m). After retraining, the refiner's role shifts from fixing a gross scale bias (now unnecessary) to
-the residual along-ray and $\Delta\mathbf{u}$ corrections and occlusion handling, so the expected gain over
-the v40 baseline ($0.146$) is smaller than v39's gain over its baseline was. Requires precomputing
-DA3-g depth for the training split before training.
+$18.6$\,m). Retraining unlearns exactly that: warm-started from the v39 refiner, at step~0 it sits at
+loss $1.04$ (still over-correcting) and drops below $0.06$ within $50$ steps. We precomputed DA3-g depth
+for the full $4{,}418$-clip training split and retrained the v35 refiner ($0.44$\,M params, $20$k steps),
+evaluated with the WAFT front-end (the v41 analogue of v39).
+
+\begin{table}[h]
+\centering
+\caption{v41 vs.\ its lineage: absolute metric-AJ on TAPVid-3D minival (higher better), per subset.
+Best per column in bold. v41 wins drivetrack but regresses on the near-field subsets, so v39 stays best
+overall.}
+\label{tab:v41}
+\begin{tabular}{lcccc}
+\toprule
+Pipeline & drivetrack & pstudio & adt & mean \\
+\midrule
+v39 (DA3-l $+$ refiner)      & 0.141 & \textbf{0.279} & \textbf{0.318} & \textbf{0.246} \\
+v40 (DA3-g, no refiner)      & 0.146 & 0.192 & 0.285 & 0.208 \\
+v41 (DA3-g $+$ refiner)      & \textbf{0.166} & 0.198 & 0.285 & 0.216 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The result is a \emph{targeted} win, not an overall one (Table~\ref{tab:v41}). On drivetrack the metric
+depth pays off exactly as intended: absolute metric-AJ rises $0.141\!\to\!0.166$ ($+18\%$) and mean 3D
+error drops $4.67\!\to\!3.90$\,m. The refiner also earns its keep on DA3-g --- v41 ($0.216$ mean) beats the
+refiner-free v40 ($0.208$), confirming the learned along-ray and $\Delta\mathbf{u}$ corrections still add
+value once the scale bias is gone. But pstudio and adt \emph{regress}
+($0.279\!\to\!0.198$ and $0.318\!\to\!0.285$), dragging the mean below v39 ($0.246\!\to\!0.216$); the
+scale-invariant leaderboard metric moves the same way (mean $0.107\!\to\!0.080$). So \textbf{v39 remains
+the best single pipeline overall}: DA3-g helps the outdoor far-field but hurts the indoor/egocentric
+near-field.
+
+A per-domain depth choice (DA3-l indoors, DA3-g on driving) would beat both ($\approx0.254$ mean), but we
+do not pursue a mixture --- we chase a single method. That makes the open question sharp and worth
+resolving: \emph{why is the $1.4$\,B metric-accurate DA3-g \textbf{worse} than the smaller, scale-biased
+DA3-l in the near field} (pstudio/adt), where a global scale bias should barely matter? Resolving this is
+the path to a single DA3-g pipeline that dominates v39 everywhere.
 
 \subsection{v42: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:v42}

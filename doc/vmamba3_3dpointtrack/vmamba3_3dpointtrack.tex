@@ -629,10 +629,49 @@ the best single pipeline overall}: DA3-g helps the outdoor far-field but hurts t
 near-field.
 
 A per-domain depth choice (DA3-l indoors, DA3-g on driving) would beat both ($\approx0.254$ mean), but we
-do not pursue a mixture --- we chase a single method. That makes the open question sharp and worth
-resolving: \emph{why is the $1.4$\,B metric-accurate DA3-g \textbf{worse} than the smaller, scale-biased
-DA3-l in the near field} (pstudio/adt), where a global scale bias should barely matter? Resolving this is
-the path to a single DA3-g pipeline that dominates v39 everywhere.
+do not pursue a mixture --- we chase a single method. That makes the open question sharp: \emph{why is the
+$1.4$\,B metric-accurate DA3-g \textbf{worse} than the smaller, scale-biased DA3-l in the near field}
+(pstudio/adt), where a global scale bias should barely matter?
+
+\paragraph{Diagnosis: the refiner corrects systematic bias, not noise.}
+Isolating the refiner's effect --- no-refiner vs.\ refiner on the \emph{same} depth and the same WAFT 2D
+front-end (v37$\to$v39 for DA3-l, v40$\to$v41 for DA3-g) --- answers it (Table~\ref{tab:v41-refiner}).
+The refiner genuinely reshapes depth per-point: on DA3-l it \emph{halves} the pstudio depth error
+($0.732\!\to\!0.348$\,m). But it barely touches DA3-g's ($0.777\!\to\!0.734$\,m), even though the two
+\emph{raw} depths start at nearly the same error. A learned corrector can only undo error that is
+\emph{predictable} from its inputs (appearance, ray, local depth patch) --- systematic bias --- not
+unstructured noise. That is exactly what separates the two depths in the near field: after removing each
+model's own per-clip scale, DA3-l's pstudio residual is $0.073$\,m (tight, systematic) while DA3-g's is
+$0.238$\,m ($3\times$ looser). Systematic bias the refiner learns away; noise survives refinement, keeping
+DA3-g's metric \emph{and} normalized scores low --- consistent with metric-correct $\Rightarrow$
+normalized-correct, since DA3-g's near-field depth is simply not metric-correct, only noisier. In short,
+the giant nested model trades near-field shape fidelity for the far-field metric correctness that rescues
+drivetrack. One residual possibility --- that pstudio (only $3.5\%$ of training clips) is under-weighted
+rather than intrinsically un-correctable --- is tested by a pstudio-weighted retrain (\S\ref{sec:v41b}).
+
+\begin{table}[h]
+\centering
+\caption{Refiner effect on pstudio depth (median 3D error, m), same WAFT 2D front-end. The refiner halves
+DA3-l's error but barely moves DA3-g's --- it corrects systematic bias, not the noise DA3-g carries in the
+near field.}
+\label{tab:v41-refiner}
+\begin{tabular}{lccc}
+\toprule
+pstudio depth & raw (no refiner) & refined & $\Delta$ \\
+\midrule
+DA3-l & $0.732$ (v37) & $\mathbf{0.348}$ (v39) & $-52\%$ \\
+DA3-g & $0.777$ (v40) & $0.734$ (v41) & $\phantom{0}-6\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{v41b: pstudio-weighted retrain (systematic-vs-noise check)}
+\label{sec:v41b}
+\emph{In progress.} \S\ref{sec:v41} left one alternative open: DA3-g's un-correctable pstudio error might
+be intrinsic noise, or merely under-weighted in training (pstudio is only $3.5\%$ of clips). To decide, we
+retrain the v41 refiner with the pstudio loss up-weighted and re-measure the refiner's effect on pstudio
+depth (cf.\ Table~\ref{tab:v41-refiner}). If the error still fails to drop, the noise explanation holds.
+Results to follow.
 
 \subsection{v42: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:v42}

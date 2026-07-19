@@ -482,6 +482,19 @@ def main() -> int:
         raise ValueError("data.da3_depth_root is required")
     print(f"[train] DA3 depth cache: {da3_depth_root}")
 
+    # Oversample under-represented (near-range) subsets by replicating their clips.
+    # Each replica draws a different augmented window, so this is effective oversampling,
+    # not identical repeats. val_clips are sampled above from the un-oversampled list.
+    oversample = data_cfg.get("oversample", {})
+    if oversample:
+        from collections import Counter
+        expanded: list = []
+        for p in train_clips:
+            expanded.extend([p] * int(oversample.get(p.parent.name, 1)))
+        train_clips = expanded
+        print(f"[train] oversampled train clips -> {len(train_clips)} "
+              f"{dict(Counter(p.parent.name for p in train_clips))} via {oversample}")
+
     train_ds = TAPVid3DDataset(
         train_clips,
         window_size=int(train_cfg["window"]),

@@ -143,9 +143,10 @@ def _percent(v: float) -> float:
 
 
 def make_figure(
-    data: dict[int, dict[str, float]], title: str, ylabel: str, fname: str
+    data: dict[int, dict[str, float]], title: str, ylabel: str, fname: str,
+    methods: list[str] = METHODS, sota_count: int = SOTA_COUNT,
 ) -> None:
-    n_methods = len(METHODS)
+    n_methods = len(methods)
     n_subsets = len(SUBSETS)
     bar_w = 0.22
     group_gap = 0.2
@@ -223,7 +224,7 @@ def make_figure(
         legend_handles.append(patch)
 
     ax.set_xticks(x_centers)
-    ax.set_xticklabels(METHODS, fontsize=7.5)
+    ax.set_xticklabels(methods, fontsize=7.5)
     ax.set_ylabel(ylabel, fontsize=10)
     ax.set_title(title, fontsize=11, pad=10)
     ax.legend(handles=legend_handles, fontsize=9, framealpha=0.85)
@@ -241,11 +242,11 @@ def make_figure(
         ax.axvline(xi, color="#ddd", linewidth=0.8, zorder=0)
 
     # Prominent separator + group labels between SOTA and Ours
-    sota_ours_x = boundaries[SOTA_COUNT - 1]
+    sota_ours_x = boundaries[sota_count - 1]
     ax.axvline(sota_ours_x, color="#777", linewidth=1.5, linestyle="--", zorder=1)
     y_top = ax.get_ylim()[1]
     ax.text(
-        (x_centers[0] + x_centers[SOTA_COUNT - 1]) / 2,
+        (x_centers[0] + x_centers[sota_count - 1]) / 2,
         y_top * 0.97,
         "SOTA",
         ha="center",
@@ -255,7 +256,7 @@ def make_figure(
         style="italic",
     )
     ax.text(
-        (x_centers[SOTA_COUNT] + x_centers[-1]) / 2,
+        (x_centers[sota_count] + x_centers[-1]) / 2,
         y_top * 0.97,
         "Ours",
         ha="center",
@@ -295,6 +296,44 @@ def print_table(norm_aj, abs_aj):
         print(row)
 
 
+# ── DA3-g whole-method comparison (methods that consume DA3-g depth) ──────────
+METHODS_DA3G = [
+    "SpatialTracker\nV2",
+    "TAPIP3D\n+DA3-g",
+    "DELTA\n+DA3-g",
+    "SEA-RAFT\n+DA3-g\n(baseline)",
+    "v40\n(WAFT\n+DA3-g)",
+    "v41\n(WAFT+DA3-g\n+vmamba3)",
+]
+SOTA_COUNT_DA3G = 3
+
+
+def build_da3g_tables() -> tuple[dict, dict]:
+    """DA3-g norm/abs AJ, per subset, in METHODS_DA3G order. NaN = TAPIP3D adt OOM."""
+    NaN = float("nan")
+    # fmt: off
+    keyed_norm = [
+        {"drivetrack": 0.018, "pstudio": 0.008, "adt": 0.027},  # SpatialTrackerV2
+        {"drivetrack": 0.057, "pstudio": 0.011, "adt": NaN},    # TAPIP3D+DA3-g
+        {"drivetrack": 0.137, "pstudio": 0.049, "adt": 0.141},  # DELTA+DA3-g
+        {"drivetrack": 0.112, "pstudio": 0.036, "adt": 0.120},  # SEA-RAFT+DA3-g
+        {"drivetrack": 0.118, "pstudio": 0.039, "adt": 0.123},  # v40 WAFT+DA3-g
+        {"drivetrack": 0.110, "pstudio": 0.022, "adt": 0.108},  # v41
+    ]
+    keyed_abs = [
+        {"drivetrack": 0.043, "pstudio": 0.184, "adt": 0.170},  # SpatialTrackerV2
+        {"drivetrack": 0.110, "pstudio": 0.148, "adt": NaN},    # TAPIP3D+DA3-g
+        {"drivetrack": 0.164, "pstudio": 0.194, "adt": 0.324},  # DELTA+DA3-g
+        {"drivetrack": 0.136, "pstudio": 0.175, "adt": 0.269},  # SEA-RAFT+DA3-g
+        {"drivetrack": 0.146, "pstudio": 0.192, "adt": 0.285},  # v40 WAFT+DA3-g
+        {"drivetrack": 0.166, "pstudio": 0.198, "adt": 0.285},  # v41
+    ]
+    # fmt: on
+    norm = {i: {s: d.get(s, NaN) for s in SUBSETS} for i, d in enumerate(keyed_norm)}
+    ab = {i: {s: d.get(s, NaN) for s in SUBSETS} for i, d in enumerate(keyed_abs)}
+    return norm, ab
+
+
 def main():
     norm_aj, abs_aj = build_data_tables()
     print_table(norm_aj, abs_aj)
@@ -310,6 +349,23 @@ def main():
         title="Absolute Metric-AJ (fixed-metre thresholds, real 3D accuracy)",
         ylabel="Metric-AJ [%]  (absolute, 1cm–2.56m thresholds)",
         fname="fig2_absolute_aj",
+    )
+
+    # DA3-g counterparts (same style, DA3-g methods only)
+    norm_g, abs_g = build_da3g_tables()
+    make_figure(
+        norm_g,
+        title="TAPVid-3D Normalised Median-AJ — DA3-g depth (higher = better)",
+        ylabel="3D-AJ [%]  (normalised, scale-invariant)",
+        fname="fig1_normalized_aj_da3g",
+        methods=METHODS_DA3G, sota_count=SOTA_COUNT_DA3G,
+    )
+    make_figure(
+        abs_g,
+        title="Absolute Metric-AJ — DA3-g depth (fixed-metre thresholds, real 3D accuracy)",
+        ylabel="Metric-AJ [%]  (absolute, 1cm–2.56m thresholds)",
+        fname="fig2_absolute_aj_da3g",
+        methods=METHODS_DA3G, sota_count=SOTA_COUNT_DA3G,
     )
     print("\nDone.")
 

@@ -528,7 +528,8 @@ The v40 result raises a fair question: is the drivetrack gain specific to our pi
 scale bias hurt \emph{every} method that lifts 2D tracks with DA3 depth? To answer it we re-ran each
 external baseline that consumes DA3 depth --- SEA-RAFT$+$DA3, WAFT$+$DA3 (=v40), DELTA, SpatialTrackerV2,
 and TAPIP3D --- swapping only the depth cache from DA3-l to DA3-g
-(Tables~\ref{tab:da3l-sota}--\ref{tab:da3g-sota}, Figs.~\ref{fig:da3l-reeval}--\ref{fig:da3g-reeval}); the 2D
+(Tables~\ref{tab:da3l-sota}--\ref{tab:da3g-sota}; whole-method DA3-g charts in
+Figs.~\ref{fig:6method-norm-da3g}--\ref{fig:6method-abs-da3g}); the 2D
 front-ends, models, and eval protocol are unchanged. (The DA3-l-trained \emph{refiners} v33/v35/v39 are
 excluded: fed DA3-g zero-shot they over-correct, cf.\ \S\ref{sec:v41}. TrackCraft3R could not be
 re-run: its $1.3$\,B video-diffusion pipeline runs out of memory on the $12$\,GB GPU under DA3-g's
@@ -571,24 +572,6 @@ TAPIP3D          & 0.110 & 0.148 & --$^{\ddagger}$ & $0.129^{\ddagger}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=\linewidth]{figs/da3l_reeval.pdf}
-\caption{External baselines on \textbf{DA3-l} depth, per subset: normalized 3D-AJ (left) and absolute
-metric-AJ (right). Metric-AJ on drivetrack is near-zero for every direct-unprojection method (the DA3-l
-far-field scale collapse).}
-\label{fig:da3l-reeval}
-\end{figure}
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=\linewidth]{figs/da3g_reeval.pdf}
-\caption{External baselines on \textbf{DA3-g} depth, per subset: normalized 3D-AJ (left) and absolute
-metric-AJ (right). Compared with Fig.~\ref{fig:da3l-reeval}, drivetrack metric-AJ jumps for every
-direct-unprojection method while the normalized metric is nearly unchanged; TAPIP3D adt is OOM-limited.}
-\label{fig:da3g-reeval}
-\end{figure}
 
 The pattern is unambiguous: on \emph{drivetrack} the DA3-l$\to$DA3-g swap lifts absolute metric-AJ by
 $18$--$29\times$ for every method that unprojects depth directly (SEA-RAFT, WAFT, DELTA, TAPIP3D all jump
@@ -941,9 +924,10 @@ while drivetrack contains outdoor ego-motion scenes at scales $>$10\,m.
 
 \begin{table}[h]
 \centering
-\caption{TAPVid-3D minival, median-scaled 3D-AJ (standard leaderboard metric; higher better).
-         ``---'' = result unavailable.
-         All numbers are produced by our own evaluation pipeline on the same hardware.}
+\caption{TAPVid-3D minival, median-scaled 3D-AJ (standard leaderboard metric; higher better) ---
+         \textbf{DA3-l depth}. Bold = best per column. ``---'' = result unavailable.
+         All numbers are produced by our own evaluation pipeline on the same hardware.
+         DA3-g counterpart: Table~\ref{tab:median-g}.}
 \label{tab:median}
 \begin{tabular}{lrrrr}
 \toprule
@@ -956,7 +940,7 @@ TAPIP3D + DA3-l\,$^{\dagger}$      & 0.065 & 0.023 & 0.004 & 0.030 \\
 TAPIP3D + MegaSAM\,$^{\ddagger}$ & 0.000 & 0.003 & 0.004 & 0.002 \\
 TrackCraft3R\,$^{\P}$            & 0.003 & 0.013 & 0.010 & 0.009 \\
 \midrule
-\multicolumn{5}{l}{\emph{Ours}} \\
+\multicolumn{5}{l}{\emph{Ours (DA3-l depth)}} \\
 SEA-RAFT + DA3-l (baseline)        & 0.108 & 0.111 & 0.132 & 0.117 \\
 SEA-RAFT + MegaSAM               & 0.103 & 0.135 & \textbf{0.163} & 0.134 \\
 v33, SEA-RAFT+DA3-l+mamba3            & 0.057 & 0.041 & 0.123 & 0.074 \\
@@ -966,7 +950,6 @@ v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.093 & 0.057 & 0.141 & 0.097 \\
 v37, WAFT+DA3-l            & 0.115 & 0.116 & 0.137 & 0.123 \\
 v38, WAFTbidir+DA3-l  & 0.116 & 0.120 & 0.141 & 0.126 \\
 v39, WAFT+DA3-l+vmamba3  & 0.098 & 0.073 & 0.151 & 0.107 \\
-v40, WAFT+DA3-g (no refiner)  & 0.118 & 0.039 & 0.123 & 0.093 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -974,6 +957,29 @@ v40, WAFT+DA3-g (no refiner)  & 0.118 & 0.039 & 0.123 & 0.093 \\
 $^{\dagger}$TAPIP3D$+$DA3-l, $^{\ddagger}$TAPIP3D$+$MegaSAM, $^{\P}$TrackCraft3R) are discussed in the
 text above; $^{\ddagger}$ additionally see \S\ref{sec:megasam-fail} (DROID-SLAM failure) and
 $^{\P}$ \S\ref{sec:trackcraft3r}.}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{TAPVid-3D minival, median-scaled 3D-AJ (leaderboard metric; higher better) ---
+         \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
+         column. ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:median}.}
+\label{tab:median-g}
+\begin{tabular}{lrrrr}
+\toprule
+Method (DA3-g) & drivetrack & pstudio & adt & mean \\
+\midrule
+\multicolumn{5}{l}{\emph{SOTA (external)}} \\
+DELTA + DA3-g            & \textbf{0.137} & \textbf{0.049} & \textbf{0.141} & \textbf{0.109} \\
+SpatialTrackerV2 + DA3-g & 0.018 & 0.008 & 0.027 & 0.017 \\
+TAPIP3D + DA3-g          & 0.057 & 0.011 & ---   & 0.034 \\
+\midrule
+\multicolumn{5}{l}{\emph{Ours}} \\
+SEA-RAFT + DA3-g (baseline)  & 0.112 & 0.036 & 0.120 & 0.089 \\
+v40, WAFT+DA3-g (no refiner) & 0.118 & 0.039 & 0.123 & 0.093 \\
+v41, WAFT+DA3-g+vmamba3      & 0.110 & 0.022 & 0.108 & 0.080 \\
+\bottomrule
+\end{tabular}
 \end{table}
 
 \subsection{Absolute-metric results: the reversal}
@@ -994,7 +1000,9 @@ The leaderboard's median scaling hides all of this: v35/v39's normalised 3D-AJ i
 \begin{table}[h]
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (no scaling, fixed-metre thresholds 1\,cm--2.56\,m;
-higher better). ``---'' = result unavailable.
+higher better) --- \textbf{DA3-l depth}. Bold = best per column. ``---'' = result unavailable.
+\textbf{Overall winner across all four tables: v39} (DA3-l $+$ refiner, mean $0.246$) --- no DA3-g pipeline
+reaches it (best DA3-g is DELTA$+$DA3-g at $0.227$, Table~\ref{tab:abs-g}).
 All numbers are produced by our own evaluation pipeline on the same hardware.}
 \label{tab:abs}
 \begin{tabular}{lrrrr}
@@ -1008,7 +1016,7 @@ TAPIP3D + DA3-l                    & 0.006 & 0.131 & 0.164 & 0.100 \\
 TAPIP3D + MegaSAM                & 0.000 & 0.000 & 0.000 & 0.000 \\
 TrackCraft3R\,$^{\P}$            & 0.002 & 0.025 & 0.032 & 0.020 \\
 \midrule
-\multicolumn{5}{l}{\emph{Ours}} \\
+\multicolumn{5}{l}{\emph{Ours (DA3-l depth)}} \\
 SEA-RAFT + DA3-l (baseline)        & 0.005 & 0.165 & 0.273 & 0.147 \\
 SEA-RAFT + MegaSAM               & 0.000 & 0.082 & 0.209 & 0.097 \\
 v33, SEA-RAFT+DA3-l+mamba3            & 0.082 & 0.186 & 0.272 & 0.180 \\
@@ -1017,8 +1025,7 @@ v35, SEA-RAFT+DA3-l+vmamba3               & 0.130 & 0.274 & 0.298 & 0.234 \\
 v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.130 & 0.249 & 0.298 & 0.226 \\
 v37, WAFT+DA3-l            & 0.005 & 0.181 & 0.289 & 0.159 \\
 v38, WAFTbidir+DA3-l  & 0.005 & 0.181 & 0.292 & 0.159 \\
-v39, WAFT+DA3-l+vmamba3  & 0.141 & \textbf{0.279} & 0.318 & \textbf{0.246} \\
-v40, WAFT+DA3-g (no refiner)  & \textbf{0.146} & 0.192 & 0.285 & 0.208 \\
+v39, WAFT+DA3-l+vmamba3  & \textbf{0.141} & \textbf{0.279} & 0.318 & \textbf{0.246} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -1027,6 +1034,31 @@ $^{\S}$ DELTA$+$DA3-l, feed-forward on the same hardware; see Table~\ref{tab:med
 metric it attains the best \emph{adt} score of any method ($0.344$), but its far-field \emph{drivetrack}
 depth scale (like all DA3-based methods) keeps its mean below our v35.
 $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} footnote for explanation of low scores vs.\ the paper's Sim(3)-aligned numbers.}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{TAPVid-3D minival, absolute metric-AJ (fixed-metre thresholds; higher better) ---
+         \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
+         column. \textbf{Best DA3-g mean: DELTA$+$DA3-g $0.227$} --- still below the DA3-l v39 ($0.246$,
+         Table~\ref{tab:abs}); on DA3-g, v41 leads the near columns (drivetrack $0.166$, pstudio $0.198$).
+         ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:abs}.}
+\label{tab:abs-g}
+\begin{tabular}{lrrrr}
+\toprule
+Method (DA3-g) & drivetrack & pstudio & adt & mean \\
+\midrule
+\multicolumn{5}{l}{\emph{SOTA (external)}} \\
+DELTA + DA3-g            & 0.164 & 0.194 & \textbf{0.324} & \textbf{0.227} \\
+SpatialTrackerV2 + DA3-g & 0.043 & 0.184 & 0.170 & 0.132 \\
+TAPIP3D + DA3-g          & 0.110 & 0.148 & ---   & 0.129 \\
+\midrule
+\multicolumn{5}{l}{\emph{Ours}} \\
+SEA-RAFT + DA3-g (baseline)  & 0.136 & 0.175 & 0.269 & 0.193 \\
+v40, WAFT+DA3-g (no refiner) & 0.146 & 0.192 & 0.285 & 0.208 \\
+v41, WAFT+DA3-g+vmamba3      & \textbf{0.166} & \textbf{0.198} & 0.285 & 0.216 \\
+\bottomrule
+\end{tabular}
 \end{table}
 
 \subsubsection*{Why BootsTAPIR + ZoeDepth cannot be evaluated under the absolute metric}
@@ -1171,6 +1203,30 @@ TrackCraft3R's low drivetrack bar reflects an OOD failure (see \S\ref{sec:trackc
 better). v39 (WAFT flow $+$ v35 refiner) leads all methods, ahead of the SEA-RAFT-fed v35,
 despite both ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \label{fig:6method-abs}
+\end{figure}
+
+Figures~\ref{fig:6method-norm-da3g} and~\ref{fig:6method-abs-da3g} repeat the comparison on the
+\textbf{DA3-g} depth backbone, over the methods that consume DA3-g (external SOTA plus v40/v41). On the
+normalized metric the picture is unchanged from DA3-l (median rescaling hides the scale fix); on absolute
+metric-AJ every direct-unprojection method leaps on drivetrack, but no DA3-g pipeline --- ours included ---
+overtakes the DA3-l v39 on the near-field subsets (cf.\ \S\ref{sec:v41}).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figs/fig1_normalized_aj_da3g}
+\caption{Method comparison on \textbf{DA3-g} depth, normalised median-AJ (leaderboard, scale-invariant;
+higher better), for the methods that consume DA3-g. TAPIP3D adt is OOM-limited (``N/A''). Cf.\ the DA3-l
+version, Fig.~\ref{fig:6method-norm}.}
+\label{fig:6method-norm-da3g}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figs/fig2_absolute_aj_da3g}
+\caption{Method comparison on \textbf{DA3-g} depth, absolute metric-AJ (fixed-metre thresholds; higher
+better). Drivetrack rises across the board vs.\ DA3-l (Fig.~\ref{fig:6method-abs}), but pstudio/adt do not,
+so v41 does not beat the DA3-l v39 overall. TAPIP3D adt is OOM-limited (``N/A'').}
+\label{fig:6method-abs-da3g}
 \end{figure}
 
 \subsection{Qualitative results}

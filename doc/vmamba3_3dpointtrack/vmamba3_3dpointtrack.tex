@@ -134,7 +134,32 @@ Sampling is done with \texttt{grid\_sample} so gradients flow to the (refined) d
 model itself is frozen. The baseline \emph{SEA-RAFT$+$DA3-l} tracker is exactly
 Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3-l.
 
+\subsection{v1--v32: prior direct-regression attempts (prehistory)}
+\label{sec:prehistory}
+The freeze-flow-and-refine-depth design below is the product of a long line of direct-regression trackers
+(v1--v32) that mostly \emph{failed}; those failures motivate it, so we summarise them briefly. (The numbers
+here are on an earlier per-clip eval protocol and are not directly comparable to the tables in
+\S\ref{sec:eval}.) \textbf{v1--v17} trained a Mamba-3 tracker to regress 3D tracks end-to-end ---
+from-scratch encoders, then frozen DINOv2/DINOv3 backbones, correlation-volume features and iterative
+refinement, with heavy loss engineering (Smooth-L1/Huber $+$ direction-cosine, a 2D reprojection term,
+cumsum-trajectory and scale-normalised losses). The recurring failure was a \emph{trivial zero-motion
+collapse}: the network minimised the loss by predicting near-static tracks. \textbf{v18--v28} attacked the
+metric-\emph{scale} problem head-on with a predicted per-clip scale head and a battery of scale-invariant /
+path-length-normalised losses and ground-truth-scale definitions (RMS motion vs.\ median anchor depth);
+trained on the full TAPVid-3D set (v19) this plateaued at ${\approx}8\%$ mean 3D-AJ. \textbf{v29--v31}
+scaled the backbone (DINOv3-L, $300$\,M frozen) and added a DA3-Large metric-depth branch, but v31 collapsed
+again ($0.5\%$ mean 3D-AJ).
+
+The turning point was \textbf{v32}: freeze SEA-RAFT flow and DA3 depth, and learn only a tiny ($0.4$\,M)
+causal Mamba-3 that refines the 2D track with a $\Delta\mathbf{u}$ head before unprojection. It cured the
+collapse but gave a clean \emph{negative} result --- the learned $\Delta\mathbf{u}$ \emph{hurt} 3D-AJ on
+every subset versus the training-free SEA-RAFT$+$DA3 baseline (mean $5.2\%\!\to\!3.4\%$), because nudging
+$\mathbf{u}$ across DA3 depth discontinuities flips points out of the metric threshold. That single
+observation is the crux of the method: \emph{do not move the 2D track at all} --- freeze it and refine only
+the depth along the fixed ray. That is v33, below --- the first version to beat the baseline.
+
 \subsection{v33: Mamba-3 depth-along-ray refiner (the method)}
+\label{sec:v33}
 DA3-l metric depth is accurate in \emph{relative} structure but carries a global scale bias
 (e.g.\ $\sim$40\% on far-field driving scenes). v33 learns a small temporal correction to the
 depth, leaving the 2D track untouched. The key design choice: with the pixel $\mathbf{u}_t$ frozen,
@@ -792,6 +817,7 @@ lr $3\!\times\!10^{-4}$, warmup $500$, $8$-frame windows, bf16; $\sim$9.5\,h on 
 
 % =====================================================================
 \section{Evaluation}
+\label{sec:eval}
 
 \subsection{Protocol and metrics}
 \label{sec:metrics}

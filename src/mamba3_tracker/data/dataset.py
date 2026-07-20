@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -148,19 +149,29 @@ class TAPVid3DDataset(Dataset):
         }
         if self.da3_depth_root is not None:
             depth_path = self.da3_depth_root / clip.subset / (clip.clip_id + ".npz")
-            with np.load(depth_path) as dd:
-                if "depth_q" in dd:
-                    q = np.asarray(dd["depth_q"][start:end])             # (F, Hd, Wd) uint16
-                    d_min = float(dd["d_min"])
-                    d_max = float(dd["d_max"])
-                    scale = max(d_max - d_min, 1e-6)
-                    depth_window = torch.from_numpy(
-                        d_min + q.astype(np.float32) * (scale / 65535.0)
-                    )                                                    # (F, Hd, Wd) float32
-                else:                                                    # legacy float32 cache
-                    depth_window = torch.from_numpy(
-                        np.asarray(dd["depth"][start:end])
-                    ).float()
+            try:
+                with np.load(depth_path) as dd:
+                    if "depth_q" in dd:
+                        q = np.asarray(dd["depth_q"][start:end])         # (F, Hd, Wd) uint16
+                        d_min = float(dd["d_min"])
+                        d_max = float(dd["d_max"])
+                        scale = max(d_max - d_min, 1e-6)
+                        depth_window = torch.from_numpy(
+                            d_min + q.astype(np.float32) * (scale / 65535.0)
+                        )                                                # (F, Hd, Wd) float32
+                    else:                                                # legacy float32 cache
+                        depth_window = torch.from_numpy(
+                            np.asarray(dd["depth"][start:end])
+                        ).float()
+            except Exception as e:
+                # A corrupt/truncated depth cache for one clip must not crash training
+                # (a single bad .npz once wedged v42 in an infinite restart loop). Skip
+                # this clip and draw the next one instead.
+                warnings.warn(
+                    f"[dataset] bad depth cache {depth_path.name}: "
+                    f"{type(e).__name__}; resampling another clip"
+                )
+                return self.__getitem__((idx + 1) % len(self.clip_paths))
             item["depth"] = depth_window
         return item
 

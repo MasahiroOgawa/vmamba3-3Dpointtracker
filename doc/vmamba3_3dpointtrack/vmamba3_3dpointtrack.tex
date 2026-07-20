@@ -702,6 +702,7 @@ pstudio pipeline & err median (m) & metric-AJ \\
 \midrule
 raw DA3-g (no refiner, v40)          & 0.777 & 0.192 \\
 DA3-g $+$ standard refiner (v41)     & 0.734 & 0.198 \\
+DA3-g $+$ refiner, pstudio $\times20$ (v42) & 0.652 & 0.213 \\
 DA3-g $+$ pstudio-only refiner (v41b) & 0.563 & 0.225 \\
 DA3-l $+$ refiner (v39)              & \textbf{0.348} & \textbf{0.279} \\
 \bottomrule
@@ -723,8 +724,59 @@ for a single method}; only the per-domain hybrid (\S\ref{sec:v41}) beats it. The
 lever, not a route to a single SOTA pipeline; beating v39 everywhere needs a depth model that is metric
 \emph{and} low-noise in the near field, which the giant nested model is not.
 
-\subsection{v42: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
+\subsection{v42: near-field boost by pstudio oversampling}
 \label{sec:v42}
+\S\ref{sec:v41b} showed DA3-g's pstudio error is \emph{partly} systematic --- a pstudio-only retrain lifts
+metric-AJ $0.198\!\to\!0.225$ --- and projected that an optimally near-weighted \emph{single} DA3-g pipeline
+would top out near $0.225$ mean. v42 tests that projection with a deployable recipe: the v41 configuration
+(WAFT $+$ DA3-g $+$ v35 refiner) retrained for the full $20$k steps, warm-started from v41, with the $106$
+pstudio training clips \textbf{oversampled $\times20$} so the under-represented near-range domain ($2.4\%$ of
+clips) reaches batch-mix parity with drivetrack/adt. Unlike the pstudio-only v41b checkpoint, v42 serves all
+three subsets at once.
+
+\begin{table}[h]
+\centering
+\caption{v42 (pstudio $\times20$ oversample) vs.\ its DA3-g lineage: absolute metric-AJ on TAPVid-3D
+minival (higher better), per subset. v42 improves v41 on \emph{all three} subsets and reaches the
+${\approx}0.225$ mean predicted in \S\ref{sec:v41b}, yet stays below the DA3-l v39 ($0.246$).}
+\label{tab:v42}
+\begin{tabular}{lrrrr}
+\toprule
+Method & drivetrack & pstudio & adt & mean \\
+\midrule
+v40 (DA3-g, no refiner)                     & 0.146 & 0.192 & 0.285 & 0.208 \\
+v41 (DA3-g $+$ refiner)                     & 0.166 & 0.198 & 0.285 & 0.216 \\
+v42 (DA3-g $+$ refiner, pstudio $\times20$) & \textbf{0.169} & \textbf{0.213} & \textbf{0.292} & \textbf{0.225} \\
+\midrule
+v39 (DA3-l $+$ refiner, ceiling)            & 0.141 & 0.279 & 0.318 & 0.246 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Findings.}
+\begin{enumerate}
+  \item \textbf{A uniform, near-free gain.} Oversampling lifts pstudio $0.198\!\to\!0.213$ \emph{without}
+  costing the far subsets --- drivetrack ($0.166\!\to\!0.169$) and adt ($0.285\!\to\!0.292$) both nudge up ---
+  so v42 is the \textbf{best of our DA3-g pipelines} at mean $0.225$, ahead of v41 ($0.216$) and
+  refiner-free v40 ($0.208$). The scale-invariant leaderboard mean moves the same way, $0.080\!\to\!0.086$.
+  \item \textbf{It essentially matches the strongest external DA3-g method.} At mean $0.225$, v42 ties
+  DELTA$+$DA3-g ($0.227$, Table~\ref{tab:abs-g}) --- \emph{ahead} on drivetrack ($0.169$ vs.\ $0.164$) and
+  pstudio ($0.213$ vs.\ $0.194$), behind only on adt ($0.292$ vs.\ $0.324$). The residual gap to DELTA is
+  therefore entirely adt, DELTA's architectural stronghold, not a near-field deficit.
+  \item \textbf{It lands exactly on the predicted ceiling.} v42's $0.225$ mean confirms the
+  \S\ref{sec:v41b} projection empirically at full training length.
+  \item \textbf{The near-field noise floor still binds.} v42's pstudio ($0.213$) sits \emph{below} the
+  pstudio-only v41b ($0.225$) --- one pipeline cannot spend all its capacity on pstudio --- and far below the
+  DA3-l v39 ($0.279$); pstudio median error is $0.652$\,m against DA3-l's $0.348$\,m. Oversampling extracts
+  the systematic part of the error but cannot cross DA3-g's intrinsic near-range depth noise.
+  \item \textbf{v39 remains the single-method ceiling.} At $0.225$ the best single DA3-g pipeline still
+  trails v39's $0.246$ by $0.021$; the $+0.003$ drivetrack edge cannot offset the near-field deficit.
+  Beating v39 everywhere needs either the per-domain hybrid (\S\ref{sec:v41}) or a depth backbone that is
+  metric \emph{and} low-noise in the near field.
+\end{enumerate}
+
+\subsection{v43: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
+\label{sec:v43}
 \emph{Status: \textbf{deferred}. The first-experiment gate was run (below) and revealed that the drivetrack
 far-field error is dominated by a monocular metric-depth \emph{scale} bias --- fixed directly by v40's
 depth-backbone swap --- rather than by the lack of a world frame. Triangulation with correct pose is exact
@@ -755,7 +807,7 @@ $\mathbf{X}^{w}_0$. This buys two things the per-frame formulation cannot:
   \item \textbf{Parallax triangulation.} With relative pose known, a static point seen from a moving camera
   can be \emph{triangulated}, which is far more accurate than monocular depth at range. This directly
   attacks the far-field bottleneck, correcting DA3-l's depth-scale bias rather than only refining along the
-  ray (\S\ref{sec:v42-gate}).
+  ray (\S\ref{sec:v43-gate}).
 \end{enumerate}
 
 \paragraph{Architecture (what changes from v35/v39).}
@@ -795,7 +847,7 @@ estimated \emph{robustly from confidently-static points} (RANSAC-weighted alignm
 monocular depth.
 
 \paragraph{First-experiment gate.}
-\label{sec:v42-gate}
+\label{sec:v43-gate}
 Before any training we test the load-bearing claim (parallax triangulation fixes far-field depth) directly
 on drivetrack: using exact ground-truth pixel correspondences, compare (a) monocular DA3-depth unprojection
 against (b) DLT triangulation across a widened baseline, run with both the ground-truth pose (oracle) and a
@@ -1004,6 +1056,7 @@ TAPIP3D + DA3-g          & 0.057 & 0.011 & ---   & 0.034 \\
 SEA-RAFT + DA3-g (baseline)  & 0.112 & 0.036 & 0.120 & 0.089 \\
 v40, WAFT+DA3-g (no refiner) & 0.118 & 0.039 & 0.123 & 0.093 \\
 v41, WAFT+DA3-g+vmamba3      & 0.110 & 0.022 & 0.108 & 0.080 \\
+v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.118 & 0.026 & 0.112 & 0.086 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1066,8 +1119,8 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (fixed-metre thresholds; higher better) ---
          \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
-         column. \textbf{Best DA3-g mean: DELTA$+$DA3-g $0.227$} --- still below the DA3-l v39 ($0.246$,
-         Table~\ref{tab:abs}); on DA3-g, v41 leads the near columns (drivetrack $0.166$, pstudio $0.198$).
+         column. \textbf{Best DA3-g mean: DELTA$+$DA3-g $0.227$, essentially tied by our v42 ($0.225$)} --- still below the DA3-l v39 ($0.246$,
+         Table~\ref{tab:abs}); on DA3-g, v42 leads the near columns (drivetrack $0.169$, pstudio $0.213$).
          ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:abs}.}
 \label{tab:abs-g}
 \begin{tabular}{lrrrr}
@@ -1082,7 +1135,8 @@ TAPIP3D + DA3-g          & 0.110 & 0.148 & ---   & 0.129 \\
 \multicolumn{5}{l}{\emph{Ours}} \\
 SEA-RAFT + DA3-g (baseline)  & 0.136 & 0.175 & 0.269 & 0.193 \\
 v40, WAFT+DA3-g (no refiner) & 0.146 & 0.192 & 0.285 & 0.208 \\
-v41, WAFT+DA3-g+vmamba3      & \textbf{0.166} & \textbf{0.198} & 0.285 & 0.216 \\
+v41, WAFT+DA3-g+vmamba3      & 0.166 & 0.198 & 0.285 & 0.216 \\
+v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & \textbf{0.169} & \textbf{0.213} & 0.292 & 0.225 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1232,7 +1286,7 @@ despite both ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \end{figure}
 
 Figures~\ref{fig:6method-norm-da3g} and~\ref{fig:6method-abs-da3g} repeat the comparison on the
-\textbf{DA3-g} depth backbone, over the methods that consume DA3-g (external SOTA plus v40/v41). On the
+\textbf{DA3-g} depth backbone, over the methods that consume DA3-g (external SOTA plus v40/v41/v42). On the
 normalized metric the picture is unchanged from DA3-l (median rescaling hides the scale fix); on absolute
 metric-AJ every direct-unprojection method leaps on drivetrack, but no DA3-g pipeline --- ours included ---
 overtakes the DA3-l v39 on the near-field subsets (cf.\ \S\ref{sec:v41}).
@@ -1251,7 +1305,8 @@ version, Fig.~\ref{fig:6method-norm}.}
 \includegraphics[width=\textwidth]{figs/fig2_absolute_aj_da3g}
 \caption{Method comparison on \textbf{DA3-g} depth, absolute metric-AJ (fixed-metre thresholds; higher
 better). Drivetrack rises across the board vs.\ DA3-l (Fig.~\ref{fig:6method-abs}), but pstudio/adt do not,
-so v41 does not beat the DA3-l v39 overall. TAPIP3D adt is OOM-limited (``N/A'').}
+so even v42 --- our best DA3-g pipeline (mean $0.225$), which adds a pstudio $\times20$ near-boost over v41 ---
+does not beat the DA3-l v39 overall ($0.246$). TAPIP3D adt is OOM-limited (``N/A'').}
 \label{fig:6method-abs-da3g}
 \end{figure}
 

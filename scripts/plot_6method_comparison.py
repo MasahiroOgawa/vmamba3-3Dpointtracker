@@ -304,6 +304,7 @@ METHODS_DA3G = [
     "SEA-RAFT\n+DA3-g\n(baseline)",
     "v40\n(WAFT\n+DA3-g)",
     "v41\n(WAFT+DA3-g\n+vmamba3)",
+    "v42\n(v41 +pstudio\n×20)",
 ]
 SOTA_COUNT_DA3G = 3
 
@@ -319,6 +320,7 @@ def build_da3g_tables() -> tuple[dict, dict]:
         {"drivetrack": 0.112, "pstudio": 0.036, "adt": 0.120},  # SEA-RAFT+DA3-g
         {"drivetrack": 0.118, "pstudio": 0.039, "adt": 0.123},  # v40 WAFT+DA3-g
         {"drivetrack": 0.110, "pstudio": 0.022, "adt": 0.108},  # v41
+        {"drivetrack": 0.118, "pstudio": 0.026, "adt": 0.112},  # v42 (v41 + pstudio x20)
     ]
     keyed_abs = [
         {"drivetrack": 0.043, "pstudio": 0.184, "adt": 0.170},  # SpatialTrackerV2
@@ -327,6 +329,7 @@ def build_da3g_tables() -> tuple[dict, dict]:
         {"drivetrack": 0.136, "pstudio": 0.175, "adt": 0.269},  # SEA-RAFT+DA3-g
         {"drivetrack": 0.146, "pstudio": 0.192, "adt": 0.285},  # v40 WAFT+DA3-g
         {"drivetrack": 0.166, "pstudio": 0.198, "adt": 0.285},  # v41
+        {"drivetrack": 0.169, "pstudio": 0.213, "adt": 0.292},  # v42 (v41 + pstudio x20)
     ]
     # fmt: on
     norm = {i: {s: d.get(s, NaN) for s in SUBSETS} for i, d in enumerate(keyed_norm)}

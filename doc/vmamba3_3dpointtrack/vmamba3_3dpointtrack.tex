@@ -957,7 +957,7 @@ $+$ DA3-l scale profile (GT-free)    & 0.043 & \textbf{0.227} & \textbf{0.584} \
 \end{tabular}
 \end{table}
 
-\subsection{v43: in-model per-frame scale head (proposed / in progress)}
+\subsection{v43: in-model per-frame scale head}
 \label{sec:v43}
 \S\ref{sec:da3lg} localised DA3-g's near-field defect to a \emph{per-frame global scale} that drifts over
 time, and showed offline that removing it --- even by borrowing DA3-l's scale profile --- lifts pstudio on
@@ -972,6 +972,39 @@ so v43 starts exactly at v42; it warm-starts from v42 and trains on DA3-g depth.
 \emph{minimal} slice of the within-frame machinery of \S\ref{sec:vfuture}: v43 estimates only a per-frame
 global \emph{scale}, not a per-frame camera pose or per-point object motion --- low-risk, and a clean
 baseline to compare against the full world-frame model.
+
+\paragraph{Result.}
+Trained $20$k steps warm-started from v42 (masked-mean within-frame pooling), v43 improves v42 on
+\emph{both} metrics across \emph{all three} subsets, with the gain concentrated exactly where the drift
+lives --- pstudio and adt --- while drift-free drivetrack is flat (Table~\ref{tab:v43}). Absolute metric-AJ
+rises to a mean $0.229$, the \textbf{best of any single DA3-g pipeline} and now \emph{ahead of}
+DELTA$+$DA3-g ($0.227$, Table~\ref{tab:abs-g}), though still below the DA3-l v39 ($0.246$); the
+scale-invariant leaderboard mean rises $0.086\!\to\!0.092$. On pstudio the learned head recovers part of the
+offline re-anchor's gain --- normalized $0.026\!\to\!0.035$ (vs.\ lprof's $0.043$), absolute
+$0.213\!\to\!0.220$ (vs.\ lprof's $0.227$) --- so the mechanism is right, but masked-mean pooling leaves
+headroom. Replacing it with the bidirectional within-frame Vision-Mamba-3 mixing, so the head sees
+point-to-point structure rather than a mean, is the natural next lever.
+
+\begin{table}[h]
+\centering
+\caption{v43 (in-model per-frame scale head) vs.\ v42, TAPVid-3D minival. The scale head lifts both metrics
+on the drift-affected subsets (pstudio, adt) and leaves drift-free drivetrack flat. Absolute mean $0.229$ is
+the best single DA3-g pipeline, ahead of DELTA$+$DA3-g ($0.227$), still below DA3-l v39 ($0.246$).}
+\label{tab:v43}
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{normalized 3D-AJ} & \multicolumn{2}{c}{absolute metric-AJ} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+subset & v42 & v43 & v42 & v43 \\
+\midrule
+pstudio    & 0.026 & \textbf{0.035} & 0.213 & \textbf{0.220} \\
+drivetrack & 0.118 & 0.119 & 0.169 & 0.171 \\
+adt        & 0.112 & \textbf{0.123} & 0.292 & \textbf{0.297} \\
+\midrule
+mean       & 0.086 & \textbf{0.092} & 0.225 & \textbf{0.229} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{v\_future: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:vfuture}
@@ -1255,6 +1288,7 @@ SEA-RAFT + DA3-g (baseline)  & 0.112 & 0.036 & 0.120 & 0.089 \\
 v40, WAFT+DA3-g (no refiner) & 0.118 & 0.039 & 0.123 & 0.093 \\
 v41, WAFT+DA3-g+vmamba3      & 0.110 & 0.022 & 0.108 & 0.080 \\
 v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.118 & 0.026 & 0.112 & 0.086 \\
+v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.119 & 0.035 & 0.123 & 0.092 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1317,8 +1351,8 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (fixed-metre thresholds; higher better) ---
          \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
-         column. \textbf{Best DA3-g mean: DELTA$+$DA3-g $0.227$, essentially tied by our v42 ($0.225$)} --- still below the DA3-l v39 ($0.246$,
-         Table~\ref{tab:abs}); on DA3-g, v42 leads the near columns (drivetrack $0.169$, pstudio $0.213$).
+         column. \textbf{Best DA3-g mean: our v43 ($0.229$), now ahead of DELTA$+$DA3-g ($0.227$)} --- still below the DA3-l v39 ($0.246$,
+         Table~\ref{tab:abs}); on DA3-g, v43 leads the near columns (drivetrack $0.171$, pstudio $0.220$).
          ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:abs}.}
 \label{tab:abs-g}
 \begin{tabular}{lrrrr}
@@ -1326,7 +1360,7 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 Method (DA3-g) & drivetrack & pstudio & adt & mean \\
 \midrule
 \multicolumn{5}{l}{\emph{SOTA (external)}} \\
-DELTA + DA3-g            & 0.164 & 0.194 & \textbf{0.324} & \textbf{0.227} \\
+DELTA + DA3-g            & 0.164 & 0.194 & \textbf{0.324} & 0.227 \\
 SpatialTrackerV2 + DA3-g & 0.043 & 0.184 & 0.170 & 0.132 \\
 TAPIP3D + DA3-g          & 0.110 & 0.148 & ---   & 0.129 \\
 \midrule
@@ -1334,7 +1368,8 @@ TAPIP3D + DA3-g          & 0.110 & 0.148 & ---   & 0.129 \\
 SEA-RAFT + DA3-g (baseline)  & 0.136 & 0.175 & 0.269 & 0.193 \\
 v40, WAFT+DA3-g (no refiner) & 0.146 & 0.192 & 0.285 & 0.208 \\
 v41, WAFT+DA3-g+vmamba3      & 0.166 & 0.198 & 0.285 & 0.216 \\
-v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & \textbf{0.169} & \textbf{0.213} & 0.292 & 0.225 \\
+v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.169 & 0.213 & 0.292 & 0.225 \\
+v43, WAFT+DA3-g+vmamba3 ($+$scale head) & \textbf{0.171} & \textbf{0.220} & 0.297 & \textbf{0.229} \\
 \bottomrule
 \end{tabular}
 \end{table}

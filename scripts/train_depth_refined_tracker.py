@@ -488,12 +488,15 @@ def main() -> int:
     oversample = data_cfg.get("oversample", {})
     if oversample:
         from collections import Counter
+
         expanded: list = []
         for p in train_clips:
             expanded.extend([p] * int(oversample.get(p.parent.name, 1)))
         train_clips = expanded
-        print(f"[train] oversampled train clips -> {len(train_clips)} "
-              f"{dict(Counter(p.parent.name for p in train_clips))} via {oversample}")
+        print(
+            f"[train] oversampled train clips -> {len(train_clips)} "
+            f"{dict(Counter(p.parent.name for p in train_clips))} via {oversample}"
+        )
 
     train_ds = TAPVid3DDataset(
         train_clips,
@@ -544,6 +547,7 @@ def main() -> int:
             max_log_correction=float(model_cfg.get("max_log_correction", 2.0)),
             max_delta_uv=float(model_cfg.get("max_delta_uv", 2.0)),
             patch_size=int(model_cfg.get("patch_size", 5)),
+            per_frame_scale=bool(model_cfg.get("per_frame_scale", False)),
             d_proj=int(model_cfg.get("d_proj", 64)),
             dino_model=str(
                 model_cfg.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")
@@ -600,10 +604,15 @@ def main() -> int:
     start_step = 0
     if args.init_ckpt is not None and _find_latest_ckpt(args.out_dir) is None:
         # weights-only warm-start (no optim/sched/step); a resume ckpt in out_dir overrides.
-        st = torch.load(Path(args.init_ckpt).expanduser(), map_location=device, weights_only=False)
+        st = torch.load(
+            Path(args.init_ckpt).expanduser(), map_location=device, weights_only=False
+        )
         missing, unexpected = model.load_state_dict(st["model"], strict=False)
-        print(f"[train] warm-started from {args.init_ckpt} "
-              f"(missing={len(missing)} unexpected={len(unexpected)})", flush=True)
+        print(
+            f"[train] warm-started from {args.init_ckpt} "
+            f"(missing={len(missing)} unexpected={len(unexpected)})",
+            flush=True,
+        )
     latest = _find_latest_ckpt(args.out_dir)
     if latest is not None:
         st = torch.load(latest, map_location=device, weights_only=False)

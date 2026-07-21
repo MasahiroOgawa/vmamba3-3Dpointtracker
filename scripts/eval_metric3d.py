@@ -295,6 +295,7 @@ def main() -> int:
             max_log_correction=float(mc.get("max_log_correction", 2.0)),
             max_delta_uv=float(mc.get("max_delta_uv", 2.0)),
             patch_size=int(mc.get("patch_size", 5)),
+            per_frame_scale=bool(mc.get("per_frame_scale", False)),
             d_proj=int(mc.get("d_proj", 64)),
             dino_model=str(
                 mc.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")

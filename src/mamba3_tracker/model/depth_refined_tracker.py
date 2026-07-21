@@ -148,6 +148,8 @@ class Mamba3V35Refiner(nn.Module):
         dino_model: str = "facebook/dinov3-vits16-pretrain-lvd1689m",
         dino_image_size: int = 448,
         image_size: int = 896,
+        per_frame_scale: bool = False,
+        max_scale_correction: float = 0.5,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -155,6 +157,8 @@ class Mamba3V35Refiner(nn.Module):
         self.max_delta_uv = float(max_delta_uv)
         self.patch_size = int(patch_size)
         self.image_size = float(image_size)
+        self.per_frame_scale = bool(per_frame_scale)
+        self.max_scale_correction = float(max_scale_correction)
 
         from .dino_encoder import DINOv2Encoder
 
@@ -183,8 +187,14 @@ class Mamba3V35Refiner(nn.Module):
 
         self.dz_head = _mlp(dim, 64, 1)
         self.duv_head = _mlp(dim, 64, 2)
+        zero_heads = [self.dz_head, self.duv_head]
+        # v43: per-frame global-scale head fed by within-frame pooling. Corrects
+        # DA3-g's per-frame scale drift (sec:v43); zero-init → starts at v42.
+        if self.per_frame_scale:
+            self.scale_head = _mlp(dim, 64, 1)
+            zero_heads.append(self.scale_head)
         with torch.no_grad():
-            for head in (self.dz_head, self.duv_head):
+            for head in zero_heads:
                 head[-1].weight.zero_()
                 head[-1].bias.zero_()
 
@@ -300,6 +310,17 @@ class Mamba3V35Refiner(nn.Module):
             padding_mode="border",
             align_corners=False,
         ).reshape(B, F_, N) * torch.exp(dlog)
+
+        if self.per_frame_scale:
+            # One global log-scale per frame from within-frame masked-mean pooling of
+            # the per-point features, applied to every point in the frame — removes the
+            # per-frame scale drift the per-track SSM cannot see (sec:v43).
+            vm = vis.unsqueeze(-1)  # (B,F,N,1)
+            pooled = (x * vm).sum(2) / vm.sum(2).clamp_min(1.0)  # (B,F,D)
+            ds = self.max_scale_correction * torch.tanh(
+                self.scale_head(pooled)
+            )  # (B,F,1)
+            z_pred = z_pred * torch.exp(ds)
 
         # Unproject new_uv → camera-frame XYZ
         fx = K[:, 0, 0].view(B, 1, 1)

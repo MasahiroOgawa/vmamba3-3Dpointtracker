@@ -819,25 +819,58 @@ move DA3-g's ($0.78\!\to\!0.73$\,m). This section consolidates \emph{why}, from 
 architecture and training (read from the DA3 code and paper~\cite{da3}), and a direct per-point error
 analysis on the minival that \emph{overturns} the natural ``DA3-g depth is noisier'' explanation.
 
-\paragraph{Architecture and loss.}
-\textbf{DA3-l} (\texttt{da3metric-large}) is a \emph{single monocular} network: a DINOv2 ViT-L backbone with
-a plain DPT depth head (one output channel). It is trained by \emph{distillation} --- a teacher trained on
+\paragraph{DA3-l --- distilled monocular depth.}
+DA3-l (\texttt{da3metric-large}) is a \emph{single monocular} network: a DINOv2 ViT-L backbone with a plain
+DPT depth head (one output channel). It is trained by \emph{distillation} --- a teacher trained on
 \emph{synthetic} data emits dense, clean pseudo-depth --- and made metric only by a canonical-focal-length
 rescale ($f^{c}/f$, $f^{c}{=}300$). Distilling a smooth synthetic teacher gives it low-variance,
-temporally-stable \emph{shape and scale}; the coarse focal rescale is what leaves its global scale
-\emph{bias}. \textbf{DA3-g} (\texttt{da3nested-giant-large}) is a \emph{nested} model of two branches: an
-``any-view'' multi-view geometry branch (DINOv2 ViT-g with cross-view attention and a \emph{depth-ray}
-DualDPT head, two channels) \emph{plus} the DA3-l branch itself. The any-view branch is trained
-scale-\emph{invariant} (ground truth normalised by the scene point map's mean $\ell_2$ norm) with a
-confidence-weighted $\ell_1$ depth loss alongside ray-map, point-cloud and gradient terms, on \emph{real}
-multi-view reconstructions (COLMAP and active sensors) the DA3 authors themselves call ``noisy or sparse.''
-At inference (\texttt{NestedDepthAnything3Net}, \texttt{model/da3.py}) the nested model fits a \emph{single
-global scalar} between the two branches by least squares and multiplies the any-view depth by it.
+temporally-stable \emph{shape and scale}; the focal rescale is a \emph{deterministic} per-frame function (no
+fitting), so it introduces a global scale \emph{bias} but no temporal wobble.
+
+\paragraph{DA3-g --- nested multi-view geometry $+$ metric fusion.}
+DA3-g (\texttt{da3nested-giant-large}) is a \emph{nested} model of two branches: an ``any-view'' multi-view
+geometry branch (DINOv2 ViT-g with cross-view attention and a \emph{depth-ray} DualDPT head, two channels)
+\emph{plus} the DA3-l branch itself. The any-view branch is trained scale-\emph{invariant} (ground truth
+normalised by the scene point map's mean $\ell_2$ norm) with a confidence-weighted $\ell_1$ depth loss
+alongside ray-map, point-cloud and gradient terms, on \emph{real} multi-view reconstructions (COLMAP and
+active sensors) the DA3 authors themselves call ``noisy or sparse.'' At inference
+(\texttt{NestedDepthAnything3Net}, \texttt{model/da3.py}) the nested model does \emph{not} copy DA3-l's
+depth; it fits a \emph{single global scalar} $s$ each frame by least squares so the any-view depth best
+matches DA3-l, then sets $\text{DA3-g}=\text{any-view}\times s$.
 \textbf{So DA3-g's per-pixel shape is entirely the any-view branch's; the metric branch (= DA3-l) contributes
-only one scalar --- its own clean shape is discarded.} Two asymmetries follow: (i) DA3-g's shape is
+only that one scalar --- its own clean shape is discarded.} Two asymmetries follow: (i) DA3-g's shape is
 supervised by dirtier real-reconstruction geometry, not the clean synthetic teacher, so more parameters
 cannot buy back cleanliness the labels lack; (ii) the single \emph{global} scalar cannot fix any
 \emph{within-clip} scale variation in the any-view branch.
+
+\paragraph{Why DA3-g's scale drifts frame to frame, though DA3-l's is stable.}
+A natural objection: DA3-g's scale comes from DA3-l, and DA3-l's scale is temporally stable --- so why does
+DA3-g's per-frame scale wobble $\times4.3$ more (Table~\ref{tab:da3lg-scale})? Because DA3-g does \emph{not}
+inherit DA3-l's scale; it inherits a per-frame least-squares \emph{fit}
+$s=\arg\min_s\lVert a-s\,b\rVert^2=\sum_i a_i b_i/\sum_i b_i^2$ (with $a=$ DA3-l depth, $b=$ any-view depth),
+and the \emph{fit} --- not DA3-l --- is the noisy step. Four things make $s$ wobble even though DA3-l is steady:
+\begin{enumerate}
+  \item \textbf{Re-fit independently every frame, no temporal coupling.} DA3-l's own scale is a deterministic
+  focal formula (no optimisation); the nested model \emph{adds} a per-frame fit, and any independent
+  per-frame estimate carries variance --- nothing ties frame $t$'s $s$ to frame $t{-}1$'s.
+  \item \textbf{It reconciles two \emph{differently-structured} depth fields.} DA3-l (smooth monocular) and
+  the any-view branch (multi-view geometry) do not agree pixel-for-pixel, so the single best-fit scalar
+  depends on the depth distribution and the visible-point set --- which change with scene content frame to
+  frame. Same two stable models, different overlap $\Rightarrow$ different $s$.
+  \item \textbf{The least-squares scalar is $b^2$-weighted, so the \emph{far field} sets it.}
+  $s=\sum a_i b_i/\sum b_i^2$ is a mean of the ratio $a_i/b_i$ weighted by any-view depth \emph{squared},
+  hence dominated by the largest-depth pixels (and the confidence/non-sky mask). In a near-field indoor
+  scene (pstudio) the ``far'' is the sparse, occlusion-prone background --- a noisy, content-dependent
+  anchor that jumps as the visible far surfaces change. This is why pstudio drifts most.
+  \item \textbf{A multi-view model run single-frame.} Our cache feeds the any-view branch one frame at a
+  time, so its own per-frame geometry/scale is under-constrained and more variable, injecting further noise
+  into the fit.
+\end{enumerate}
+So DA3-l's stability sets a stable \emph{target}, but the drift is manufactured \emph{at fusion time} by a
+per-frame, far-pixel-weighted least-squares fit against a wobbly multi-view branch over a changing mask ---
+the fusion never copies DA3-l's scale, it re-solves for it each frame. This is exactly why a temporally
+smooth scale (the offline \texttt{lprof} re-anchor) or a per-frame-correct scale (oracle) removes the drift,
+and what v43's per-frame scale head (\S\ref{sec:v43}) learns to undo.
 
 \paragraph{Where the error actually is (per-point analysis).}
 We test the ``DA3-g is noisier'' story directly (\texttt{scripts/analyze\_da3lg\_shape\_crossover.py}): on
@@ -924,8 +957,24 @@ $+$ DA3-l scale profile (GT-free)    & 0.043 & \textbf{0.227} & \textbf{0.584} \
 \end{tabular}
 \end{table}
 
-\subsection{v43: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
+\subsection{v43: in-model per-frame scale head (proposed / in progress)}
 \label{sec:v43}
+\S\ref{sec:da3lg} localised DA3-g's near-field defect to a \emph{per-frame global scale} that drifts over
+time, and showed offline that removing it --- even by borrowing DA3-l's scale profile --- lifts pstudio on
+both metrics with no retraining. v43 learns that correction \emph{in-model}. After the per-track temporal
+SSM (\S\ref{sec:v35}) it adds a \emph{within-frame} stage: the per-point features are reshaped to
+$(B\!\cdot\!F,\,N,\,D)$ and pooled over the $N$ points of each frame (masked mean, or a bidirectional
+within-frame Vision-Mamba-3 mixing), and a \emph{per-frame scale head} predicts one log-scale $\Delta s_f$
+per frame. Every point in frame $f$ is then rescaled $z\leftarrow z\,e^{\Delta s_f}$, removing exactly the
+one-scalar-per-frame wobble \S\ref{sec:da3lg} identified --- the correction the per-track refiner
+structurally cannot make, since it never sees more than one track at a time. The head is zero-initialised,
+so v43 starts exactly at v42; it warm-starts from v42 and trains on DA3-g depth. It is a deliberately
+\emph{minimal} slice of the within-frame machinery of \S\ref{sec:vfuture}: v43 estimates only a per-frame
+global \emph{scale}, not a per-frame camera pose or per-point object motion --- low-risk, and a clean
+baseline to compare against the full world-frame model.
+
+\subsection{v\_future: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
+\label{sec:vfuture}
 \emph{Status: \textbf{deferred}. The first-experiment gate was run (below) and revealed that the drivetrack
 far-field error is dominated by a monocular metric-depth \emph{scale} bias --- fixed directly by v40's
 depth-backbone swap --- rather than by the lack of a world frame. Triangulation with correct pose is exact
@@ -956,16 +1005,16 @@ $\mathbf{X}^{w}_0$. This buys two things the per-frame formulation cannot:
   \item \textbf{Parallax triangulation.} With relative pose known, a static point seen from a moving camera
   can be \emph{triangulated}, which is far more accurate than monocular depth at range. This directly
   attacks the far-field bottleneck, correcting DA3-l's depth-scale bias rather than only refining along the
-  ray (\S\ref{sec:v43-gate}).
+  ray (\S\ref{sec:vfuture-gate}).
 \end{enumerate}
 
 \paragraph{Architecture (what changes from v35/v39).}
 Estimating a \emph{shared} per-frame pose requires aggregating information \emph{across points within a
 frame}---precisely the non-causal Vision-Mamba-3 cross-attention derived in the backbone but unused by the
-per-track temporal refiner. v42 adds a \emph{within-frame} mixing stage (bidirectional Vision-Mamba-3
+per-track temporal refiner. v\_future adds a \emph{within-frame} mixing stage (bidirectional Vision-Mamba-3
 self-attention over the $N$ points of each frame, order-agnostic, linear in $N$) after the existing
 across-frame causal SSD, giving the two-axis operator \emph{within-frame non-causal $\times$ across-frame
-causal}. On top of the pooled within-frame features it adds three zero-initialised heads so v42 starts
+causal}. On top of the pooled within-frame features it adds three zero-initialised heads so v\_future starts
 exactly at v39: (i) a per-frame \textbf{camera-pose} head ($6$D rotation $+$ translation $\to$ identity at
 init); (ii) a per-point \textbf{moving/static} logit; (iii) a per-point \textbf{depth log-variance}
 (uncertainty), turning the $\ell_1$ position loss into a heteroscedastic (Laplace) NLL that down-weights
@@ -990,13 +1039,13 @@ reprojection $+$ robust static-point Procrustes objective.
 
 \paragraph{Keeping it robust (avoiding TAPIP3D's failure).}
 World-frame reasoning reintroduces the very pose dependence that broke TAPIP3D on this hardware. We keep
-v42 \emph{additive} on top of v39 with a confidence gate: when the confidently-static set is too small or
-the scene is too rotational (egocentric ADT), v42 falls back to the v39 per-frame estimate. Poses are
+v\_future \emph{additive} on top of v39 with a confidence gate: when the confidently-static set is too small
+or the scene is too rotational (egocentric ADT), v\_future falls back to the v39 per-frame estimate. Poses are
 estimated \emph{robustly from confidently-static points} (RANSAC-weighted alignment), never by trusting raw
 monocular depth.
 
 \paragraph{First-experiment gate.}
-\label{sec:v43-gate}
+\label{sec:vfuture-gate}
 Before any training we test the load-bearing claim (parallax triangulation fixes far-field depth) directly
 on drivetrack: using exact ground-truth pixel correspondences, compare (a) monocular DA3-depth unprojection
 against (b) DLT triangulation across a widened baseline, run with both the ground-truth pose (oracle) and a

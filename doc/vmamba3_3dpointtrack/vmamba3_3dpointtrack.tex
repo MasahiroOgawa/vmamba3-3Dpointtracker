@@ -421,6 +421,40 @@ Both heads are zero-initialised: v35 starts exactly at the v33 output.}
 \label{fig:v35-arch}
 \end{figure}
 
+\paragraph{How the refiner uses multiple frames (the temporal axis).}
+The figures above show what the SSM sees at a \emph{single} frame; this paragraph makes explicit what it
+does \emph{across} frames, which is the whole reason for using a state-space model instead of a per-frame
+MLP. \textbf{The sequence axis of the Mamba-3 SSM is time.} For one tracked point $n$, the refiner
+assembles its per-frame feature vectors into an ordered sequence
+$\mathbf{x}_{n,1},\mathbf{x}_{n,2},\dots,\mathbf{x}_{n,F}$ --- one vector per video frame, each holding
+that frame's ray, depth-ratio, visibility, DINOv3 feature and $5{\times}5$ depth patch --- and the SSM
+runs \emph{along this sequence}, carrying a hidden state $h_{n,t}$ that integrates the point's history.
+The correction emitted at frame $t$, $z_{t}=z_{\text{raw},t}\,e^{\mathrm{head}(h_{n,t})}$, is therefore a
+function of frames $1..t$ of that point, not of frame $t$ in isolation. Concretely, in
+\texttt{depth\_refined\_tracker.py} the batch is reshaped to $(B\!\cdot\!N,\,F,\,D)$ just before the SSM,
+so the frame axis $F$ is the recurrence length and each track is an \emph{independent} sequence.
+
+Two properties bound what ``multiple frames'' buys here:
+\begin{itemize}
+  \item \textbf{Temporal, not spatial.} Since each of the $B\!\cdot\!N$ tracks is its own sequence, points
+  \emph{never exchange information}: the refiner mixes frames \emph{within} a track but never mixes tracks
+  \emph{within} a frame. It uses many frames of \emph{one point}, not many points of one frame. (Adding
+  the missing within-frame axis is exactly the v43 proposal, \S\ref{sec:v43}.)
+  \item \textbf{Causal; window-8 in training, whole-clip at inference.} The two Mamba-3 layers are causal
+  (\texttt{bidirectional\_mask=False}): $h_{n,t}$ sees only frames $\le t$, keeping the model streamable.
+  Training feeds an $8$-frame window ($F{=}8$); at inference the \emph{entire clip} is fed as one
+  sequence, so the state integrates the full trajectory.
+\end{itemize}
+
+\emph{Why this helps.} A single frame's DA3 depth is noisy and globally scale-biased, and a lone MLP would
+have to correct each frame blind. The temporal state instead lets the refiner read how $z_{\text{raw}}$
+\emph{evolves} along the track and (i) suppress per-frame depth flicker (a static surface should not
+jitter in depth), and (ii) infer the clip's systematic scale factor from the characteristic depth-change
+profile of the trajectory (a driving scene's monotone recession vs.\ an indoor scene's small
+oscillations) --- which, since the SSM never sees absolute scale (\S\ref{sec:v33}), can \emph{only} be
+recovered from this temporal pattern. The frozen ray guarantees the multi-frame reasoning only ever slides
+depth along each point's fixed line of sight, so it stays geometrically consistent frame-to-frame.
+
 % -----------------------------------------------------------------------
 \subsection{v36: bidirectional flow}
 \label{sec:v36}
@@ -715,6 +749,28 @@ systematic and the standard v41 genuinely under-served pstudio. But it \emph{pla
 cannot reach DA3-l's $0.348$\,m} --- and v39 hit that from the \emph{same} $106$ clips at far less weight,
 so the gap is the depth, not the data budget. That residual is the intrinsic near-field noise: DA3-g's
 studio depth cannot be refined as low as DA3-l's, full stop.
+
+\paragraph{Root cause: DA3-g's shape is its multi-view branch's, and DA3-l's shape is discarded.}
+Reading the DA3 model~\cite{da3} settles \emph{why} this noise is structural rather than tunable.
+\textbf{DA3-l} (\texttt{da3metric-large}) is a \emph{single monocular} network --- a DINOv2 ViT-L backbone
+with a plain DPT depth head (one output channel) --- distilled from a relative-depth teacher and made
+metric only by a canonical-focal-length rescale ($f^{c}/f$, $f^{c}{=}300$). Distilling a smooth relative
+teacher is exactly what gives it low-variance near-field \emph{shape}; the coarse focal-based scale is what
+leaves the global \emph{bias}. \textbf{DA3-g} (\texttt{da3nested-giant-large}) is instead a \emph{nested}
+model: an ``any-view'' multi-view geometry branch (DINOv2 ViT-g with cross-view attention and a
+\emph{depth-ray} DualDPT head) \emph{plus} the DA3-l branch. That any-view branch is trained with a
+scale-normalised, confidence-weighted $\ell_1$ depth loss alongside ray-map, point-cloud and gradient terms
+--- its geometry is scale-\emph{invariant} (ground truth normalised by the scene point map's mean $\ell_2$
+norm), so it optimises \emph{global multi-view consistency}, not per-pixel near-field smoothness. At
+inference (\texttt{NestedDepthAnything3Net}, \texttt{model/da3.py}) the nested model fits a \emph{single
+global scalar} between the two branches by least squares and multiplies the any-view depth by it.
+\textbf{So every per-pixel depth value in DA3-g --- all of its shape --- comes from the multi-view geometry
+branch; the metric branch, which \emph{is} DA3-l and does carry the smooth near-field shape, contributes
+only that one scalar and its shape is thrown away.} The near-field variance we hit is thus the any-view
+branch's scene-globally-normalised geometry, which no per-track depth refiner can invert --- and, tellingly,
+DA3-g already computes DA3-l's good near shape internally, only to collapse it to a global scale. A fusion
+smarter than one scalar --- a confidence-weighted or per-region blend that keeps the metric branch's
+near-field shape where it is reliable --- is the concrete lever this exposes (future work).
 
 \textbf{Consequence for a single method.} Even an optimally pstudio-weighted single DA3-g pipeline tops out
 near $0.225$ metric-AJ on pstudio; plugged into the per-subset numbers (drivetrack $0.166$, adt $0.285$)

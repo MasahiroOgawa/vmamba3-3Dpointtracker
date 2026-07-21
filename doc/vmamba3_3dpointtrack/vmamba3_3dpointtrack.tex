@@ -761,7 +761,13 @@ model: an ``any-view'' multi-view geometry branch (DINOv2 ViT-g with cross-view 
 \emph{depth-ray} DualDPT head) \emph{plus} the DA3-l branch. That any-view branch is trained with a
 scale-normalised, confidence-weighted $\ell_1$ depth loss alongside ray-map, point-cloud and gradient terms
 --- its geometry is scale-\emph{invariant} (ground truth normalised by the scene point map's mean $\ell_2$
-norm), so it optimises \emph{global multi-view consistency}, not per-pixel near-field smoothness. At
+norm), so it optimises \emph{global multi-view consistency}, not per-pixel near-field smoothness. Just as
+decisive is \emph{what supervises each}: DA3-l distils a teacher trained on \emph{synthetic} data (dense,
+clean pseudo-depth), so it inherits smooth near-field shape, whereas the any-view branch learns geometry
+from real multi-view reconstructions (COLMAP, active sensors) that the DA3 authors themselves call ``noisy
+or sparse'' --- worst exactly in the near field, at edges, and on dynamic objects. This is why more
+parameters do not help: a larger model only fits those dirtier near-field labels \emph{more} faithfully,
+so capacity cannot buy back cleanliness the supervision lacks. At
 inference (\texttt{NestedDepthAnything3Net}, \texttt{model/da3.py}) the nested model fits a \emph{single
 global scalar} between the two branches by least squares and multiplies the any-view depth by it.
 \textbf{So every per-pixel depth value in DA3-g --- all of its shape --- comes from the multi-view geometry

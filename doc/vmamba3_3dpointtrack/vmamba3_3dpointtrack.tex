@@ -747,44 +747,18 @@ The answer is \emph{both, but noise binds}. Under-weighting was real but partial
 help (error $0.734\!\to\!0.563$\,m, metric-AJ $0.198\!\to\!0.225$), so some of DA3-g's pstudio error is
 systematic and the standard v41 genuinely under-served pstudio. But it \emph{plateaus at $0.563$\,m and
 cannot reach DA3-l's $0.348$\,m} --- and v39 hit that from the \emph{same} $106$ clips at far less weight,
-so the gap is the depth, not the data budget. That residual is the intrinsic near-field noise: DA3-g's
-studio depth cannot be refined as low as DA3-l's, full stop.
-
-\paragraph{Root cause: DA3-g's shape is its multi-view branch's, and DA3-l's shape is discarded.}
-Reading the DA3 model~\cite{da3} settles \emph{why} this noise is structural rather than tunable.
-\textbf{DA3-l} (\texttt{da3metric-large}) is a \emph{single monocular} network --- a DINOv2 ViT-L backbone
-with a plain DPT depth head (one output channel) --- distilled from a relative-depth teacher and made
-metric only by a canonical-focal-length rescale ($f^{c}/f$, $f^{c}{=}300$). Distilling a smooth relative
-teacher is exactly what gives it low-variance near-field \emph{shape}; the coarse focal-based scale is what
-leaves the global \emph{bias}. \textbf{DA3-g} (\texttt{da3nested-giant-large}) is instead a \emph{nested}
-model: an ``any-view'' multi-view geometry branch (DINOv2 ViT-g with cross-view attention and a
-\emph{depth-ray} DualDPT head) \emph{plus} the DA3-l branch. That any-view branch is trained with a
-scale-normalised, confidence-weighted $\ell_1$ depth loss alongside ray-map, point-cloud and gradient terms
---- its geometry is scale-\emph{invariant} (ground truth normalised by the scene point map's mean $\ell_2$
-norm), so it optimises \emph{global multi-view consistency}, not per-pixel near-field smoothness. Just as
-decisive is \emph{what supervises each}: DA3-l distils a teacher trained on \emph{synthetic} data (dense,
-clean pseudo-depth), so it inherits smooth near-field shape, whereas the any-view branch learns geometry
-from real multi-view reconstructions (COLMAP, active sensors) that the DA3 authors themselves call ``noisy
-or sparse'' --- worst exactly in the near field, at edges, and on dynamic objects. This is why more
-parameters do not help: a larger model only fits those dirtier near-field labels \emph{more} faithfully,
-so capacity cannot buy back cleanliness the supervision lacks. At
-inference (\texttt{NestedDepthAnything3Net}, \texttt{model/da3.py}) the nested model fits a \emph{single
-global scalar} between the two branches by least squares and multiplies the any-view depth by it.
-\textbf{So every per-pixel depth value in DA3-g --- all of its shape --- comes from the multi-view geometry
-branch; the metric branch, which \emph{is} DA3-l and does carry the smooth near-field shape, contributes
-only that one scalar and its shape is thrown away.} The near-field variance we hit is thus the any-view
-branch's scene-globally-normalised geometry, which no per-track depth refiner can invert --- and, tellingly,
-DA3-g already computes DA3-l's good near shape internally, only to collapse it to a global scale. A fusion
-smarter than one scalar --- a confidence-weighted or per-region blend that keeps the metric branch's
-near-field shape where it is reliable --- is the concrete lever this exposes (future work).
+so the gap is the depth, not the data budget. But \S\ref{sec:da3lg} dissects that residual and corrects its
+attribution: it is \emph{not} spatial depth noise (DA3-g's per-frame pstudio shape is in fact as good as
+DA3-l's) but a per-frame \emph{scale} instability in DA3-g that the per-track refiner cannot observe or
+correct; DA3-l's temporally stable (if biased) scale is what lets its refiner reach $0.348$\,m.
 
 \textbf{Consequence for a single method.} Even an optimally pstudio-weighted single DA3-g pipeline tops out
 near $0.225$ metric-AJ on pstudio; plugged into the per-subset numbers (drivetrack $0.166$, adt $0.285$)
 the mean is ${\approx}0.225$, still \emph{below} v39's $0.246$ --- DA3-g's drivetrack win ($+0.025$) cannot
 offset its near-field noise floor (pstudio $-0.054$, adt $-0.033$). So \textbf{v39 (DA3-l) is the ceiling
 for a single method}; only the per-domain hybrid (\S\ref{sec:v41}) beats it. The DA3-g swap is a far-field
-lever, not a route to a single SOTA pipeline; beating v39 everywhere needs a depth model that is metric
-\emph{and} low-noise in the near field, which the giant nested model is not.
+lever, not a route to a single SOTA pipeline; beating v39 everywhere needs DA3-g's per-frame scale to be as
+temporally stable as DA3-l's (\S\ref{sec:da3lg}), which the per-frame-cached nested model is not.
 
 \subsection{v42: near-field boost by pstudio oversampling}
 \label{sec:v42}
@@ -836,6 +810,119 @@ v39 (DA3-l $+$ refiner, ceiling)            & 0.141 & 0.279 & 0.318 & 0.246 \\
   Beating v39 everywhere needs either the per-domain hybrid (\S\ref{sec:v41}) or a depth backbone that is
   metric \emph{and} low-noise in the near field.
 \end{enumerate}
+
+\subsection{DA3-l vs.\ DA3-g: architecture, loss, and where the near-field error really is}
+\label{sec:da3lg}
+The depth-backbone swap (DA3-l $\to$ DA3-g, \S\ref{sec:v40}--\S\ref{sec:v42}) helped far-field drivetrack but
+not the near field, and the refiner could halve DA3-l's near depth error ($0.73\!\to\!0.35$\,m) but barely
+move DA3-g's ($0.78\!\to\!0.73$\,m). This section consolidates \emph{why}, from two angles: the two models'
+architecture and training (read from the DA3 code and paper~\cite{da3}), and a direct per-point error
+analysis on the minival that \emph{overturns} the natural ``DA3-g depth is noisier'' explanation.
+
+\paragraph{Architecture and loss.}
+\textbf{DA3-l} (\texttt{da3metric-large}) is a \emph{single monocular} network: a DINOv2 ViT-L backbone with
+a plain DPT depth head (one output channel). It is trained by \emph{distillation} --- a teacher trained on
+\emph{synthetic} data emits dense, clean pseudo-depth --- and made metric only by a canonical-focal-length
+rescale ($f^{c}/f$, $f^{c}{=}300$). Distilling a smooth synthetic teacher gives it low-variance,
+temporally-stable \emph{shape and scale}; the coarse focal rescale is what leaves its global scale
+\emph{bias}. \textbf{DA3-g} (\texttt{da3nested-giant-large}) is a \emph{nested} model of two branches: an
+``any-view'' multi-view geometry branch (DINOv2 ViT-g with cross-view attention and a \emph{depth-ray}
+DualDPT head, two channels) \emph{plus} the DA3-l branch itself. The any-view branch is trained
+scale-\emph{invariant} (ground truth normalised by the scene point map's mean $\ell_2$ norm) with a
+confidence-weighted $\ell_1$ depth loss alongside ray-map, point-cloud and gradient terms, on \emph{real}
+multi-view reconstructions (COLMAP and active sensors) the DA3 authors themselves call ``noisy or sparse.''
+At inference (\texttt{NestedDepthAnything3Net}, \texttt{model/da3.py}) the nested model fits a \emph{single
+global scalar} between the two branches by least squares and multiplies the any-view depth by it.
+\textbf{So DA3-g's per-pixel shape is entirely the any-view branch's; the metric branch (= DA3-l) contributes
+only one scalar --- its own clean shape is discarded.} Two asymmetries follow: (i) DA3-g's shape is
+supervised by dirtier real-reconstruction geometry, not the clean synthetic teacher, so more parameters
+cannot buy back cleanliness the labels lack; (ii) the single \emph{global} scalar cannot fix any
+\emph{within-clip} scale variation in the any-view branch.
+
+\paragraph{Where the error actually is (per-point analysis).}
+We test the ``DA3-g is noisier'' story directly (\texttt{scripts/analyze\_da3lg\_shape\_crossover.py}): on
+all $150$ minival clips we sample both depths at the ground-truth pixel, remove a scale to expose shape, and
+measure the scale-invariant error $|\log(s\,\hat z/z^{*})|$ stratified by distance (Fig.~\ref{fig:da3lg}).
+Removing the scale two ways is the crux: \emph{per-frame} (one scale per frame) isolates spatial shape;
+\emph{per-clip} (one scale for the whole clip) additionally exposes temporal scale drift
+(Table~\ref{tab:da3lg-scale}).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figs/da3lg_error_analysis}
+\caption{DA3-l vs.\ DA3-g depth error at GT pixels, TAPVid-3D minival. \textbf{(a)} Median scale-invariant
+\emph{spatial} shape error vs.\ distance (per-frame scale removed): DA3-g (solid) matches or \emph{beats}
+DA3-l (dashed) almost everywhere, decisively so on adt --- there is no ``near-field shape'' deficit and no
+clean distance crossover, so a distance-gated depth fusion has nothing to fix. \textbf{(b)} Mean error under
+per-frame vs.\ per-clip scale alignment: DA3-l barely changes, but \textbf{DA3-g's pstudio error explodes
+$\times4.3$ ($0.031\!\to\!0.132$)} when only one scale per clip is allowed --- i.e.\ its per-frame
+\emph{scale} drifts over time. The near-field defect is temporal scale instability, not spatial depth noise.}
+\label{fig:da3lg}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{Mean scale-invariant error $|\log(s\,\hat z/z^{*})|$ under per-frame vs.\ per-clip scale alignment.
+Per-frame $\approx$ per-clip $\Rightarrow$ temporally stable scale; a large jump $\Rightarrow$ the per-frame
+scale drifts. DA3-g's pstudio jump ($\times4.3$) is the near-field culprit --- its \emph{shape} (per-frame)
+is as good as DA3-l's.}
+\label{tab:da3lg-scale}
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{DA3-l} & \multicolumn{2}{c}{DA3-g} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+subset & per-frame & per-clip & per-frame & per-clip \\
+\midrule
+drivetrack & 0.032 & 0.057 & 0.032 & 0.055 \\
+pstudio    & 0.029 & 0.041 & \textbf{0.031} & \textbf{0.132} \\
+adt        & 0.093 & 0.124 & 0.081 & 0.140 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Conclusion --- and a correction.}
+The earlier reading (\S\ref{sec:v41b}) that DA3-g carries ``intrinsic near-field \emph{noise}'' was measured
+with a per-clip scale and is wrong in attribution: DA3-g's per-frame spatial shape on pstudio is as good as
+DA3-l's ($0.031$ vs.\ $0.029$); what is $4.3\times$ worse is its \emph{per-frame scale}, which wobbles over
+time (its per-frame depth cache re-fits the nested model's least-squares scalar independently each frame,
+whereas DA3-l's focal rescale is deterministic and stable). Because removing one scalar \emph{per frame}
+collapses the error, the defect is low-dimensional --- one wrong global scale per frame, shared by all
+points --- and hence fixable, unlike per-pixel noise. This also explains why the per-track refiner cannot
+repair it: it never sees absolute scale (\S\ref{sec:v33}) and, mixing only along time within a track, cannot
+estimate a \emph{per-frame, all-points-shared} correction. \textbf{The lever is therefore per-frame scale
+stabilisation of DA3-g, not a spatial depth fusion:} either (i) re-anchor DA3-g's per-frame scale to a
+temporally stable reference (e.g.\ DA3-l's smooth scale profile) offline, or (ii) add a per-frame scale head
+fed by \emph{within-frame} pooling (the within-frame Vision-Mamba-3 mixing of \S\ref{sec:v43}), so one scale
+per frame is estimated from all points in that frame.
+
+\paragraph{Offline validation.}
+Both the diagnosis and a fix hold up without retraining (\texttt{scripts/generate\_da3g\_reanchor.py}):
+we rescale DA3-g's pstudio depth by \emph{one scalar per frame} and re-evaluate with the v42 refiner
+(WAFT front-end), Table~\ref{tab:da3lg-reanchor}. An \emph{oracle} per-frame scale (from GT) more than
+\emph{doubles} the scale-invariant leaderboard 3D-AJ ($0.026\!\to\!0.064$) --- direct proof that per-frame
+scale drift, not spatial shape, dominates pstudio's leaderboard score. A \emph{GT-free} re-anchor that gives
+DA3-g the temporally stable DA3-l scale profile (preserving DA3-g's clip-average scale, so no bias is
+imported) improves \emph{both} metrics with the existing refiner: normalized $0.026\!\to\!0.043$ ($+62\%$)
+and absolute metric-AJ $0.213\!\to\!0.227$ (past the pstudio-only v41b, $0.225$), median error
+$0.652\!\to\!0.584$\,m. The oracle's absolute metric-AJ instead dips ($0.176$) only because the refiner was
+trained on un-rescaled depth --- retraining the refiner on re-anchored depth is the in-model next step.
+
+\begin{table}[h]
+\centering
+\caption{Offline per-frame re-anchoring of DA3-g depth on pstudio minival (v42 refiner, WAFT). One scalar
+per frame; normalized $=$ leaderboard 3D-AJ, absolute $=$ metric-AJ. The GT-free DA3-l-profile re-anchor
+improves both metrics with no retraining.}
+\label{tab:da3lg-reanchor}
+\begin{tabular}{lccc}
+\toprule
+DA3-g pstudio depth & normalized 3D-AJ & absolute metric-AJ & err median (m) \\
+\midrule
+baseline (v42)                       & 0.026 & 0.213 & 0.652 \\
+$+$ oracle per-frame scale (GT)      & \textbf{0.064} & 0.176 & 0.907 \\
+$+$ DA3-l scale profile (GT-free)    & 0.043 & \textbf{0.227} & \textbf{0.584} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{v43: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:v43}

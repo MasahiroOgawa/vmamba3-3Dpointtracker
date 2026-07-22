@@ -1116,7 +1116,40 @@ correspondingly rescaled depth map). Stage~2 is the standard v35 refiner (\S\ref
 $z^{\text{stab}}$ instead of raw DA3-g depth, so its along-ray $\Delta\log z$ and $\Delta\mathbf{u}$
 corrections operate on temporally consistent depth. Where v43 bolts a scale onto the refiner's \emph{output}
 and v44 de-flickers with \emph{no} refinement, v45 gives the refiner clean \emph{input} --- combining v44's
-temporal stability with v35's per-point sharpening. \emph{[to implement and evaluate after v44.]}
+temporal stability with v35's per-point sharpening.
+
+\paragraph{Result --- best DA3-g \emph{absolute} accuracy, but v43 keeps the leaderboard.}
+Warm-started from v44 (stage 1) $+$ v42 (stage 2) and fine-tuned $20$k steps, v45 gives the \textbf{best
+absolute metric-AJ of any single DA3-g pipeline}: mean $0.232$ (Table~\ref{tab:v45}), ahead of v43
+($0.229$), v42 ($0.225$) and DELTA$+$DA3-g ($0.227$), and best per subset on drivetrack ($0.173$) and
+pstudio ($0.226$, essentially matching the offline \texttt{lprof} re-anchor's $0.227$), tied with v43 on adt
+($0.297$). So the two-stage \emph{de-flicker $\to$ refine} ordering --- giving the refiner temporally stable
+depth --- does help the fixed-threshold metric, and unlike the standalone de-flicker (v44) it does not
+regress drivetrack. \textbf{But it does not win the scale-invariant leaderboard metric}: normalized mean
+$0.088$ is \emph{below} v43's $0.092$ (pstudio $0.029$ vs.\ v43's $0.035$). The post-hoc scale head (v43)
+remains the better temporal-consistency fix; the two-stage pipeline (v45) is the better absolute-accuracy
+fix. Neither reaches the DA3-l v39 absolute ceiling ($0.246$) --- v45 narrows the gap to $0.014$.
+
+\begin{table}[h]
+\centering
+\caption{v45 (two-stage de-flicker $\to$ v35 refine) vs.\ the DA3-g pipelines, TAPVid-3D minival. v45 is the
+best single DA3-g pipeline on \emph{absolute} metric-AJ (mean $0.232$, ahead of DELTA$+$DA3-g $0.227$ and
+v43 $0.229$); v43's post-hoc scale head keeps the \emph{normalized} leaderboard lead. Both stay below the
+DA3-l v39 absolute ceiling ($0.246$).}
+\label{tab:v45}
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{normalized 3D-AJ} & \multicolumn{2}{c}{absolute metric-AJ} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+method & pstudio & mean & pstudio & mean \\
+\midrule
+v42 (refiner)               & 0.026 & 0.086 & 0.213 & 0.225 \\
+v43 ($+$scale head)         & \textbf{0.035} & \textbf{0.092} & 0.220 & 0.229 \\
+v44 (deflicker only)        & 0.039 & 0.093 & 0.196 & 0.203 \\
+v45 (deflicker $+$ refiner) & 0.029 & 0.088 & \textbf{0.226} & \textbf{0.232} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{v\_future: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:vfuture}
@@ -1402,6 +1435,7 @@ v41, WAFT+DA3-g+vmamba3      & 0.110 & 0.022 & 0.108 & 0.080 \\
 v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.118 & 0.026 & 0.112 & 0.086 \\
 v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.119 & 0.035 & 0.123 & 0.092 \\
 v44, WAFT+DA3-g+deflicker (standalone)  & 0.118 & 0.039 & 0.123 & 0.093 \\
+v45, WAFT+DA3-g+deflicker+vmamba3       & 0.118 & 0.029 & 0.118 & 0.088 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1464,8 +1498,9 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (fixed-metre thresholds; higher better) ---
          \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
-         column. \textbf{Best DA3-g mean: our v43 ($0.229$), now ahead of DELTA$+$DA3-g ($0.227$)} --- still below the DA3-l v39 ($0.246$,
-         Table~\ref{tab:abs}); on DA3-g, v43 leads the near columns (drivetrack $0.171$, pstudio $0.220$).
+         column. \textbf{Best DA3-g mean: our v45 ($0.232$), ahead of DELTA$+$DA3-g ($0.227$) and v43 ($0.229$)}
+         --- still below the DA3-l v39 ($0.246$, Table~\ref{tab:abs}); on DA3-g, v45 leads drivetrack
+         ($0.173$) and pstudio ($0.226$), and DELTA keeps adt ($0.324$).
          ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:abs}.}
 \label{tab:abs-g}
 \begin{tabular}{lrrrr}
@@ -1482,8 +1517,9 @@ SEA-RAFT + DA3-g (baseline)  & 0.136 & 0.175 & 0.269 & 0.193 \\
 v40, WAFT+DA3-g (no refiner) & 0.146 & 0.192 & 0.285 & 0.208 \\
 v41, WAFT+DA3-g+vmamba3      & 0.166 & 0.198 & 0.285 & 0.216 \\
 v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.169 & 0.213 & 0.292 & 0.225 \\
-v43, WAFT+DA3-g+vmamba3 ($+$scale head) & \textbf{0.171} & \textbf{0.220} & 0.297 & \textbf{0.229} \\
+v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.171 & 0.220 & 0.297 & 0.229 \\
 v44, WAFT+DA3-g+deflicker (standalone)  & 0.123 & 0.196 & 0.289 & 0.203 \\
+v45, WAFT+DA3-g+deflicker+vmamba3       & \textbf{0.173} & \textbf{0.226} & 0.297 & \textbf{0.232} \\
 \bottomrule
 \end{tabular}
 \end{table}

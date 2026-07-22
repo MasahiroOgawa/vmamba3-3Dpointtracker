@@ -1075,7 +1075,38 @@ the model is a light time-axis sequence model over frame tokens ($\sim$0.3\,M pa
 patch). Loss is 3D-only (2D track frozen); trained from scratch, $20$k steps, DA3-g depth. v44 is the
 \emph{learned} counterpart of the \texttt{lprof} offline re-anchor (\S\ref{sec:da3lg}) --- both replace
 DA3-g's per-frame scale with a temporally consistent one, but v44 learns it end-to-end from the 3D loss.
-\emph{[result pending: v44 vs.\ the v40 baseline on minival.]}
+
+\paragraph{Result --- the standalone de-flicker does not help.}
+Trained $20$k steps, v44 lands essentially \emph{at} the WAFT$+$DA3-g (v40) baseline on the scale-invariant
+leaderboard metric and slightly \emph{below} it on absolute (Table~\ref{tab:v44}): mean normalized $0.093$
+(v40: $0.093$), mean absolute $0.203$ (v40: $0.208$). It does \emph{not} reproduce the offline
+\texttt{lprof} re-anchor's pstudio gain (normalized $0.039$ vs.\ lprof's $0.043$, \S\ref{sec:da3lg}), and it
+mildly \emph{regresses} drift-free drivetrack (absolute $0.146\!\to\!0.123$). So a per-frame scale learned
+from mean-pooled \emph{sparse tracked points} --- under a per-clip-normalised 3D loss --- is too weak a
+signal to recover the drift that the dense offline re-anchor removes, and without any along-ray refinement
+it applies scales that can hurt where there is no drift. The lesson: the de-flicker is not useful in
+isolation; it needs the refiner (v45).
+
+\begin{table}[h]
+\centering
+\caption{v44 (standalone DA3-g de-flicker) vs.\ the WAFT$+$DA3-g baseline (v40), TAPVid-3D minival. The
+learned de-flicker neither improves the leaderboard metric nor matches the offline \texttt{lprof} re-anchor,
+and slightly regresses drivetrack.}
+\label{tab:v44}
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{normalized 3D-AJ} & \multicolumn{2}{c}{absolute metric-AJ} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+subset & v40 & v44 & v40 & v44 \\
+\midrule
+pstudio    & 0.039 & 0.039 & 0.192 & 0.196 \\
+drivetrack & 0.118 & 0.118 & 0.146 & 0.123 \\
+adt        & 0.123 & 0.123 & 0.285 & 0.289 \\
+\midrule
+mean       & 0.093 & 0.093 & 0.208 & 0.203 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{v45: v44 de-flicker $+$ v35 refiner}
 \label{sec:v45}
@@ -1370,6 +1401,7 @@ v40, WAFT+DA3-g (no refiner) & 0.118 & 0.039 & 0.123 & 0.093 \\
 v41, WAFT+DA3-g+vmamba3      & 0.110 & 0.022 & 0.108 & 0.080 \\
 v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.118 & 0.026 & 0.112 & 0.086 \\
 v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.119 & 0.035 & 0.123 & 0.092 \\
+v44, WAFT+DA3-g+deflicker (standalone)  & 0.118 & 0.039 & 0.123 & 0.093 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1451,6 +1483,7 @@ v40, WAFT+DA3-g (no refiner) & 0.146 & 0.192 & 0.285 & 0.208 \\
 v41, WAFT+DA3-g+vmamba3      & 0.166 & 0.198 & 0.285 & 0.216 \\
 v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.169 & 0.213 & 0.292 & 0.225 \\
 v43, WAFT+DA3-g+vmamba3 ($+$scale head) & \textbf{0.171} & \textbf{0.220} & 0.297 & \textbf{0.229} \\
+v44, WAFT+DA3-g+deflicker (standalone)  & 0.123 & 0.196 & 0.289 & 0.203 \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -137,15 +137,21 @@ def _fmt_loss_row(d: dict) -> str:
 
 
 def _per_head_grad_norm(model: Mamba3DepthRefiner) -> dict[str, float]:
-    groups = {
-        "embed": list(model.embed.parameters()),
-        "layers": list(model.layers.parameters()),
-    }
-    # heads vary by model: dz_head/duv_head (v33/v35), scale_head (v35+scale, v44)
+    # v45 is composite (.deflicker + .v35); report the refiner stage's parts plus
+    # the deflicker's scale head. Other models expose embed/layers/heads directly.
+    base = getattr(model, "v35", model)
+    groups = {}
+    if hasattr(base, "embed"):
+        groups["embed"] = list(base.embed.parameters())
+    if hasattr(base, "layers"):
+        groups["layers"] = list(base.layers.parameters())
     for hname in ("dz_head", "duv_head", "scale_head"):
-        head = getattr(model, hname, None)
+        head = getattr(base, hname, None)
         if head is not None:
             groups[hname] = list(head.parameters())
+    defl = getattr(model, "deflicker", None)
+    if defl is not None and hasattr(defl, "scale_head"):
+        groups["defl_scale"] = list(defl.scale_head.parameters())
     out = {}
     for name, params in groups.items():
         sq = sum(

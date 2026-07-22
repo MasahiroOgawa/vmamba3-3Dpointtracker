@@ -144,7 +144,7 @@ def _infer(
 
     if method == "searaft":
         xyz = _unproject_with_depth(uv_d, depth_t, K_t, float(image_size))[0]  # (F,N,3)
-    elif method == "v35":
+    elif method in ("v35", "v45"):
         ray = _ray_from_uv(uv_d, K_t)
         grid = (2.0 * uv_d / image_size - 1.0).view(F_, 1, -1, 2)
         z_raw = F.grid_sample(
@@ -193,7 +193,9 @@ def _load_external(pred_dir: Path, subset: str, clip_id: str):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--method", choices=["searaft", "v33", "v35", "v44", "external"], required=True
+        "--method",
+        choices=["searaft", "v33", "v35", "v44", "v45", "external"],
+        required=True,
     )
     ap.add_argument(
         "--ckpt", type=Path, default=None, help="required for --method v33/v35"
@@ -297,6 +299,32 @@ def main() -> int:
         model.load_state_dict(state["model"])
         model.eval()
         print(f"[metric3d] v44 ckpt {args.ckpt} (step={state.get('step', '?')})")
+    if args.method == "v45":
+        if args.ckpt is None:
+            ap.error("--method v45 requires --ckpt")
+        from mamba3_tracker.model.depth_refined_tracker import Mamba3V45
+
+        state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+        mc = state.get("cfg", {}).get("model", {})
+        model = Mamba3V45(
+            dim=int(mc.get("dim", 128)),
+            state_dim=int(mc.get("state_dim", 64)),
+            num_heads=int(mc.get("num_heads", 4)),
+            num_layers=int(mc.get("num_layers", 2)),
+            max_log_correction=float(mc.get("max_log_correction", 2.0)),
+            max_delta_uv=float(mc.get("max_delta_uv", 2.0)),
+            patch_size=int(mc.get("patch_size", 5)),
+            max_scale_correction=float(mc.get("max_scale_correction", 0.5)),
+            d_proj=int(mc.get("d_proj", 64)),
+            dino_model=str(
+                mc.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")
+            ),
+            dino_image_size=int(mc.get("dino_image_size", 448)),
+            image_size=int(mc.get("image_size", 896)),
+        ).to(device)
+        model.load_state_dict(state["model"])
+        model.eval()
+        print(f"[metric3d] v45 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v35":
         if args.ckpt is None:
             ap.error("--method v35 requires --ckpt")

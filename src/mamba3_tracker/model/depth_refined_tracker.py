@@ -397,14 +397,10 @@ class Mamba3DeflickerRefiner(nn.Module):
             self.scale_head[-1].weight.zero_()
             self.scale_head[-1].bias.zero_()
 
-    def forward(
-        self,
-        ray: Tensor,  # (B, F, N, 2)
-        z_raw: Tensor,  # (B, F, N)  DA3-g depth at the frozen uv
-        vis: Tensor,  # (B, F, N)
-        z_ref: float | None = None,
-    ) -> TrackerOutputs:
-        B, F_, N, _ = ray.shape
+    def per_frame_logscale(
+        self, ray: Tensor, z_raw: Tensor, vis: Tensor, z_ref: float | None = None
+    ) -> Tensor:
+        """One bounded log-scale per frame, (B, F, 1). Zero at init."""
         zr = (
             z_ref
             if z_ref is not None
@@ -414,18 +410,93 @@ class Mamba3DeflickerRefiner(nn.Module):
             [ray, (z_raw / zr).unsqueeze(-1), vis.unsqueeze(-1)], dim=-1
         )  # (B,F,N,4)
         x = self.embed(feat)  # (B,F,N,D)
-        # within-frame masked mean → one token per frame
-        vm = vis.unsqueeze(-1)  # (B,F,N,1)
+        vm = vis.unsqueeze(-1)  # within-frame masked mean → one token per frame
         g = (x * vm).sum(2) / vm.sum(2).clamp_min(1.0)  # (B,F,D)
         for pre_n, layer, post_n in zip(self.pre_norms, self.layers, self.post_norms):
             gn = pre_n(g)
             g = post_n(g + layer(gn, gn))  # time-axis mixing over F frame tokens
         g = self.out_norm(g)  # (B,F,D)
-        ds = self.max_scale_correction * torch.tanh(self.scale_head(g))  # (B,F,1)
-        z_pred = z_raw * torch.exp(ds)  # (B,F,N) — one scalar per frame, all points
+        return self.max_scale_correction * torch.tanh(self.scale_head(g))  # (B,F,1)
 
+    def forward(
+        self,
+        ray: Tensor,  # (B, F, N, 2)
+        z_raw: Tensor,  # (B, F, N)  DA3-g depth at the frozen uv
+        vis: Tensor,  # (B, F, N)
+        z_ref: float | None = None,
+    ) -> TrackerOutputs:
+        B, F_, N, _ = ray.shape
+        ds = self.per_frame_logscale(ray, z_raw, vis, z_ref)  # (B,F,1)
+        z_pred = z_raw * torch.exp(ds)  # one scalar per frame, all points
         xyz = torch.stack([ray[..., 0] * z_pred, ray[..., 1] * z_pred, z_pred], dim=-1)
-        vis_logits = x.new_zeros(B, F_, N)
+        vis_logits = z_pred.new_zeros(B, F_, N)
         return TrackerOutputs(
             xyz=xyz, uv=None, vis_logits=vis_logits, spawn_logits=vis_logits
         )
+
+
+class Mamba3V45(nn.Module):
+    """v45: two-stage 'de-flicker then refine'.
+
+    Stage 1 (v44 de-flicker) estimates one per-frame log-scale Δs_f and produces a
+    temporally stable depth z_stab = z_raw·e^{Δs_f} (and a correspondingly rescaled
+    depth map). Stage 2 (the standard v35 refiner) then runs on z_stab, so its
+    along-ray Δlog z and Δu corrections operate on drift-free depth. Both stages are
+    zero-init, so v45 starts exactly at the WAFT+DA3-g (v40) baseline.
+
+    Forward signature matches v35: model(ray, z_raw, vis, uv, depth_map, images, K).
+    """
+
+    def __init__(
+        self,
+        dim: int = 128,
+        state_dim: int = 64,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        max_log_correction: float = 2.0,
+        max_delta_uv: float = 2.0,
+        patch_size: int = 5,
+        max_scale_correction: float = 0.5,
+        d_proj: int = 64,
+        dino_model: str = "facebook/dinov3-vits16-pretrain-lvd1689m",
+        dino_image_size: int = 448,
+        image_size: int = 896,
+    ) -> None:
+        super().__init__()
+        self.deflicker = Mamba3DeflickerRefiner(
+            dim=dim,
+            state_dim=state_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            max_scale_correction=max_scale_correction,
+        )
+        self.v35 = Mamba3V35Refiner(
+            dim=dim,
+            state_dim=state_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            max_log_correction=max_log_correction,
+            max_delta_uv=max_delta_uv,
+            patch_size=patch_size,
+            d_proj=d_proj,
+            dino_model=dino_model,
+            dino_image_size=dino_image_size,
+            image_size=image_size,
+            per_frame_scale=False,
+        )
+
+    def forward(
+        self,
+        ray: Tensor,
+        z_raw: Tensor,  # (B,F,N)
+        vis: Tensor,
+        uv: Tensor,
+        depth_map: Tensor,  # (B,F,Hd,Wd)
+        images: Tensor,
+        K: Tensor,
+    ) -> TrackerOutputs:
+        ds = self.deflicker.per_frame_logscale(ray, z_raw, vis)  # (B,F,1)
+        scale = torch.exp(ds)  # (B,F,1)
+        z_stab = z_raw * scale  # de-flickered depth at the tracked points
+        depth_map_stab = depth_map * scale.unsqueeze(-1)  # (B,F,1,1) over Hd,Wd
+        return self.v35(ray, z_stab, vis, uv, depth_map_stab, images, K)

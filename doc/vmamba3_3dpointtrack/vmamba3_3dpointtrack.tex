@@ -259,7 +259,7 @@ $z/z_{\!r}{=}z_{\text{raw}}/z_{\text{ref}}$, $v{=}$visibility.
 back in at the end — the SSM is a \emph{relative corrector} that predicts the factor
 $e^{\Delta\log z}$, not an absolute depth.
 \textbf{causal$\times$2}: two causal Mamba-3 layers (past-only; enables streaming).
-\textbf{4 heads}: SSD splits the 64-dim state into 4 independent heads (16-dim each), analogous
+\textbf{4 heads}: Mamba-3 splits the 64-dim state into 4 independent heads (16-dim each), analogous
 to multi-head attention but computed as a linear recurrence.}
 \label{fig:arch}
 \end{figure}
@@ -368,7 +368,7 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
   % ── embed, centred vertically on the input stack ──────────────────
   \coordinate (embw) at ($(in1.east)!0.5!(dino.east)$);
   \node[block, anchor=west] (emb) at ([xshift=14mm]embw) {MLP embed\\{\scriptsize 128-D}};
-  \node[learn, right=8mm of emb] (ssm) {Vision-Mamba-3 SSD\\{\scriptsize $\times 2$, causal}};
+  \node[learn, right=8mm of emb] (ssm) {Vision-Mamba-3\\{\scriptsize $\times 2$, causal}};
   \node[block, above right=3mm and 15mm of ssm] (dz)  {$\Delta\!\log z$~head\\{\scriptsize 0-init}};
   \node[block, below right=3mm and 15mm of ssm] (duv) {$\Delta\mathbf{u}$~head\\{\scriptsize 0-init, $2\tanh$}};
   \node[io, right=6mm of dz]  (zout)  {$z_t = z_{\rm new}\!\cdot e^{\Delta\!\log z}$};
@@ -412,8 +412,8 @@ Fig.~\ref{fig:pipeline}.
 $\mathbf{u}_0$ is the 2-D pixel position from SEA-RAFT optical flow (Fig.~\ref{fig:v36-flow});
 it determines the ray direction $\mathbf{r}(\mathbf{u}_0)$, the centre of the $5{\times}5$ depth
 patch, and the location at which the DINOv3 feature is sampled.
-All three inputs are concatenated, embedded by the MLP, and then fed through the Vision-Mamba-3 SSD
-layers (the same causal SSD stack as v33's Mamba-3, but now conditioned on DINOv3 appearance --- which is
+All three inputs are concatenated, embedded by the MLP, and then fed through the Vision-Mamba-3
+layers (the same causal stack as v33's Mamba-3, but now conditioned on DINOv3 appearance --- which is
 exactly what makes it \emph{Vision}-Mamba-3 rather than the geometry-only Mamba-3 of v33).
 A second head produces $\Delta\mathbf{u} = 2\tanh(\cdot)$ (bounded to $\pm 2$\,px).
 Depth is then re-sampled at the corrected pixel $\mathbf{u}_t = \mathbf{u}_0 + \Delta\mathbf{u}$
@@ -1193,7 +1193,7 @@ Estimating a \emph{shared} per-frame pose requires aggregating information \emph
 frame}---precisely the non-causal Vision-Mamba-3 cross-attention derived in the backbone but unused by the
 per-track temporal refiner. v\_future adds a \emph{within-frame} mixing stage (bidirectional Vision-Mamba-3
 self-attention over the $N$ points of each frame, order-agnostic, linear in $N$) after the existing
-across-frame causal SSD, giving the two-axis operator \emph{within-frame non-causal $\times$ across-frame
+across-frame causal Vision-Mamba-3 refiner, giving the two-axis operator \emph{within-frame non-causal $\times$ across-frame
 causal}. On top of the pooled within-frame features it adds three zero-initialised heads so v\_future starts
 exactly at v39: (i) a per-frame \textbf{camera-pose} head ($6$D rotation $+$ translation $\to$ identity at
 init); (ii) a per-point \textbf{moving/static} logit; (iii) a per-point \textbf{depth log-variance}
@@ -1805,7 +1805,7 @@ At 21\,s each, per-clip latency reaches ${\approx}32$\,min (pstudio) and ${\appr
 giving an effective throughput of ${\approx}0.06$\,fps --- \textbf{${\approx}200\times$ slower}
 than our baseline (12.4\,fps).
 
-Our method achieves this throughput advantage because the Vision-Mamba-3 SSD refiner processes
+Our method achieves this throughput advantage because the Vision-Mamba-3 refiner processes
 all $N$ tracks jointly in a single causal sweep per frame (no per-window restarts),
 and the 0.44\,M-parameter SSM adds modest overhead over the frozen SEA-RAFT $+$ DA3-l baseline.
 TAPIP3D (${\approx}3.1$\,fps) and SpatialTrackerV2 (${\approx}4.0$\,fps) are substantially

@@ -960,18 +960,65 @@ $+$ DA3-l scale profile (GT-free)    & 0.043 & \textbf{0.227} & \textbf{0.584} \
 \subsection{v43: in-model per-frame scale head}
 \label{sec:v43}
 \S\ref{sec:da3lg} localised DA3-g's near-field defect to a \emph{per-frame global scale} that drifts over
-time, and showed offline that removing it --- even by borrowing DA3-l's scale profile --- lifts pstudio on
-both metrics with no retraining. v43 learns that correction \emph{in-model}. After the per-track temporal
-SSM (\S\ref{sec:v35}) it adds a \emph{within-frame} stage: the per-point features are reshaped to
-$(B\!\cdot\!F,\,N,\,D)$ and pooled over the $N$ points of each frame (masked mean, or a bidirectional
-within-frame Vision-Mamba-3 mixing), and a \emph{per-frame scale head} predicts one log-scale $\Delta s_f$
-per frame. Every point in frame $f$ is then rescaled $z\leftarrow z\,e^{\Delta s_f}$, removing exactly the
-one-scalar-per-frame wobble \S\ref{sec:da3lg} identified --- the correction the per-track refiner
-structurally cannot make, since it never sees more than one track at a time. The head is zero-initialised,
-so v43 starts exactly at v42; it warm-starts from v42 and trains on DA3-g depth. It is a deliberately
-\emph{minimal} slice of the within-frame machinery of \S\ref{sec:vfuture}: v43 estimates only a per-frame
-global \emph{scale}, not a per-frame camera pose or per-point object motion --- low-risk, and a clean
-baseline to compare against the full world-frame model.
+time; removing it offline (even by borrowing DA3-l's scale profile) lifts pstudio on both metrics. v43
+learns that correction \emph{in-model}. Two axes of information matter --- across frames (time) and across
+points (within a frame) --- and v43 keeps them separate.
+
+\paragraph{Where the multiple-frame information comes from (inherited from v35).}
+v43 adds \emph{no} new temporal model. It inherits v35's: as detailed in \S\ref{sec:v35} (``how the refiner
+uses multiple frames''), the Mamba-3 refiner already consumes the whole clip along the \emph{time} axis ---
+for each tracked point $n$, its per-frame feature vectors form a sequence
+$\mathbf{x}_{n,1},\dots,\mathbf{x}_{n,F}$, the batch is reshaped to $(B\!\cdot\!N,\,F,\,D)$, and a
+\emph{causal Mamba-3 self-attention runs along that frame sequence, one track at a time} (no cross-track
+mixing). So every point already carries its own temporal history. That --- and nothing else --- is how v43
+(and v35) uses multiple frames.
+
+\paragraph{What v43 adds: the orthogonal, within-frame axis.}
+The per-frame scale is one number \emph{shared by all points in a frame}, so it cannot be read from any single
+track's temporal history --- it needs aggregation \emph{across points within a frame}, the one axis the
+per-track SSM never touches. v43 adds exactly that, as a small stage after the temporal SSM:
+\begin{enumerate}
+  \item Run the full v35 pipeline (\S\ref{sec:v35}): inputs $\to$ embed $\to$ per-track temporal Mamba-3 SSM
+  $\to$ the $\Delta\log z,\ \Delta\mathbf{u}$ heads, giving per-point features
+  $\mathbf{x}\in\mathbb{R}^{B\times F\times N\times D}$ and a first depth $z_{t,n}$.
+  \item \textbf{Within-frame pooling.} For each frame $f$ \emph{independently}, take the plain masked
+  \emph{mean} of the per-point features over the visible points,
+  $\bar{\mathbf{x}}_f=\big(\sum_n v_{f,n}\,\mathbf{x}_{f,n}\big)\big/\big(\sum_n v_{f,n}\big)$ with
+  $v_{f,n}\in\{0,1\}$ the visibility, giving one per-frame vector
+  $\bar{\mathbf{x}}_f\in\mathbb{R}^{B\times F\times D}$. The points do \emph{not} interact --- it is a flat
+  average, not attention.
+  \item \textbf{Per-frame scale head.} A zero-initialised MLP maps each $\bar{\mathbf{x}}_f$ to one bounded
+  log-scale $\Delta s_f=s_{\max}\tanh(\mathrm{MLP}(\bar{\mathbf{x}}_f))$, with $s_{\max}{=}0.5$.
+  \item \textbf{Apply.} Rescale \emph{every} point in frame $f$ by that single scalar,
+  $z_{t,n}\leftarrow z_{t,n}\,e^{\Delta s_f}$, then unproject. Zero-init $\Rightarrow\Delta s_f{=}0
+  \Rightarrow$ v43 equals v42 at step 0.
+\end{enumerate}
+Because the pooled $\bar{\mathbf{x}}_f$ come \emph{out of} the temporal SSM, they are already temporally
+aware; the pooling adds the \emph{spatial} aggregation, so the head can estimate the frame's true global
+scale --- the one-scalar-per-frame wobble no per-track model can see. v43 warm-starts from v42 and trains on
+DA3-g depth. It is a deliberately \emph{minimal} slice of \S\ref{sec:vfuture}: only a per-frame global
+\emph{scale}, not a per-frame pose or per-point motion.
+
+\paragraph{Two shortcomings of v43, and the proposed v44.}
+v43 recovers only part of the offline gain (Table~\ref{tab:v43}), and its two structural limits say why.
+\emph{(i) The pooling is a flat average, with no interaction between points.} A masked mean already drops the
+\emph{invisible} points, so occlusion is \emph{not} the issue --- the issue is that among the \emph{visible}
+points it cannot tell a reliable near-field anchor from a visible-but-noisy far or dynamic one (exactly the
+points that corrupt the least-squares scale, \S\ref{sec:da3lg}), and it discards the point-to-point
+arrangement that pins the true scale. Letting the $N$ points \emph{interact} first --- a \emph{bidirectional
+within-frame Mamba-3 self-attention} over the point axis (reshape to $(B\!\cdot\!F,N,D)$, order-agnostic,
+linear in $N$), \emph{then} pool --- turns the flat average into a learned, robust, structure-aware
+aggregation. The novelty over v43 is the \emph{attention between points}, not the visibility mask (which v43
+already has).
+\emph{(ii) The scale is applied \emph{after} the refiner, not to the depth it consumes.} v43 rescales the
+\emph{output} $z_{t,n}$, so the v35 refiner still ingests the flickering DA3-g depth --- its
+$z/z_{\text{ref}}$ input drifts frame to frame --- and must work against it. It is cleaner to
+\emph{de-flicker first}: a small within-frame module (Mamba-3 / MLP over the frame's points) estimates the
+per-frame scale and produces a stabilised depth $z^{\text{stab}}=z_{\text{raw}}\,e^{\Delta s_f}$, and the
+standard v35 refiner then runs on $z^{\text{stab}}$ --- so its along-ray $\Delta\log z$ and $\Delta\mathbf{u}$
+corrections operate on temporally consistent depth instead of fighting the drift. This two-stage form,
+\emph{de-flicker $\to$ v35 refine} (with the within-frame attention of (i) as the de-flicker's aggregator),
+is the proposed \textbf{v44}.
 
 \paragraph{Result.}
 Trained $20$k steps warm-started from v42 (masked-mean within-frame pooling), v43 improves v42 on
@@ -1005,6 +1052,40 @@ mean       & 0.086 & \textbf{0.092} & 0.225 & \textbf{0.229} \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{v44: DA3-g de-flicker (standalone)}
+\label{sec:v44}
+v43 applied its per-frame scale correction \emph{after} the v35 refiner, so the refiner still ingested the
+flickering depth (\S\ref{sec:v43}). v44 fixes the ordering and factors the de-flicker out as a
+\emph{standalone} method, comparable head-to-head with the refiner-free WAFT$+$DA3-g baseline (v40): its only
+job is to remove DA3-g's per-frame scale drift (\S\ref{sec:da3lg}); it carries no along-ray or 2D correction.
+
+\paragraph{Method.} The correction is a single log-scale per frame, estimated along the \emph{time} axis:
+\begin{enumerate}
+  \item For each frame $f$, mean-pool the visible points' geometric features
+  $[\mathbf{r},\,z_{\text{raw}}/z_{\text{ref}},\,v]$ into one \emph{frame token} $\mathbf{g}_f$.
+  \item A \emph{time-axis} Mamba-3 (bidirectional --- a de-flicker may look ahead) mixes the sequence
+  $\mathbf{g}_{1},\dots,\mathbf{g}_{F}$ across frames, modelling the scale trajectory directly.
+  \item A zero-initialised head emits $\Delta s_f=s_{\max}\tanh(\cdot)$; every point in frame $f$ is
+  rescaled $z\leftarrow z_{\text{raw}}\,e^{\Delta s_f}$ and unprojected along the frozen ray.
+\end{enumerate}
+Zero-init $\Rightarrow$ v44 starts \emph{exactly} at WAFT$+$DA3-g (v40). It uses plain Mamba-3, not the
+2D-image vmamba3 machinery of v35: the flicker is a purely temporal, per-frame-\emph{global} phenomenon, so
+the model is a light time-axis sequence model over frame tokens ($\sim$0.3\,M params, no DINOv3, no depth
+patch). Loss is 3D-only (2D track frozen); trained from scratch, $20$k steps, DA3-g depth. v44 is the
+\emph{learned} counterpart of the \texttt{lprof} offline re-anchor (\S\ref{sec:da3lg}) --- both replace
+DA3-g's per-frame scale with a temporally consistent one, but v44 learns it end-to-end from the 3D loss.
+\emph{[result pending: v44 vs.\ the v40 baseline on minival.]}
+
+\subsection{v45: v44 de-flicker $+$ v35 refiner}
+\label{sec:v45}
+v45 is the two-stage pipeline \S\ref{sec:v43} argued for --- \textbf{de-flicker first, then refine}.
+Stage~1 is v44: it produces a stabilised depth $z^{\text{stab}}=z_{\text{raw}}\,e^{\Delta s_f}$ (and the
+correspondingly rescaled depth map). Stage~2 is the standard v35 refiner (\S\ref{sec:v35}), run on
+$z^{\text{stab}}$ instead of raw DA3-g depth, so its along-ray $\Delta\log z$ and $\Delta\mathbf{u}$
+corrections operate on temporally consistent depth. Where v43 bolts a scale onto the refiner's \emph{output}
+and v44 de-flickers with \emph{no} refinement, v45 gives the refiner clean \emph{input} --- combining v44's
+temporal stability with v35's per-point sharpening. \emph{[to implement and evaluate after v44.]}
 
 \subsection{v\_future: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
 \label{sec:vfuture}

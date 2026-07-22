@@ -193,7 +193,7 @@ def _load_external(pred_dir: Path, subset: str, clip_id: str):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--method", choices=["searaft", "v33", "v35", "external"], required=True
+        "--method", choices=["searaft", "v33", "v35", "v44", "external"], required=True
     )
     ap.add_argument(
         "--ckpt", type=Path, default=None, help="required for --method v33/v35"
@@ -280,6 +280,23 @@ def main() -> int:
         model.load_state_dict(state["model"])
         model.eval()
         print(f"[metric3d] v33 ckpt {args.ckpt} (step={state.get('step', '?')})")
+    if args.method == "v44":
+        if args.ckpt is None:
+            ap.error("--method v44 requires --ckpt")
+        from mamba3_tracker.model.depth_refined_tracker import Mamba3DeflickerRefiner
+
+        state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+        mc = state.get("cfg", {}).get("model", {})
+        model = Mamba3DeflickerRefiner(
+            dim=int(mc.get("dim", 128)),
+            state_dim=int(mc.get("state_dim", 64)),
+            num_heads=int(mc.get("num_heads", 4)),
+            num_layers=int(mc.get("num_layers", 2)),
+            max_scale_correction=float(mc.get("max_scale_correction", 0.5)),
+        ).to(device)
+        model.load_state_dict(state["model"])
+        model.eval()
+        print(f"[metric3d] v44 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v35":
         if args.ckpt is None:
             ap.error("--method v35 requires --ckpt")

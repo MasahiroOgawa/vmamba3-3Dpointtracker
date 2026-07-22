@@ -344,3 +344,88 @@ class Mamba3V35Refiner(nn.Module):
             spawn_logits=vis_logits,
             delta_uv=delta_uv,
         )
+
+
+class Mamba3DeflickerRefiner(nn.Module):
+    """v44: DA3-g per-frame scale de-flicker (standalone, no v35 refiner).
+
+    DA3-g's per-frame *global* scale drifts frame to frame (sec:da3lg): the nested
+    model re-fits a least-squares scalar independently each frame. This module
+    removes that drift and nothing else. Per frame the visible points are mean-
+    pooled into one frame token; a *time-axis* Mamba-3 then models the scale
+    sequence across frames (bidirectional — offline temporal smoothing); a
+    zero-init head emits one log-scale Δs_f per frame, applied to depth along the
+    frozen ray. At step 0 Δs_f = 0 → z = z_raw (the WAFT+DA3-g / v40 baseline), so
+    v44 is a strict, comparable add-on to that baseline.
+
+    Forward signature matches v33: model(ray, z_raw, vis).
+    """
+
+    def __init__(
+        self,
+        dim: int = 128,
+        state_dim: int = 64,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        max_scale_correction: float = 0.5,
+    ) -> None:
+        super().__init__()
+        self.dim = dim
+        self.max_scale_correction = float(max_scale_correction)
+        # Per-point input: [ray_x, ray_y, z_raw/z_ref, vis].
+        self.embed = _mlp(4, dim, dim)
+        # Time-axis Mamba-3 over per-frame tokens (bidirectional: a de-flicker may
+        # use future frames). Self-attention (q = kv) over the F frame sequence.
+        self.layers = nn.ModuleList(
+            [
+                Mamba3CrossAttention(
+                    dim_q=dim,
+                    dim_kv=dim,
+                    num_heads=num_heads,
+                    state_dim=state_dim,
+                    variant="B",
+                    bidirectional_mask=True,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+        self.pre_norms = nn.ModuleList([nn.LayerNorm(dim) for _ in range(num_layers)])
+        self.post_norms = nn.ModuleList([nn.LayerNorm(dim) for _ in range(num_layers)])
+        self.out_norm = nn.LayerNorm(dim)
+        self.scale_head = _mlp(dim, 64, 1)
+        with torch.no_grad():  # zero-init → Δs_f = 0 → z = z_raw at step 0
+            self.scale_head[-1].weight.zero_()
+            self.scale_head[-1].bias.zero_()
+
+    def forward(
+        self,
+        ray: Tensor,  # (B, F, N, 2)
+        z_raw: Tensor,  # (B, F, N)  DA3-g depth at the frozen uv
+        vis: Tensor,  # (B, F, N)
+        z_ref: float | None = None,
+    ) -> TrackerOutputs:
+        B, F_, N, _ = ray.shape
+        zr = (
+            z_ref
+            if z_ref is not None
+            else float(z_raw.flatten().median().item()) + 1e-6
+        )
+        feat = torch.cat(
+            [ray, (z_raw / zr).unsqueeze(-1), vis.unsqueeze(-1)], dim=-1
+        )  # (B,F,N,4)
+        x = self.embed(feat)  # (B,F,N,D)
+        # within-frame masked mean → one token per frame
+        vm = vis.unsqueeze(-1)  # (B,F,N,1)
+        g = (x * vm).sum(2) / vm.sum(2).clamp_min(1.0)  # (B,F,D)
+        for pre_n, layer, post_n in zip(self.pre_norms, self.layers, self.post_norms):
+            gn = pre_n(g)
+            g = post_n(g + layer(gn, gn))  # time-axis mixing over F frame tokens
+        g = self.out_norm(g)  # (B,F,D)
+        ds = self.max_scale_correction * torch.tanh(self.scale_head(g))  # (B,F,1)
+        z_pred = z_raw * torch.exp(ds)  # (B,F,N) — one scalar per frame, all points
+
+        xyz = torch.stack([ray[..., 0] * z_pred, ray[..., 1] * z_pred, z_pred], dim=-1)
+        vis_logits = x.new_zeros(B, F_, N)
+        return TrackerOutputs(
+            xyz=xyz, uv=None, vis_logits=vis_logits, spawn_logits=vis_logits
+        )

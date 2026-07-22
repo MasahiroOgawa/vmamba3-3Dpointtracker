@@ -44,6 +44,7 @@ from mamba3_tracker.data.dataset import (
 )
 from mamba3_tracker.data.tapvid3d import load_clip
 from mamba3_tracker.model.depth_refined_tracker import (
+    Mamba3DeflickerRefiner,
     Mamba3DepthRefiner,
     Mamba3V35Refiner,
 )
@@ -138,8 +139,12 @@ def _per_head_grad_norm(model: Mamba3DepthRefiner) -> dict[str, float]:
     groups = {
         "embed": list(model.embed.parameters()),
         "layers": list(model.layers.parameters()),
-        "dz_head": list(model.dz_head.parameters()),
     }
+    # heads vary by model: dz_head/duv_head (v33/v35), scale_head (v35+scale, v44)
+    for hname in ("dz_head", "duv_head", "scale_head"):
+        head = getattr(model, hname, None)
+        if head is not None:
+            groups[hname] = list(head.parameters())
     out = {}
     for name, params in groups.items():
         sq = sum(
@@ -559,6 +564,18 @@ def main() -> int:
             weights=loss_cfg["weights"], image_size=image_size
         ).to(device)
         print("[train] Mamba3V35Refiner  loss: TrackingLossV35")
+    elif version == "v44":
+        model = Mamba3DeflickerRefiner(
+            dim=int(model_cfg["dim"]),
+            state_dim=int(model_cfg["state_dim"]),
+            num_heads=int(model_cfg["num_heads"]),
+            num_layers=int(model_cfg["num_layers"]),
+            max_scale_correction=float(model_cfg.get("max_scale_correction", 0.5)),
+        ).to(device)
+        loss_fn = TrackingLossV33(
+            weights=loss_cfg["weights"], image_size=image_size
+        ).to(device)
+        print("[train] Mamba3DeflickerRefiner (v44)  loss: TrackingLossV33 (3D-only)")
     else:
         model = Mamba3DepthRefiner(
             dim=int(model_cfg["dim"]),

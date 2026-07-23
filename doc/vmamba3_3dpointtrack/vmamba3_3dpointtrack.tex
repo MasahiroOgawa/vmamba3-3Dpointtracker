@@ -1667,9 +1667,11 @@ self-attention over the $N$ points of each frame, order-agnostic, linear in $N$)
 across-frame causal Vision-Mamba-3 refiner, giving the two-axis operator \emph{within-frame non-causal $\times$ across-frame
 causal}. On top of the pooled within-frame features it adds three zero-initialised heads so v46 starts
 exactly at v39: (i) a per-frame \textbf{camera-pose} head ($6$D rotation $+$ translation $\to$ identity at
-init); (ii) a per-point \textbf{moving/static} logit; (iii) a per-point \textbf{depth log-variance}
-(uncertainty), turning the $\ell_1$ position loss into a heteroscedastic (Laplace) NLL that down-weights
-unreliable far-field depth.
+init); (ii) a per-point \textbf{moving/static} logit; (iii) a per-point \textbf{depth log-variance}, i.e.\ each
+point predicts its \emph{own} uncertainty. This turns the plain $\ell_1$ position loss into an
+uncertainty-weighted loss --- formally the negative log-likelihood (NLL) of a Laplace distribution, the
+distribution whose NLL \emph{is} the $\ell_1$ loss --- in which each point's error is divided by its own
+predicted uncertainty, so the model automatically down-weights unreliable far-field depth.
 
 \paragraph{Difference from the early v1--v32 tracker (\S\ref{sec:early-tracker}).}
 v46 and the failed v1--v32 tracker use the \emph{same} two-axis Vision-Mamba-3 operator --- non-causal

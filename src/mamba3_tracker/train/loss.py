@@ -972,3 +972,78 @@ class TrackingLossV35(nn.Module):
         zero = pos_3D.new_zeros(())
         total = self.w_pos_3D * pos_3D + self.w_reg_uv * reg_uv
         return TrackingLossOutput(total=total, pos_3D=pos_3D, pos_2D=reg_uv, vis=zero)
+
+
+class TrackingLossV47(TrackingLossV35):
+    """v47 loss: v35 loss + self-supervised static-world-consistency (sec:v47).
+
+    Using the per-frame camera pose T_{w→c}=[R|t] predicted by the pose head, a
+    static point's world position X_world = Rᵀ(X_cam − t) should be constant across
+    frames. We select the most-static half of points per clip (lowest camera-frame
+    speed) and penalise the temporal variance of their world positions. The predicted
+    xyz is detached, so this term trains only the pose head and the shared
+    representation — it never pulls the depth output toward a trivial solution. At
+    init (R=I, t=0) the term is non-zero under real ego-motion, so it drives the pose
+    head to explain that motion.
+    """
+
+    def __init__(self, weights: Mapping[str, float], image_size: int = 896) -> None:
+        super().__init__(weights, image_size)
+        self.w_world = float(weights.get("world_consistency", 0.0))
+
+    def forward(
+        self,
+        pred: TrackerOutputs,
+        gt_tracks_XYZ: Tensor,
+        gt_visibility: Tensor,
+        gt_query_mask: Tensor,
+        gt_anchor_frame: Tensor,
+        K: Tensor,
+    ) -> TrackingLossOutput:
+        base = super().forward(
+            pred, gt_tracks_XYZ, gt_visibility, gt_query_mask, gt_anchor_frame, K
+        )
+        if pred.cam_pose is None or self.w_world <= 0.0:
+            return base
+
+        B, F_, N, _ = gt_tracks_XYZ.shape
+        a = gt_anchor_frame.clamp(min=0, max=F_ - 1).long()
+        init_xyz = gt_tracks_XYZ.gather(
+            dim=1, index=a.view(B, 1, N, 1).expand(B, 1, N, 3)
+        ).squeeze(1)
+        scale_gt = _per_clip_anchor_depth_scale(init_xyz, gt_query_mask).view(
+            B, 1, 1, 1
+        )
+
+        xyz = pred.xyz.detach()  # (B,F,N,3) — do not distort the depth output
+        R = pred.cam_pose[..., :3]  # (B,F,3,3)
+        t = pred.cam_pose[..., 3]  # (B,F,3)
+        xw = (
+            torch.einsum("bfij,bfnj->bfni", R.transpose(-1, -2), xyz - t.unsqueeze(2))
+            / scale_gt
+        )  # world position in normalised units
+
+        vis = gt_visibility.float() * gt_query_mask.unsqueeze(1).float()  # (B,F,N)
+        d = (xyz[:, 1:] - xyz[:, :-1]).norm(dim=-1)  # (B,F-1,N)
+        vv = vis[:, 1:] * vis[:, :-1]
+        speed = (d * vv).sum(1) / vv.sum(1).clamp_min(1.0)  # (B,N)
+
+        qm = gt_query_mask.float()
+        static = torch.zeros_like(qm)
+        for b in range(B):
+            valid = qm[b] > 0
+            if int(valid.sum()) < 2:
+                continue
+            thr = speed[b][valid].median()
+            static[b] = ((speed[b] <= thr) & valid).float()
+
+        w = (static.unsqueeze(1) * vis).unsqueeze(-1)  # (B,F,N,1) static & visible
+        denom_t = w.sum(1).clamp_min(1e-6)  # (B,N,1)
+        mean_w = (xw * w).sum(1) / denom_t  # (B,N,3)
+        var = ((xw - mean_w.unsqueeze(1)) ** 2 * w).sum(1) / denom_t  # (B,N,3)
+        cons = (var.sum(-1) * static).sum() / static.sum().clamp_min(1.0)
+
+        total = base.total + self.w_world * cons
+        return TrackingLossOutput(
+            total=total, pos_3D=base.pos_3D, pos_2D=base.pos_2D, vis=cons.detach()
+        )

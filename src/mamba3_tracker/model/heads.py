@@ -25,12 +25,19 @@ from torch import Tensor, nn
 
 @dataclass
 class TrackerOutputs:
-    xyz: Tensor          # (B, F, N, 3) — v11-v30: 3D position output
-    vis_logits: Tensor   # (B, F, N)
-    spawn_logits: Tensor # (B, F, N)
-    scale: Tensor | None = None      # (B,) clip-level positive scalar, v18+; None for v11–v17
-    uv: Tensor | None = None         # (B, F, N, 2) — v31: 2D pixel-coord output; None for v11-v30
-    delta_uv: Tensor | None = None   # (B, F, N, 2) — v35: Δuv correction; None otherwise
+    xyz: Tensor  # (B, F, N, 3) — v11-v30: 3D position output
+    vis_logits: Tensor  # (B, F, N)
+    spawn_logits: Tensor  # (B, F, N)
+    scale: Tensor | None = (
+        None  # (B,) clip-level positive scalar, v18+; None for v11–v17
+    )
+    uv: Tensor | None = (
+        None  # (B, F, N, 2) — v31: 2D pixel-coord output; None for v11-v30
+    )
+    delta_uv: Tensor | None = None  # (B, F, N, 2) — v35: Δuv correction; None otherwise
+    cam_pose: Tensor | None = (
+        None  # (B, F, 3, 4) — v47: per-frame [R|t], T_{w→c}; None otherwise
+    )
 
 
 def _mlp(in_dim: int, hidden: int, out_dim: int) -> nn.Sequential:
@@ -46,7 +53,7 @@ class TrackHeads(nn.Module):
         self,
         dim: int = 384,
         hidden: int = 128,
-        output_mode: str = "xyz",   # v31: "uv" outputs delta-from-anchor 2D coords
+        output_mode: str = "xyz",  # v31: "uv" outputs delta-from-anchor 2D coords
     ) -> None:
         super().__init__()
         if output_mode not in ("xyz", "uv"):
@@ -66,7 +73,9 @@ class TrackHeads(nn.Module):
         self.vis_head = _mlp(dim, hidden, 1)
         self.spawn_head = _mlp(dim, hidden, 1)
 
-    def forward(self, q_history: Tensor, anchor_uv: Tensor | None = None) -> TrackerOutputs:
+    def forward(
+        self, q_history: Tensor, anchor_uv: Tensor | None = None
+    ) -> TrackerOutputs:
         """
         Args:
             q_history: (B, F, N, D)
@@ -89,9 +98,11 @@ class TrackHeads(nn.Module):
             )
         # v31: uv = anchor_uv + delta_uv. anchor_uv broadcast over F.
         if anchor_uv is None:
-            raise RuntimeError("TrackHeads(output_mode='uv') requires anchor_uv to be passed")
-        delta_uv = self.uv_head(x)                                # (B, F, N, 2)
-        uv = anchor_uv.unsqueeze(1) + delta_uv                    # (B, F, N, 2)
+            raise RuntimeError(
+                "TrackHeads(output_mode='uv') requires anchor_uv to be passed"
+            )
+        delta_uv = self.uv_head(x)  # (B, F, N, 2)
+        uv = anchor_uv.unsqueeze(1) + delta_uv  # (B, F, N, 2)
         # zero placeholder so TrackerOutputs.xyz isn't None where other code
         # accesses .xyz (the v31 loss branches on .uv being non-None).
         zeros_xyz = x.new_zeros(B, F_, N, 3)
@@ -124,11 +135,14 @@ class ScaleHead(nn.Module):
         to supervise directly (see TrackingLossV20 scale term).
     """
 
-    def __init__(self, dim: int, hidden: int | None = None,
-                 param: str = "softplus") -> None:
+    def __init__(
+        self, dim: int, hidden: int | None = None, param: str = "softplus"
+    ) -> None:
         super().__init__()
         if param not in ("softplus", "exp"):
-            raise ValueError(f"ScaleHead param must be 'softplus' or 'exp', got {param!r}")
+            raise ValueError(
+                f"ScaleHead param must be 'softplus' or 'exp', got {param!r}"
+            )
         self.param = param
         hidden = hidden or max(dim // 2, 32)
         self.norm = nn.LayerNorm(dim)
@@ -144,8 +158,8 @@ class ScaleHead(nn.Module):
             final.bias.fill_(math.log(math.expm1(1.0)) if param == "softplus" else 0.0)
 
     def forward(self, cls_per_frame: Tensor) -> Tensor:
-        x = self.norm(cls_per_frame.mean(dim=1))               # (B, D)
-        z = self.mlp(x).squeeze(-1)                            # (B,) raw log-scale (exp) / pre-softplus
+        x = self.norm(cls_per_frame.mean(dim=1))  # (B, D)
+        z = self.mlp(x).squeeze(-1)  # (B,) raw log-scale (exp) / pre-softplus
         if self.param == "exp":
             return torch.exp(z)
         return F.softplus(z)

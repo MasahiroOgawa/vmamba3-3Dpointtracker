@@ -54,6 +54,7 @@ from mamba3_tracker.train.loss import (
     TrackingLossOutput,
     TrackingLossV33,
     TrackingLossV35,
+    TrackingLossV47,
 )
 from mamba3_tracker.train.schedule import wsd
 from searaft_flow import FlowModel, track_clip
@@ -196,7 +197,7 @@ def _model_forward(
 ):
     """Dispatch model forward for v33 vs v35."""
     with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-        if version in ("v35", "v45", "v46"):
+        if version in ("v35", "v45", "v46", "v47"):
             return model(ray, z_raw, vis, uv, depth, images, K)
         return model(ray, z_raw, vis)
 
@@ -593,6 +594,30 @@ def main() -> int:
             weights=loss_cfg["weights"], image_size=image_size
         ).to(device)
         print("[train] Mamba3V45 (v44 deflicker + v35 refiner)  loss: TrackingLossV35")
+    elif version == "v47":
+        model = Mamba3V45(
+            dim=int(model_cfg["dim"]),
+            state_dim=int(model_cfg["state_dim"]),
+            num_heads=int(model_cfg["num_heads"]),
+            num_layers=int(model_cfg["num_layers"]),
+            max_log_correction=float(model_cfg.get("max_log_correction", 2.0)),
+            max_delta_uv=float(model_cfg.get("max_delta_uv", 2.0)),
+            patch_size=int(model_cfg.get("patch_size", 5)),
+            max_scale_correction=float(model_cfg.get("max_scale_correction", 0.5)),
+            d_proj=int(model_cfg.get("d_proj", 64)),
+            dino_model=str(
+                model_cfg.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")
+            ),
+            dino_image_size=int(model_cfg.get("dino_image_size", 448)),
+            image_size=int(model_cfg.get("image_size", 896)),
+            pose_head=True,
+        ).to(device)
+        loss_fn = TrackingLossV47(
+            weights=loss_cfg["weights"], image_size=image_size
+        ).to(device)
+        print(
+            "[train] Mamba3V45+pose_head (v47 shared ego-motion)  loss: TrackingLossV47"
+        )
     elif version == "v44":
         model = Mamba3DeflickerRefiner(
             dim=int(model_cfg["dim"]),

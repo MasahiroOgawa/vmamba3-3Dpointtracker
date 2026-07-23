@@ -1767,8 +1767,10 @@ per-stage error but an architectural one}: our adt error is already small ($0.37
 adt's static scene, a cross-track constraint our per-track refiner --- and, as v46 showed, a naive per-point
 within-frame mixer --- does not capture.
 
-\paragraph{Proposed refinements.} These localise cleanly onto three concrete next versions, each naming the
-dominant error it targets:
+\subsection{v47: refinements targeting the localised errors}
+\label{sec:v47}
+The error analysis of \S\ref{sec:error-analysis} points to three concrete refinements, grouped here as
+\textbf{v47}, each naming the dominant error it targets:
 \begin{enumerate}
   \item \textbf{Memory-efficient within-frame mixing} (enables everything else). Recompute the within-frame
   Vision-Mamba-3 attention in \emph{frame chunks} (peak memory $O(C\,N^{2})$ for chunk $C\!\ll\!F$ instead of
@@ -1792,6 +1794,24 @@ dominant error it targets:
 All three converge on the world-frame decomposition already documented (and gated) in \S\ref{sec:v46}: the
 v46 negative result does not retire that program --- it sharpens it, and adds the memory fix as the enabling
 first step.
+
+\paragraph{First realization (implemented \& evaluated below): the shared ego-motion pose head.}
+We implement refinement~3, the most principled of the three (v46 showed the plain per-point mixer is the
+wrong lever). On top of v45 we add a per-frame \emph{masked-mean pool} over the $N$ points of each frame ---
+crucially $O(N)$, not $O(F\,N^{2})$, so it \emph{avoids the v46 out-of-memory failure entirely}. The pooled
+per-frame feature drives two zero-initialised heads: (i) a \textbf{shared-context depth correction}
+$z\!\leftarrow\!z\,e^{\Delta_{\text{ctx}}}$ broadcast back to every point (this is the output-affecting part,
+the $O(N)$ counterpart of v46's within-frame mixing), and (ii) a per-frame \textbf{6-DoF camera pose}
+$T_{w\to c}(t)$ (6-D-rotation $+$ translation, zero-init $\to$ identity). A \emph{self-supervised
+static-world-consistency} loss trains the pose: for the most-static half of points in a clip (lowest
+camera-frame speed), their world positions $\mathbf{X}^{w}=R^{\top}(\mathbf{X}^{\text{cam}}-\mathbf{t})$
+should be constant across frames; we penalise their temporal variance. The predicted depth is
+\emph{detached} in this term, so it trains only the pose head and the shared representation --- never
+distorting the depth output --- and at init ($R\!=\!I,\mathbf{t}\!=\!0$) it is already non-zero under real
+ego-motion, driving the pose to explain it. Both new heads are zero-init so v47 starts exactly at v45;
+warm-started from v45, DA3-g depth, $0.87$\,M trainable, $20$k steps. (This first realization keeps the pose
+\emph{self-supervised} on all subsets --- the loader does not expose the drivetrack GT extrinsics; GT-pose
+supervision on drivetrack is the natural next increment.) \emph{[result pending.]}
 
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and

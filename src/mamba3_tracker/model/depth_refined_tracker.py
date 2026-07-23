@@ -39,6 +39,20 @@ def _mlp(in_dim: int, hidden: int, out_dim: int) -> nn.Sequential:
     )
 
 
+def _rot6d_to_matrix(r6: Tensor) -> Tensor:
+    """Gram-Schmidt 6-D rotation parameterisation (Zhou et al. 2019).
+
+    r6: (..., 6) -> R: (..., 3, 3). With r6 = [1,0,0, 0,1,0] this returns the
+    identity, so a zero-init head plus the [1,0,0,0,1,0] bias starts at identity.
+    """
+    a1, a2 = r6[..., 0:3], r6[..., 3:6]
+    b1 = F.normalize(a1, dim=-1, eps=1e-6)
+    a2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = F.normalize(a2, dim=-1, eps=1e-6)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack([b1, b2, b3], dim=-1)
+
+
 class Mamba3DepthRefiner(nn.Module):
     def __init__(
         self,
@@ -151,6 +165,7 @@ class Mamba3V35Refiner(nn.Module):
         per_frame_scale: bool = False,
         max_scale_correction: float = 0.5,
         within_frame: bool = False,
+        pose_head: bool = False,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -161,6 +176,7 @@ class Mamba3V35Refiner(nn.Module):
         self.per_frame_scale = bool(per_frame_scale)
         self.max_scale_correction = float(max_scale_correction)
         self.within_frame = bool(within_frame)
+        self.pose_head = bool(pose_head)
 
         from .dino_encoder import DINOv2Encoder
 
@@ -217,6 +233,23 @@ class Mamba3V35Refiner(nn.Module):
             with torch.no_grad():
                 self.wf_head[-1].weight.zero_()
                 self.wf_head[-1].bias.zero_()
+
+        # v47: shared ego-motion pose head. A per-frame masked-mean pool over points
+        # (O(N), so no v46-style OOM) feeds (a) a shared-context depth correction
+        # broadcast back to every point, and (b) a per-frame 6-DoF camera pose used by
+        # the self-supervised static-world-consistency loss (sec:v47). Both zero-init:
+        # ctx_head -> 0 and the pose -> identity, so v47 starts exactly at v45.
+        if self.pose_head:
+            self.ctx_head = _mlp(2 * dim, 64, 1)  # shared-context Δlog z
+            self.pose_rot_head = _mlp(dim, 64, 6)  # 6-D rotation (Gram-Schmidt)
+            self.pose_trans_head = _mlp(dim, 64, 3)  # translation
+            self.register_buffer(
+                "_ident6", torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0])
+            )
+            with torch.no_grad():
+                for head in (self.ctx_head, self.pose_rot_head, self.pose_trans_head):
+                    head[-1].weight.zero_()
+                    head[-1].bias.zero_()
 
     def _extract_depth_patch(self, depth_map: Tensor, uv: Tensor) -> Tensor:
         """Sample k×k depth patch at uv. Step = image_size/14 (one DA3 patch).
@@ -356,6 +389,28 @@ class Mamba3V35Refiner(nn.Module):
             )  # (B,F,N)
             z_pred = z_pred * torch.exp(dwf)
 
+        cam_pose = None
+        if self.pose_head:
+            # Shared ego-motion stage (sec:v47). Masked-mean pool over the N points of
+            # each frame (O(N)); broadcast the pooled feature back to every point for a
+            # zero-init shared-context depth correction (starts at v45), and predict a
+            # per-frame 6-DoF camera pose (zero-init → identity) for the loss.
+            vm = vis.unsqueeze(-1)  # (B,F,N,1)
+            pooled = (x * vm).sum(2) / vm.sum(2).clamp_min(1.0)  # (B,F,D)
+            ctx_in = torch.cat(
+                [x, pooled.unsqueeze(2).expand(B, F_, N, self.dim)], dim=-1
+            )
+            dctx = (
+                self.ctx_head(ctx_in)
+                .squeeze(-1)
+                .clamp(-self.max_log_correction, self.max_log_correction)
+            )  # (B,F,N)
+            z_pred = z_pred * torch.exp(dctx)
+            r6 = self.pose_rot_head(pooled) + self._ident6  # (B,F,6)
+            R = _rot6d_to_matrix(r6)  # (B,F,3,3)
+            t = self.pose_trans_head(pooled)  # (B,F,3)
+            cam_pose = torch.cat([R, t.unsqueeze(-1)], dim=-1)  # (B,F,3,4)
+
         # Unproject new_uv → camera-frame XYZ
         fx = K[:, 0, 0].view(B, 1, 1)
         fy = K[:, 1, 1].view(B, 1, 1)
@@ -377,6 +432,7 @@ class Mamba3V35Refiner(nn.Module):
             vis_logits=vis_logits,
             spawn_logits=vis_logits,
             delta_uv=delta_uv,
+            cam_pose=cam_pose,
         )
 
 
@@ -495,6 +551,7 @@ class Mamba3V45(nn.Module):
         dino_model: str = "facebook/dinov3-vits16-pretrain-lvd1689m",
         dino_image_size: int = 448,
         image_size: int = 896,
+        pose_head: bool = False,
     ) -> None:
         super().__init__()
         self.deflicker = Mamba3DeflickerRefiner(
@@ -517,6 +574,7 @@ class Mamba3V45(nn.Module):
             dino_image_size=dino_image_size,
             image_size=image_size,
             per_frame_scale=False,
+            pose_head=pose_head,
         )
 
     def forward(

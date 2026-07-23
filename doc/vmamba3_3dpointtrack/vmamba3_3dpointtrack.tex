@@ -1732,22 +1732,26 @@ DA3-g, \emph{no} refiner) to isolate the raw-depth stage and v42/v45 to isolate 
 \begin{table}[h]
 \centering
 \small
-\caption{Per-process error localisation on DA3-g (mean absolute metric-AJ $\uparrow$ / real 3D error in
-metres $\downarrow$). The 2D-flow process contributes negligible error --- the tracked pixel is frozen and
-the 2D reprojection is exact by construction ($|\Delta\mathbf{u}|\!\approx\!0$), so all remaining error is
-\emph{depth along the ray}. The raw-depth stage (v40) dominates, overwhelmingly on drivetrack far field
-($4.36$\,m); the refiner (v42$\to$v45) helps everywhere but cannot recover metre-accurate depth at range.}
+\caption{Per-process error localisation on DA3-g. For every subset two quantities are reported:
+\textbf{AJ} $=$ absolute metric-AJ (higher is better) and \textbf{err} $=$ the real 3D position error in
+metres, averaged over visible points (lower is better). The 2D-flow process contributes negligible error ---
+the tracked pixel is frozen and the 2D reprojection is exact by construction ($|\Delta\mathbf{u}|\!\approx\!0$),
+so all remaining error is \emph{depth along the ray}. The raw-depth stage (v40) dominates, overwhelmingly on
+drivetrack far field ($4.36$\,m); the refiner (v42$\to$v45) helps everywhere but cannot recover metre-accurate
+depth at range.}
 \label{tab:error-stage}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccccc}
 \toprule
-Process (cumulative) & drivetrack & pstudio & adt \\
+ & \multicolumn{2}{c}{drivetrack} & \multicolumn{2}{c}{pstudio} & \multicolumn{2}{c}{adt} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Process (cumulative) & AJ$\uparrow$ & err\,(m)$\downarrow$ & AJ$\uparrow$ & err\,(m)$\downarrow$ & AJ$\uparrow$ & err\,(m)$\downarrow$ \\
 \midrule
-frozen WAFT 2D flow            & \multicolumn{3}{c}{2D reprojection $\approx$ exact ($|\Delta\mathbf{u}|\!\approx\!0$\,px); no 3D error of its own} \\
-$+$ DA3-g raw depth (v40)      & $0.146$ / $4.36$ & $0.192$ / $0.83$ & $0.285$ / $0.42$ \\
-$+$ refiner (v42)              & $0.169$ / $3.66$ & $0.213$ / $0.76$ & $0.292$ / $0.39$ \\
-$+$ de-flicker (v45, best)     & $0.173$ / $3.64$ & $0.226$ / $0.66$ & $0.297$ / $0.37$ \\
+frozen WAFT 2D flow            & \multicolumn{6}{c}{2D reprojection $\approx$ exact ($|\Delta\mathbf{u}|\!\approx\!0$\,px); no 3D error of its own} \\
+$+$ DA3-g raw depth (v40)      & $0.146$ & $4.36$ & $0.192$ & $0.83$ & $0.285$ & $0.42$ \\
+$+$ refiner (v42)              & $0.169$ & $3.66$ & $0.213$ & $0.76$ & $0.292$ & $0.39$ \\
+$+$ de-flicker (v45, best)     & $0.173$ & $3.64$ & $0.226$ & $0.66$ & $0.297$ & $0.37$ \\
 \midrule
-DELTA $+$ DA3-g (reference)    & $0.164$ / --- & $0.194$ / --- & $\mathbf{0.324}$ / --- \\
+DELTA $+$ DA3-g (reference)    & $0.164$ & --- & $0.194$ & --- & $\mathbf{0.324}$ & --- \\
 \bottomrule
 \end{tabular}
 \end{table}

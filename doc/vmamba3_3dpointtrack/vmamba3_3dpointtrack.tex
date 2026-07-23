@@ -104,6 +104,20 @@ $\mathbf{u}$ across DA3 depth discontinuities flips points out of the metric thr
 observation is the crux of the method: \emph{do not move the 2D track at all} --- freeze it and refine only
 the depth along the fixed ray. That is v33 (\S\ref{sec:v33}) --- the first version to beat the baseline.
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figs/early_tracker_v1_v32_aj.png}
+\caption{TAPVid-3D 3D-AJ (median-scaled, \%) for the whole v1--v32 prehistory, per subset and mean.
+Hatched red = end-to-end Vision-Mamba-3 regressors scored on the earlier \emph{full-eval} protocol
+(v5--v18; not directly comparable to the other bars); solid red = the later regressors on \emph{minival}
+(v19--v30); teal = the training-free SEA-RAFT$+$DA3 baseline; purple = the first learned refiners on top of
+it (v32, v33). Blue/orange/green/grey are external references. The message of the prehistory: every direct
+end-to-end regressor (red) plateaus \emph{below} even the training-free SEA-RAFT$+$DA3 baseline (teal, mean
+$5.2\%$), and the $\Delta\mathbf{u}$ refiner v32 still loses to it ($3.4\%$) --- only when the 2D track is
+frozen and just the depth is refined (v33 onward, \S\ref{sec:v33}) does a learned module finally help.}
+\label{fig:early-tracker-aj}
+\end{figure}
+
 \subsection{v1--v32 architecture: within-frame $+$ across-frame Vision-Mamba-3 (early tracker)}
 \label{sec:early-tracker}
 (The VSSD self-attention and cross-SSD operators used here are derived in the companion note \texttt{mamba3\_attention}; this subsection records the early v1--v32 tracker built on them.)
@@ -1588,7 +1602,23 @@ exactly at v42 and each point's depth correction can now see \emph{all other poi
 cross-track information a per-track SSM never has, and the richer counterpart of v43's masked-mean per-frame
 \emph{scalar}. No explicit camera pose or world frame is estimated in this first realization; any
 ego-motion-consistent correction must be learned implicitly. Warm-started from v42, DA3-g depth, $20$k
-steps. \emph{[result pending.]}
+steps.
+
+\paragraph{Result: negative, and an out-of-memory failure on adt.}
+The within-frame axis, as a plain per-point mixing bolt-on, \textbf{does not help} --- and worse, it
+\textbf{cannot be evaluated on the subset it was designed for}. On the two subsets that ran cleanly it is
+flat-to-slightly-worse than v42/v45 on the \emph{same} DA3-g depth and WAFT flow (absolute metric-AJ:
+pstudio $0.217$ vs v45 $0.226$; drivetrack $0.165$ vs v45 $0.173$; normalized 3D-AJ essentially unchanged,
+Tables~\ref{tab:median-g}--\ref{tab:abs-g}). More seriously, v46 \textbf{ran out of memory on $40$ of the
+$50$ adt clips}: the pure-torch \texttt{Mamba3SelfAttention} (the fused TileLang kernel is unavailable on the
+$12$\,GB GPU) materialises an $O(F\,N^{2})$ within-frame attention over all $N$ tracked points of every frame
+at once, which exceeds $12$\,GB on adt's long ($\sim$300-frame) clips. The reported adt ($0.264$) and mean
+($0.215$) are therefore over only the $10$ \emph{shortest} adt clips and are \textbf{not comparable} to
+v42--v45; even on those $10$ it trails v45. Net: plain within-frame mixing is both \emph{ineffective} (no
+gain where it runs) and \emph{impractical} (OOM exactly on adt, the egocentric subset it was meant to
+exploit), so it does \emph{not} close the adt gap to DELTA ($0.324$). \textbf{v45 remains the best DA3-g
+pipeline} (mean absolute metric-AJ $0.232$). Why a plain within-frame bolt-on was the wrong lever --- and
+what to try instead --- is the subject of \S\ref{sec:error-analysis}.
 
 \paragraph{Motivation.}
 Everything up to v39 refines each point's depth \emph{independently, in per-frame camera coordinates}: the
@@ -1688,6 +1718,74 @@ pose estimated from the static set, stratified by ground-truth depth (near/mid/f
 triangulation cuts far-field ($>30$\,m) metric error materially, the world-frame program is justified;
 otherwise the bottleneck is elsewhere (front-end depth) and we would instead prioritise the
 uncertainty/temporal-fusion route.
+
+\subsection{Error analysis and proposed refinements}
+\label{sec:error-analysis}
+The v46 negative result prompts a per-stage question: of our three pipeline processes --- frozen 2D flow
+(WAFT), frozen metric depth (DA3-g), and the learned refiner --- \emph{which one carries the remaining
+error, on which subset?} We read this off the real evaluation numbers already in hand, using v40 (WAFT $+$
+DA3-g, \emph{no} refiner) to isolate the raw-depth stage and v42/v45 to isolate the refiner's contribution
+(absolute metric-AJ / real 3D error in metres, mean over visible points):
+
+\begin{table}[h]
+\centering
+\small
+\caption{Per-process error localisation on DA3-g (mean absolute metric-AJ $\uparrow$ / real 3D error in
+metres $\downarrow$). The 2D-flow process contributes negligible error --- the tracked pixel is frozen and
+the 2D reprojection is exact by construction ($|\Delta\mathbf{u}|\!\approx\!0$), so all remaining error is
+\emph{depth along the ray}. The raw-depth stage (v40) dominates, overwhelmingly on drivetrack far field
+($4.36$\,m); the refiner (v42$\to$v45) helps everywhere but cannot recover metre-accurate depth at range.}
+\label{tab:error-stage}
+\begin{tabular}{lccc}
+\toprule
+Process (cumulative) & drivetrack & pstudio & adt \\
+\midrule
+frozen WAFT 2D flow            & \multicolumn{3}{c}{2D reprojection $\approx$ exact ($|\Delta\mathbf{u}|\!\approx\!0$\,px); no 3D error of its own} \\
+$+$ DA3-g raw depth (v40)      & $0.146$ / $4.36$ & $0.192$ / $0.83$ & $0.285$ / $0.42$ \\
+$+$ refiner (v42)              & $0.169$ / $3.66$ & $0.213$ / $0.76$ & $0.292$ / $0.39$ \\
+$+$ de-flicker (v45, best)     & $0.173$ / $3.64$ & $0.226$ / $0.66$ & $0.297$ / $0.37$ \\
+\midrule
+DELTA $+$ DA3-g (reference)    & $0.164$ / --- & $0.194$ / --- & $\mathbf{0.324}$ / --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three facts stand out. \textbf{(1) The flow process is not the bottleneck}: the 2D track is frozen and the
+reprojection is exact by construction, which is the whole point of the depth-only design (\S\ref{sec:v33});
+all error lives in depth along the ray. \textbf{(2) The dominant absolute error is drivetrack far-field
+depth}: the raw-depth 3D error is $4.36$\,m on drivetrack versus $0.4$--$0.8$\,m elsewhere, and even our best
+refiner only trims it to $3.64$\,m --- an along-ray refiner slides depth but cannot recover metre-accurate
+\emph{scale} at $30$--$100$\,m from a single ray. \textbf{(3) The adt shortfall to DELTA is not a large
+per-stage error but an architectural one}: our adt error is already small ($0.37$\,m) and our metric-AJ
+($0.297$) is close to DELTA's ($0.324$); the gap is that DELTA exploits the globally shared ego-motion of
+adt's static scene, a cross-track constraint our per-track refiner --- and, as v46 showed, a naive per-point
+within-frame mixer --- does not capture.
+
+\paragraph{Proposed refinements.} These localise cleanly onto three concrete next versions, each naming the
+dominant error it targets:
+\begin{enumerate}
+  \item \textbf{Memory-efficient within-frame mixing} (enables everything else). Recompute the within-frame
+  Vision-Mamba-3 attention in \emph{frame chunks} (peak memory $O(C\,N^{2})$ for chunk $C\!\ll\!F$ instead of
+  $O(F\,N^{2})$), or build the fused TileLang kernel. \emph{Targets:} the v46 OOM --- without it the
+  within-frame / world-frame idea cannot even be measured on adt, the subset it exists for. Cheap,
+  inference-only, no retraining of the depth/flow front-ends.
+  \item \textbf{Far-field depth by multi-frame parallax} (the deferred world-frame program,
+  \S\ref{sec:v46}), now re-motivated by Table~\ref{tab:error-stage}: drivetrack far-field depth is
+  \emph{the} dominant real error ($3.6$\,m). The v46 gate already showed triangulation with correct pose is
+  exact (oracle error $0.000$); the missing piece is a \emph{learned, GT-pose-supervised} metric camera-pose
+  head (drivetrack ships GT extrinsics). Lift static far points into a shared world frame and triangulate
+  across the widened baseline instead of trusting single-ray monocular depth. \emph{Targets:} the largest
+  available absolute-metric win.
+  \item \textbf{Shared ego-motion pose head with static-world consistency} (not per-point mixing).
+  Estimate \emph{one} per-frame camera pose from a masked-mean pool over all points of a frame ($6$D pose
+  head, zero-init to identity) and enforce that static points are constant in the world frame --- exactly the
+  coherent-ego-motion signal DELTA exploits. \emph{Targets:} the adt gap to DELTA. v46 is the evidence that
+  the plain per-point within-frame axis is the wrong lever for this; the shared-pose formulation is the
+  right one.
+\end{enumerate}
+All three converge on the world-frame decomposition already documented (and gated) in \S\ref{sec:v46}: the
+v46 negative result does not retire that program --- it sharpens it, and adds the memory fix as the enabling
+first step.
 
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
@@ -1893,8 +1991,13 @@ v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.118 & 0.026 & 0.112 & 0.086 \\
 v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.119 & 0.035 & 0.123 & 0.092 \\
 v44, WAFT+DA3-g+deflicker (standalone)  & 0.118 & 0.039 & 0.123 & 0.093 \\
 v45, WAFT+DA3-g+deflicker+vmamba3       & 0.118 & 0.029 & 0.118 & 0.088 \\
+v46, WAFT+DA3-g+within-frame mixing     & 0.117 & 0.030 & $0.076^{\dagger}$ & $0.074^{\dagger}$ \\
 \bottomrule
 \end{tabular}
+\\[2pt]
+{\footnotesize $^{\dagger}$v46 ran out of GPU memory ($12$\,GB) on $40/50$ adt clips (pure-torch within-frame
+attention, $O(F\,N^{2})$ on $\sim$300-frame clips); its adt and mean are over the $10$ clips that fit and are
+\emph{not} comparable to the other rows (\S\ref{sec:v46}).}
 \end{table}
 
 \subsection{Absolute-metric results: the reversal}
@@ -1977,8 +2080,13 @@ v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.169 & 0.213 & 0.292 & 0.225 \\
 v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.171 & 0.220 & 0.297 & 0.229 \\
 v44, WAFT+DA3-g+deflicker (standalone)  & 0.123 & 0.196 & 0.289 & 0.203 \\
 v45, WAFT+DA3-g+deflicker+vmamba3       & \textbf{0.173} & \textbf{0.226} & 0.297 & \textbf{0.232} \\
+v46, WAFT+DA3-g+within-frame mixing     & 0.165 & 0.217 & $0.264^{\dagger}$ & $0.215^{\dagger}$ \\
 \bottomrule
 \end{tabular}
+\\[2pt]
+{\footnotesize $^{\dagger}$v46 ran out of GPU memory ($12$\,GB) on $40/50$ adt clips (pure-torch within-frame
+attention, $O(F\,N^{2})$ on $\sim$300-frame clips); its adt and mean are over the $10$ clips that fit and are
+\emph{not} comparable to the other rows (\S\ref{sec:v46}).}
 \end{table}
 
 \subsubsection*{Why BootsTAPIR + ZoeDepth cannot be evaluated under the absolute metric}
@@ -2227,33 +2335,34 @@ predicted (solid) vs ground truth (dashed).}
 \subsection{Efficiency}
 \begin{table}[h]
 \centering
-\caption{Inference throughput on RTX\,4080 (12\,GB), measured on TAPVid-3D minival.
-         Methods marked $^{\star}$ load depth from a shared DA3-l precompute
-         cache rather than running depth estimation online;
-         SpatialTrackerV2 uses its own internal depth model.
-         Our lightweight SSM refiner adds modest overhead over the baseline while
-         remaining $50$--$200\times$ faster than all competitors; its learned module
-         ($0.44$\,M) is $60$--$3000\times$ smaller than the external trackers ($25.8$\,M--$1.3$\,B).
-         External param counts are summed from the official released checkpoints (no paper states them).}
+\caption{Inference throughput and model size on the \textbf{DA3-l} pipeline (RTX\,4080, 12\,GB;
+         TAPVid-3D minival). Methods marked $^{\star}$ load depth from a shared DA3-l precompute cache
+         (not counted in fps); SpatialTrackerV2 uses its own internal depth model.
+         ``Total'' $=$ every frozen network in the pipeline (optical flow $+$ metric depth, $+$ the frozen
+         DINOv3-S for v35 onward) plus the trainable refiner. Our learned module ($0.44$\,M) is
+         $60$--$3000\times$ smaller than the external trackers, and even our \emph{total} footprint
+         (${\approx}0.44$\,B) stays well below the large SOTA models. Companion Table~\ref{tab:efficiency-g}
+         repeats this with the DA3-g backbone --- the two tables differ only in the depth model.
+         External counts summed from official checkpoints (no paper states them).}
 \label{tab:efficiency}
-\begin{tabular}{lrr}
+\begin{tabular}{lrrr}
 \toprule
-Method & fps & trainable params \\
+Method & fps & trainable & total \\
 \midrule
-\multicolumn{3}{l}{\emph{SOTA (external)}} \\
-TAPIP3D$^{\star}$                      & ${\approx}3.1$  & $25.8$\,M \\
-SpatialTrackerV2 (s\_wind\,=\,60)      & ${\approx}4.0$  & ${\approx}1.23$\,B$^{\ddagger}$ \\
-DELTA (DenseTrack3D)$^{\star}$         & ${\approx}7.7$  & $59.2$\,M \\
-TrackCraft3R$^{\S}$                    & ${\approx}0.06$ & $1.3$\,B$^{\S}$ \\
+\multicolumn{4}{l}{\emph{SOTA (external)}} \\
+TAPIP3D $+$ DA3-l$^{\star,\P}$          & ${\approx}3.1$  & $25.8$\,M & ${\approx}0.38$\,B \\
+SpatialTrackerV2 (s\_wind\,=\,60)      & ${\approx}4.0$  & ${\approx}1.23$\,B$^{\ddagger}$ & ${\approx}1.23$\,B \\
+DELTA (DenseTrack3D) $+$ DA3-l$^{\star,\P}$ & ${\approx}7.7$  & $59.2$\,M & ${\approx}0.41$\,B \\
+TrackCraft3R$^{\S}$                    & ${\approx}0.06$ & $1.3$\,B$^{\S}$ & $1.3$\,B \\
 \midrule
-\multicolumn{3}{l}{\emph{Ours \& training-free baselines}} \\
-DA3-l depth (shared precompute)$^{\star}$ & ${\approx}10$   & 0 \\
-SEA-RAFT $+$ DA3-l (baseline)$^{\star}$   & 12.4            & 0 \\
-v37 (WAFT $+$ DA3-l)$^{\star}$            & ${\approx}7.7$  & 0 \\
-v33 (depth refiner)$^{\star}$            & 12.5            & $0.40$\,M \\
-v35 (DINOv3 $+$ SSM)$^{\star,\dagger}$   & 7.7             & $0.44$\,M \\
-v36 (bidir $+$ v35)$^{\star}$            & 6.2             & $0.44$\,M \\
-v39 (WAFT flow $+$ v35, ours)$^{\star}$  & ${\approx}6.3$  & $\mathbf{0.44}$\,\textbf{M} \\
+\multicolumn{4}{l}{\emph{Ours \& training-free baselines}} \\
+DA3-l depth (shared precompute)$^{\star}$ & ${\approx}10$   & 0 & $0.35$\,B \\
+SEA-RAFT $+$ DA3-l (baseline)$^{\star}$   & 12.4            & 0 & $0.37$\,B \\
+v37 (WAFT $+$ DA3-l)$^{\star}$            & ${\approx}7.7$  & 0 & $0.41$\,B \\
+v33 (depth refiner)$^{\star}$            & 12.5            & $0.40$\,M & $0.37$\,B \\
+v35 (DINOv3 $+$ SSM)$^{\star,\dagger}$   & 7.7             & $0.44$\,M & $0.39$\,B \\
+v36 (bidir $+$ v35)$^{\star}$            & 6.2             & $0.44$\,M & $0.39$\,B \\
+v39 (WAFT flow $+$ v35, ours)$^{\star}$  & ${\approx}6.3$  & $\mathbf{0.44}$\,\textbf{M} & ${\approx}\mathbf{0.44}$\,\textbf{B} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -2266,7 +2375,67 @@ $^{\ddagger}$ SpatialTrackerV2 trains end-to-end: a VGGT-style front-end ($1.16$
 from VGGT) plus a $69$\,M Track3D head.
 $^{\S}$ TrackCraft3R is a pre-trained 1.3\,B-parameter video diffusion model (Wan2.1
 DiT $+$ 3 VAEs $+$ LoRA), fine-tuned via LoRA; the $1.3$\,B is the frozen backbone it inherits.
-Throughput measured via windowed inference (see text).}
+Throughput measured via windowed inference (see text).
+$^{\P}$ TAPIP3D and DELTA consume the \emph{same} shared DA3 depth as our method, so their total includes it
+too (as ours does); SpatialTrackerV2 carries its own depth (VGGT front-end) and TrackCraft3R predicts
+geometry directly, so neither adds DA3.
+Component sizes: WAFT $64$\,M, SEA-RAFT $20$\,M, DA3-l $0.35$\,B, DINOv3-S $22$\,M.}
+\end{table}
+
+\paragraph{Model size under DA3-g (parameter-matched comparison).}
+Table~\ref{tab:efficiency} counts parameters for the \textbf{DA3-l} pipeline ($0.35$\,B depth backbone).
+Our strongest \emph{absolute}-metric results, however, use the larger \textbf{DA3-g} backbone
+(\texttt{DA3Nested-Giant-Large}, $1.40$\,B; v40--v46). Table~\ref{tab:efficiency-g} reports the parameter
+budget in that setting, so the reader can see how large the models really are and that the DA3-g comparison
+is \emph{parameter-matched} to the strongest external trackers rather than won with an outsized model.
+Swapping DA3-l$\to$DA3-g raises our \emph{total} (frozen flow $+$ depth $+$ DINOv3 $+$ trainable refiner)
+footprint from ${\approx}0.44$\,B (v39) to ${\approx}1.49$\,B (v42). Crucially, TAPIP3D and DELTA run on the
+\emph{very same} DA3-g depth, so their totals rise identically --- TAPIP3D$+$DA3-g ${\approx}1.43$\,B,
+DELTA$+$DA3-g ${\approx}1.46$\,B --- and SpatialTrackerV2 ($1.23$\,B, own depth) and TrackCraft3R ($1.3$\,B)
+sit in the same band. The comparison is therefore genuinely \emph{parameter-matched} (everyone ${\approx}1.2$--$1.5$\,B),
+yet our \emph{learned} module stays $0.44$\,M ($3000$--$3300\times$ smaller than the trained parts of the large
+trackers). Online throughput is unchanged from Table~\ref{tab:efficiency} because depth is read from the shared
+offline cache; only the one-time depth precompute is ${\approx}4\times$ slower for the giant backbone.
+
+\begin{table}[h]
+\centering
+\caption{Inference throughput and model size on the \textbf{DA3-g} pipeline
+         (\texttt{DA3Nested-Giant-Large}, $1.40$\,B) --- identical to Table~\ref{tab:efficiency} \emph{except
+         for the depth backbone}. Online fps is unchanged from the DA3-l table because depth is read from the
+         offline cache (not counted in fps); only the one-time depth precompute is slower for the giant model
+         ($^{\P}$). The DA3-g \emph{total} footprint (${\approx}1.46$--$1.49$\,B) is on par with the largest
+         external trackers, so the absolute-metric win in Table~\ref{tab:abs-g} is parameter-matched, not a
+         model-size artefact, while only $0.44$\,M parameters are trained. Columns and external counts as in
+         Table~\ref{tab:efficiency}.}
+\label{tab:efficiency-g}
+\begin{tabular}{lrrr}
+\toprule
+Method & fps & trainable & total \\
+\midrule
+\multicolumn{4}{l}{\emph{SOTA (external)}} \\
+TAPIP3D $+$ DA3-g$^{\star,\P}$          & ${\approx}3.1$  & $25.8$\,M & ${\approx}1.43$\,B \\
+SpatialTrackerV2 (s\_wind\,=\,60)      & ${\approx}4.0$  & ${\approx}1.23$\,B$^{\ddagger}$ & ${\approx}1.23$\,B \\
+DELTA (DenseTrack3D) $+$ DA3-g$^{\star,\P}$ & ${\approx}7.7$  & $59.2$\,M & ${\approx}1.46$\,B \\
+TrackCraft3R$^{\S,\natural}$           & ${\approx}0.06$ & $1.3$\,B$^{\S}$ & $1.3$\,B \\
+\midrule
+\multicolumn{4}{l}{\emph{Ours \& training-free baselines}} \\
+DA3-g depth (shared precompute)$^{\P}$   & ${\approx}2.5^{\P}$ & 0 & $1.40$\,B \\
+WAFT $+$ DA3-g (v40, no refiner)$^{\star}$      & ${\approx}7.7$      & 0 & ${\approx}1.46$\,B \\
+v42\,/\,v43\,/\,v45\,/\,v46 (DINOv3 $+$ SSM)$^{\star}$ & ${\approx}6.3$ & $\mathbf{0.44}$\,\textbf{M} & ${\approx}\mathbf{1.49}$\,\textbf{B} \\
+\bottomrule
+\end{tabular}
+\\[2pt]
+{\footnotesize
+$^{\star}$ Depth read from the shared offline cache; not counted in fps.
+$^{\ddagger}$ SpatialTrackerV2 trains end-to-end (VGGT-style $1.16$\,B front-end $+$ $69$\,M head; see
+Table~\ref{tab:efficiency}); its own depth means it adds no DA3.
+$^{\S}$ $1.3$\,B frozen video-diffusion backbone, LoRA fine-tuned; predicts geometry directly (no DA3).
+$^{\P}$ TAPIP3D and DELTA consume the \emph{same} shared DA3-g depth as our method, so their total includes
+the $1.40$\,B backbone too --- making this a parameter-matched comparison ($1.43$--$1.49$\,B all round).
+The DA3-g depth precompute is offline/one-time; the giant backbone has ${\approx}4\times$ the parameters of
+DA3-l and precomputes correspondingly slower (${\approx}2.5$\,fps, estimated from the parameter ratio).
+$^{\natural}$ TrackCraft3R could not be re-run on DA3-g ($12$\,GB OOM); shown for reference at its native size.
+Component sizes: WAFT $64$\,M, DA3-g $1.40$\,B, DINOv3-S $22$\,M.}
 \end{table}
 
 \paragraph{Why TrackCraft3R is slow.}

@@ -312,6 +312,7 @@ METHODS_DA3G = [
     "v43\n(v42 +scale\nhead)",
     "v44\n(deflicker\nonly)",
     "v45\n(deflicker\n+vmamba3)",
+    "v46\n(within-frame\nmixing)",
 ]
 SOTA_COUNT_DA3G = 3
 
@@ -331,6 +332,7 @@ def build_da3g_tables() -> tuple[dict, dict]:
         {"drivetrack": 0.119, "pstudio": 0.035, "adt": 0.123},  # v43 (v42 + scale head)
         {"drivetrack": 0.118, "pstudio": 0.039, "adt": 0.123},  # v44 (deflicker only)
         {"drivetrack": 0.118, "pstudio": 0.029, "adt": 0.118},  # v45 (deflicker + vmamba3)
+        {"drivetrack": 0.117, "pstudio": 0.030, "adt": NaN},    # v46 within-frame (adt OOM 40/50 clips)
     ]
     keyed_abs = [
         {"drivetrack": 0.043, "pstudio": 0.184, "adt": 0.170},  # SpatialTrackerV2
@@ -343,6 +345,7 @@ def build_da3g_tables() -> tuple[dict, dict]:
         {"drivetrack": 0.171, "pstudio": 0.220, "adt": 0.297},  # v43 (v42 + scale head)
         {"drivetrack": 0.123, "pstudio": 0.196, "adt": 0.289},  # v44 (deflicker only)
         {"drivetrack": 0.173, "pstudio": 0.226, "adt": 0.297},  # v45 (deflicker + vmamba3)
+        {"drivetrack": 0.165, "pstudio": 0.217, "adt": NaN},    # v46 within-frame (adt OOM 40/50 clips)
     ]
     # fmt: on
     norm = {i: {s: d.get(s, NaN) for s in SUBSETS} for i, d in enumerate(keyed_norm)}

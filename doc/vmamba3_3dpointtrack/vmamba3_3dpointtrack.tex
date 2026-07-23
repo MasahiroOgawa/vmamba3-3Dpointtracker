@@ -141,16 +141,17 @@ tracker that is linear in patch count and linear in frame count.
 \label{sec:track-arch}
 
 \begin{center}\small
-\begin{tabular}{|l|c|c|c|}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{|p{2.3cm}|p{3.3cm}|p{4.4cm}|p{3.6cm}|}
 \hline
-Block & Operator & Inputs & Output \\ \hline
+\textbf{Block} & \textbf{Operator} & \textbf{Inputs} & \textbf{Output} \\ \hline
 Per-frame encoder
   & VSSD self-attn (VSSD output; companion note)
   & frame patches $\bm{X}^{(t)}\in\mathbb{R}^{T\times D}$
   & frame features $\bm{Y}^{(t)}\in\mathbb{R}^{T\times D}$ \\ \hline
 Track propagation
   & causal cross-SSD (cross-SSD output; companion note)
-  & queries $\bm{Q}^{(t-1)}$ + features $\bm{Y}^{(t)}$
+  & queries $\bm{Q}^{(t-1)}$ $+$ features $\bm{Y}^{(t)}$
   & updated queries $\bm{Q}^{(t)}$ \\ \hline
 Position head
   & MLP

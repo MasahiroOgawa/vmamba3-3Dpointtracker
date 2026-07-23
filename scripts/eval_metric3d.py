@@ -144,7 +144,7 @@ def _infer(
 
     if method == "searaft":
         xyz = _unproject_with_depth(uv_d, depth_t, K_t, float(image_size))[0]  # (F,N,3)
-    elif method in ("v35", "v45"):
+    elif method in ("v35", "v45", "v46"):
         ray = _ray_from_uv(uv_d, K_t)
         grid = (2.0 * uv_d / image_size - 1.0).view(F_, 1, -1, 2)
         z_raw = F.grid_sample(
@@ -194,7 +194,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--method",
-        choices=["searaft", "v33", "v35", "v44", "v45", "external"],
+        choices=["searaft", "v33", "v35", "v44", "v45", "v46", "external"],
         required=True,
     )
     ap.add_argument(
@@ -325,9 +325,9 @@ def main() -> int:
         model.load_state_dict(state["model"])
         model.eval()
         print(f"[metric3d] v45 ckpt {args.ckpt} (step={state.get('step', '?')})")
-    if args.method == "v35":
+    if args.method in ("v35", "v46"):
         if args.ckpt is None:
-            ap.error("--method v35 requires --ckpt")
+            ap.error(f"--method {args.method} requires --ckpt")
         from mamba3_tracker.model.depth_refined_tracker import Mamba3V35Refiner
 
         state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
@@ -341,6 +341,7 @@ def main() -> int:
             max_delta_uv=float(mc.get("max_delta_uv", 2.0)),
             patch_size=int(mc.get("patch_size", 5)),
             per_frame_scale=bool(mc.get("per_frame_scale", False)),
+            within_frame=bool(mc.get("within_frame", False)),
             d_proj=int(mc.get("d_proj", 64)),
             dino_model=str(
                 mc.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")
@@ -350,7 +351,9 @@ def main() -> int:
         ).to(device)
         model.load_state_dict(state["model"])
         model.eval()
-        print(f"[metric3d] v35 ckpt {args.ckpt} (step={state.get('step', '?')})")
+        print(
+            f"[metric3d] {args.method} ckpt {args.ckpt} (step={state.get('step', '?')})"
+        )
     if flow_model is not None:
         print(
             f"[metric3d] method={args.method}  SEA-RAFT iters={flow_model.args.iters} scale={flow_model.args.scale}"

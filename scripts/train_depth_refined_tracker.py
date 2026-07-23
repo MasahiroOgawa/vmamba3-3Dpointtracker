@@ -196,7 +196,7 @@ def _model_forward(
 ):
     """Dispatch model forward for v33 vs v35."""
     with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-        if version in ("v35", "v45"):
+        if version in ("v35", "v45", "v46"):
             return model(ray, z_raw, vis, uv, depth, images, K)
         return model(ray, z_raw, vis)
 
@@ -550,7 +550,7 @@ def main() -> int:
         f"[train] FlowModel loaded (iters={flow_model.args.iters} scale={flow_model.args.scale})"
     )
 
-    if version == "v35":
+    if version in ("v35", "v46"):
         model = Mamba3V35Refiner(
             dim=int(model_cfg["dim"]),
             state_dim=int(model_cfg["state_dim"]),
@@ -560,6 +560,7 @@ def main() -> int:
             max_delta_uv=float(model_cfg.get("max_delta_uv", 2.0)),
             patch_size=int(model_cfg.get("patch_size", 5)),
             per_frame_scale=bool(model_cfg.get("per_frame_scale", False)),
+            within_frame=bool(model_cfg.get("within_frame", False)),
             d_proj=int(model_cfg.get("d_proj", 64)),
             dino_model=str(
                 model_cfg.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")

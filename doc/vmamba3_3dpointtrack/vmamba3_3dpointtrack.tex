@@ -1577,6 +1577,19 @@ depth-backbone swap --- rather than by the lack of a world frame. Triangulation 
 GT-pose-supervised metric pose would realise the gain. Kept here as a documented design; revisit if v40
 plateaus. Built on v39 and would warm-start from it.}
 
+\paragraph{First realization (implemented \& evaluated below): the within-frame axis alone.}
+The full world-frame program (pose head, static/moving logits, triangulation, object motion, test-time
+optimisation) is what the gate defers. As a first, low-risk step we implement only its \emph{architectural
+core} --- the missing \textbf{within-frame} axis --- and measure whether cross-track mixing helps by itself.
+On top of the v42 refiner we add a \emph{within-frame Vision-Mamba-3 self-attention} over the $N$ tracked
+points of each frame (\texttt{Mamba3SelfAttention}, bidirectional, visibility-masked), then a
+zero-initialised per-point depth-correction head, $z\leftarrow z\,e^{\Delta_{\text{wf}}}$, so v46 starts
+exactly at v42 and each point's depth correction can now see \emph{all other points in its frame} --- the
+cross-track information a per-track SSM never has, and the richer counterpart of v43's masked-mean per-frame
+\emph{scalar}. No explicit camera pose or world frame is estimated in this first realization; any
+ego-motion-consistent correction must be learned implicitly. Warm-started from v42, DA3-g depth, $20$k
+steps. \emph{[result pending.]}
+
 \paragraph{Motivation.}
 Everything up to v39 refines each point's depth \emph{independently, in per-frame camera coordinates}: the
 SSM runs over time per track with no cross-track mixing. This is robust---it needs no camera pose, which is

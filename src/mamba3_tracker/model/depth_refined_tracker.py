@@ -150,6 +150,7 @@ class Mamba3V35Refiner(nn.Module):
         image_size: int = 896,
         per_frame_scale: bool = False,
         max_scale_correction: float = 0.5,
+        within_frame: bool = False,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -159,6 +160,7 @@ class Mamba3V35Refiner(nn.Module):
         self.image_size = float(image_size)
         self.per_frame_scale = bool(per_frame_scale)
         self.max_scale_correction = float(max_scale_correction)
+        self.within_frame = bool(within_frame)
 
         from .dino_encoder import DINOv2Encoder
 
@@ -197,6 +199,20 @@ class Mamba3V35Refiner(nn.Module):
             for head in zero_heads:
                 head[-1].weight.zero_()
                 head[-1].bias.zero_()
+
+        # v46: within-frame Vision-Mamba-3 self-attention over the N points of each
+        # frame -> a per-point depth correction that sees all points in the frame
+        # (the missing cross-track axis, sec:v46). Zero-init head -> starts at v42.
+        if self.within_frame:
+            from visionmamba3.self_attention import Mamba3SelfAttention
+
+            self.wf_mix = Mamba3SelfAttention(
+                dim=dim, num_heads=num_heads, state_dim=state_dim, bidirectional=True
+            )
+            self.wf_head = _mlp(dim, 64, 1)
+            with torch.no_grad():
+                self.wf_head[-1].weight.zero_()
+                self.wf_head[-1].bias.zero_()
 
     def _extract_depth_patch(self, depth_map: Tensor, uv: Tensor) -> Tensor:
         """Sample k×k depth patch at uv. Step = image_size/14 (one DA3 patch).
@@ -321,6 +337,20 @@ class Mamba3V35Refiner(nn.Module):
                 self.scale_head(pooled)
             )  # (B,F,1)
             z_pred = z_pred * torch.exp(ds)
+
+        if self.within_frame:
+            # within-frame Vision-Mamba-3 self-attention over the N points of each
+            # frame: each point's depth correction sees all (visible) points in its
+            # frame — the cross-track axis the per-track SSM lacks (sec:v46).
+            xf = x.reshape(B * F_, N, self.dim)
+            keep = vis.reshape(B * F_, N)  # (B*F, N): 1 = keep, 0 = mask out
+            xf = self.wf_mix(xf, attn_mask=keep).reshape(B, F_, N, self.dim)
+            dwf = (
+                self.wf_head(xf)
+                .squeeze(-1)
+                .clamp(-self.max_log_correction, self.max_log_correction)
+            )  # (B,F,N)
+            z_pred = z_pred * torch.exp(dwf)
 
         # Unproject new_uv → camera-frame XYZ
         fx = K[:, 0, 0].view(B, 1, 1)

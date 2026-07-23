@@ -50,6 +50,7 @@ SUPPORTED_VERSIONS = (
     "v35",
     "v44",
     "v45",
+    "v46",
 )
 
 

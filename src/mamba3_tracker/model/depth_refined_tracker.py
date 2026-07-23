@@ -207,7 +207,11 @@ class Mamba3V35Refiner(nn.Module):
             from visionmamba3.self_attention import Mamba3SelfAttention
 
             self.wf_mix = Mamba3SelfAttention(
-                dim=dim, num_heads=num_heads, state_dim=state_dim, bidirectional=True
+                dim=dim,
+                num_heads=num_heads,
+                state_dim=state_dim,
+                bidirectional=True,
+                use_fused_kernel=False,  # pure-torch SSD (avoids the tilelang CUDA kernel)
             )
             self.wf_head = _mlp(dim, 64, 1)
             with torch.no_grad():

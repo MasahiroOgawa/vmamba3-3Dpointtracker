@@ -1413,7 +1413,7 @@ per-track SSM never touches. v43 adds exactly that, as a small stage after the t
 Because the pooled $\bar{\mathbf{x}}_f$ come \emph{out of} the temporal SSM, they are already temporally
 aware; the pooling adds the \emph{spatial} aggregation, so the head can estimate the frame's true global
 scale --- the one-scalar-per-frame wobble no per-track model can see. v43 warm-starts from v42 and trains on
-DA3-g depth. It is a deliberately \emph{minimal} slice of \S\ref{sec:vfuture}: only a per-frame global
+DA3-g depth. It is a deliberately \emph{minimal} slice of \S\ref{sec:v46}: only a per-frame global
 \emph{scale}, not a per-frame pose or per-point motion.
 
 \paragraph{Two shortcomings of v43, and the proposed v44.}
@@ -1568,8 +1568,8 @@ v45 (deflicker $+$ refiner) & 0.029 & 0.088 & \textbf{0.226} & \textbf{0.232} \\
 \end{tabular}
 \end{table}
 
-\subsection{v\_future: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
-\label{sec:vfuture}
+\subsection{v46: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
+\label{sec:v46}
 \emph{Status: \textbf{deferred}. The first-experiment gate was run (below) and revealed that the drivetrack
 far-field error is dominated by a monocular metric-depth \emph{scale} bias --- fixed directly by v40's
 depth-backbone swap --- rather than by the lack of a world frame. Triangulation with correct pose is exact
@@ -1584,6 +1584,19 @@ exactly why it survives where the pose-dependent TAPIP3D collapses (\S\ref{sec:s
 absolute accuracy on the table, most visibly in the \textbf{far field on drivetrack} (absolute-AJ
 $\approx0.005$, Table~\ref{tab:abs}), the classic monocular metric-depth collapse: a single ray cannot
 recover metre-accurate depth at $30$--$100$\,m.
+
+\paragraph{The other target: the adt gap to DELTA.}
+The same missing ingredient explains our largest \emph{relative} shortfall to SOTA. \textbf{adt} is the one
+subset where DELTA beats every configuration of ours (Table~\ref{tab:abs-g}: absolute metric-AJ $0.324$
+vs.\ our best $0.297$), and \S\ref{sec:sota} explains why: adt is egocentric, so most tracked points are the
+\emph{static} scene, and their apparent motion is one \emph{shared camera ego-motion} --- a globally
+coherent signal a dense, cross-point, multi-frame tracker (DELTA) can lock onto. Our per-track refiner
+cannot: it slides each point's depth along its own ray with \emph{no cross-track mixing}, so it never sees
+that the whole scene moves together. v46's within-frame pose head is exactly the missing piece --- it
+estimates the shared ego-motion $T_{w\to c}(t)$ from \emph{all} points of a frame and lifts static points
+into a consistent world frame, turning adt's coherent ego-motion from a liability into the constraint that
+fixes it. The adt gap is therefore \emph{not} a depth or per-frame-scale problem (v42--v45 could not close
+it); it is the missing cross-track ego-motion axis, which is what v46 adds.
 
 \paragraph{Idea.}
 Lift the tracked points into a shared \emph{world frame} and factor each point's motion into a per-frame
@@ -1600,20 +1613,34 @@ $\mathbf{X}^{w}_0$. This buys two things the per-frame formulation cannot:
   \item \textbf{Parallax triangulation.} With relative pose known, a static point seen from a moving camera
   can be \emph{triangulated}, which is far more accurate than monocular depth at range. This directly
   attacks the far-field bottleneck, correcting DA3-l's depth-scale bias rather than only refining along the
-  ray (\S\ref{sec:vfuture-gate}).
+  ray (\S\ref{sec:v46-gate}).
 \end{enumerate}
 
 \paragraph{Architecture (what changes from v35/v39).}
 Estimating a \emph{shared} per-frame pose requires aggregating information \emph{across points within a
 frame}---precisely the non-causal Vision-Mamba-3 cross-attention derived in the backbone but unused by the
-per-track temporal refiner. v\_future adds a \emph{within-frame} mixing stage (bidirectional Vision-Mamba-3
+per-track temporal refiner. v46 adds a \emph{within-frame} mixing stage (bidirectional Vision-Mamba-3
 self-attention over the $N$ points of each frame, order-agnostic, linear in $N$) after the existing
 across-frame causal Vision-Mamba-3 refiner, giving the two-axis operator \emph{within-frame non-causal $\times$ across-frame
-causal}. On top of the pooled within-frame features it adds three zero-initialised heads so v\_future starts
+causal}. On top of the pooled within-frame features it adds three zero-initialised heads so v46 starts
 exactly at v39: (i) a per-frame \textbf{camera-pose} head ($6$D rotation $+$ translation $\to$ identity at
 init); (ii) a per-point \textbf{moving/static} logit; (iii) a per-point \textbf{depth log-variance}
 (uncertainty), turning the $\ell_1$ position loss into a heteroscedastic (Laplace) NLL that down-weights
 unreliable far-field depth.
+
+\paragraph{Difference from the early v1--v32 tracker (\S\ref{sec:early-tracker}).}
+v46 and the failed v1--v32 tracker use the \emph{same} two-axis Vision-Mamba-3 operator --- non-causal
+within-frame self-attention $\times$ causal across-frame cross-attention. What differs is the \emph{framing},
+and that is the whole reason one collapsed and the other should not. v1--v32 regressed the 3D tracks
+\emph{end-to-end} from images: with no geometric anchor, ``predict near-static tracks'' was a competitive
+local optimum of the loss, and the model collapsed into it (\S\ref{sec:prehistory}). v46 instead runs the
+identical operator \emph{additively on a frozen geometric backbone} --- WAFT flow (2D) $+$ metric depth $+$
+the v35 refiner --- and lets the within-frame stage estimate only the \emph{residual} that backbone cannot:
+the shared ego-motion and a per-point object-motion correction. Its pose/motion heads are zero-initialised
+(v46 starts exactly at v39) and gated to fall back to the per-frame estimate, so ``predict zero motion'' is
+no longer a collapse but simply the v39 baseline it refines. In one line: the early tracker used the operator
+to \emph{regress geometry from scratch}; v46 uses it to \emph{refine geometry} on top of frozen flow and
+depth.
 
 \paragraph{Three supporting components.}
 \begin{itemize}
@@ -1634,13 +1661,13 @@ reprojection $+$ robust static-point Procrustes objective.
 
 \paragraph{Keeping it robust (avoiding TAPIP3D's failure).}
 World-frame reasoning reintroduces the very pose dependence that broke TAPIP3D on this hardware. We keep
-v\_future \emph{additive} on top of v39 with a confidence gate: when the confidently-static set is too small
-or the scene is too rotational (egocentric ADT), v\_future falls back to the v39 per-frame estimate. Poses are
+v46 \emph{additive} on top of v39 with a confidence gate: when the confidently-static set is too small
+or the scene is too rotational (egocentric ADT), v46 falls back to the v39 per-frame estimate. Poses are
 estimated \emph{robustly from confidently-static points} (RANSAC-weighted alignment), never by trusting raw
 monocular depth.
 
 \paragraph{First-experiment gate.}
-\label{sec:vfuture-gate}
+\label{sec:v46-gate}
 Before any training we test the load-bearing claim (parallax triangulation fixes far-field depth) directly
 on drivetrack: using exact ground-truth pixel correspondences, compare (a) monocular DA3-depth unprojection
 against (b) DLT triangulation across a widened baseline, run with both the ground-truth pose (oracle) and a
@@ -2062,6 +2089,31 @@ of frames predicted visible) starving the AJ score of evaluation signal.
 As noted in \S\ref{sec:abs}, TCR is also roughly $200\times$ slower than our pipeline
 (Table~\ref{tab:efficiency}), confirming that diffusion-based tracking carries a
 substantial inference-time cost relative to our lightweight SSM refiner.
+
+\paragraph{DELTA --- why it is strong on adt (and only there).}
+DELTA~\cite{delta} is the strongest external method on the DA3-g backbone, but its win is concentrated
+almost entirely on \textbf{adt}: absolute metric-AJ $0.324$ (best of all methods), versus a middling $0.164$
+on drivetrack and $0.194$ on pstudio, where our pipeline beats it. Why so good on adt in particular? In plain
+terms: \emph{DELTA is a dense tracker that reasons over many points and many frames at once, and adt is the
+one benchmark where that actually pays off.} Three things line up on adt:
+\begin{itemize}
+  \item \textbf{Near and clear.} adt is an indoor apartment at $0.5$--$5$\,m with rich texture, so
+  correspondence and depth are reliable --- a solid substrate for dense tracking. (drivetrack is
+  $30$--$100$\,m, where depth is unreliable.)
+  \item \textbf{The scene moves together.} adt is filmed from head-worn Aria glasses, so most tracked points
+  are the \emph{static} room; their apparent motion is just the camera's own movement --- one smooth, shared
+  motion for the whole frame. A tracker that pools information across all points and frames can lock onto
+  that single coherent motion and get every point right at once.
+  \item \textbf{No independent chaos.} pstudio, by contrast, is full of people moving \emph{independently}
+  (fast, articulated, occluding), so there is no shared motion to exploit; drivetrack adds fast forward
+  driving and far depth. In both, DELTA's many-point/many-frame advantage largely evaporates.
+\end{itemize}
+So it is \emph{not} ``multi-frame tracking'' by itself that helps --- if it were, DELTA would lead
+everywhere. It is multi-frame tracking on a scene whose motion is \emph{coherent} (near-field, static room,
+shared ego-motion), which only adt provides. This also explains why our depth/scale work (v42--v45) cannot
+close the adt gap: our refiner corrects each point's depth in isolation and never sees the shared camera
+motion. Closing it needs a model that estimates that shared motion across all points --- exactly the
+\S\ref{sec:v46} proposal.
 
 Figures~\ref{fig:6method-norm} and~\ref{fig:6method-abs} summarise the seven-method comparison.
 

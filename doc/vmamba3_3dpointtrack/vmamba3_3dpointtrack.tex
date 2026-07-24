@@ -1811,7 +1811,34 @@ distorting the depth output --- and at init ($R\!=\!I,\mathbf{t}\!=\!0$) it is a
 ego-motion, driving the pose to explain it. Both new heads are zero-init so v47 starts exactly at v45;
 warm-started from v45, DA3-g depth, $0.87$\,M trainable, $20$k steps. (This first realization keeps the pose
 \emph{self-supervised} on all subsets --- the loader does not expose the drivetrack GT extrinsics; GT-pose
-supervision on drivetrack is the natural next increment.) \emph{[result pending.]}
+supervision on drivetrack is the natural next increment.)
+
+\paragraph{Result: a clean run, but essentially a wash.}
+Unlike v46, v47 evaluates cleanly on \emph{all} $150$ clips ($0$ failures --- the $O(N)$ pool has none of
+v46's out-of-memory problem, confirming the memory fix). But the shared ego-motion pose head \textbf{does not
+move the needle}, and in particular \textbf{does not improve adt} --- the very subset it was designed for:
+\begin{center}\small
+\begin{tabular}{lcccc|cccc}
+\toprule
+ & \multicolumn{4}{c|}{normalized 3D-AJ $\uparrow$} & \multicolumn{4}{c}{absolute metric-AJ $\uparrow$} \\
+Method & dt & ps & adt & mean & dt & ps & adt & mean \\
+\midrule
+v45 (best DA3-g)        & 0.118 & 0.029 & 0.118 & 0.088 & \textbf{0.173} & 0.226 & 0.297 & \textbf{0.232} \\
+v46 (within-frame)      & 0.117 & 0.030 & 0.076$^{\dagger}$ & 0.074$^{\dagger}$ & 0.165 & 0.217 & 0.264$^{\dagger}$ & 0.215$^{\dagger}$ \\
+v47 (shared pose head)  & 0.120 & 0.033 & 0.119 & \textbf{0.091} & 0.169 & \textbf{0.227} & 0.297 & 0.231 \\
+\bottomrule
+\end{tabular}
+\end{center}
+On the \emph{absolute} metric v47 is statistically identical to v45 (mean $0.231$ vs $0.232$; adt $0.2970$
+vs $0.2969$ --- unchanged to three decimals) and does not narrow the gap to DELTA's adt ($0.324$). It edges
+v45 by a hair on the \emph{normalized} leaderboard mean ($0.091$ vs $0.088$, from small pstudio/adt gains)
+and on absolute pstudio ($0.227$ vs $0.226$), but loses the same hair on absolute drivetrack. Net: the
+self-supervised static-world-consistency signal trains (the pose head is non-trivial), but a pooled pose
+context added on top of the frozen depth is \emph{too weak a lever} to convert adt's shared ego-motion into
+better metric depth --- consistent with the error analysis (\S\ref{sec:error-analysis}): the adt gap is
+architectural, and closing it needs a stronger mechanism than a self-supervised auxiliary --- GT-pose
+supervision on drivetrack and explicit parallax triangulation (refinements~2--3), not a bolt-on pose head.
+\textbf{v45 remains the best DA3-g pipeline} (absolute mean $0.232$).
 
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
@@ -2018,6 +2045,7 @@ v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.119 & 0.035 & 0.123 & 0.092 \\
 v44, WAFT+DA3-g+deflicker (standalone)  & 0.118 & 0.039 & 0.123 & 0.093 \\
 v45, WAFT+DA3-g+deflicker+vmamba3       & 0.118 & 0.029 & 0.118 & 0.088 \\
 v46, WAFT+DA3-g+within-frame mixing     & 0.117 & 0.030 & $0.076^{\dagger}$ & $0.074^{\dagger}$ \\
+v47, WAFT+DA3-g+shared ego-motion       & 0.120 & 0.033 & 0.119 & 0.091 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -2105,8 +2133,9 @@ v41, WAFT+DA3-g+vmamba3      & 0.166 & 0.198 & 0.285 & 0.216 \\
 v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.169 & 0.213 & 0.292 & 0.225 \\
 v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.171 & 0.220 & 0.297 & 0.229 \\
 v44, WAFT+DA3-g+deflicker (standalone)  & 0.123 & 0.196 & 0.289 & 0.203 \\
-v45, WAFT+DA3-g+deflicker+vmamba3       & \textbf{0.173} & \textbf{0.226} & 0.297 & \textbf{0.232} \\
+v45, WAFT+DA3-g+deflicker+vmamba3       & \textbf{0.173} & 0.226 & 0.297 & \textbf{0.232} \\
 v46, WAFT+DA3-g+within-frame mixing     & 0.165 & 0.217 & $0.264^{\dagger}$ & $0.215^{\dagger}$ \\
+v47, WAFT+DA3-g+shared ego-motion       & 0.169 & \textbf{0.227} & 0.297 & 0.231 \\
 \bottomrule
 \end{tabular}
 \\[2pt]

@@ -1035,7 +1035,8 @@ Method $+$ DA3-l & drivetrack & pstudio & adt & mean \\
 \midrule
 SEA-RAFT         & 0.005 & 0.165 & 0.273 & 0.147 \\
 WAFT (v37)       & 0.005 & 0.181 & 0.289 & 0.159 \\
-DELTA            & 0.006 & \textbf{0.199} & \textbf{0.344} & \textbf{0.183} \\
+DELTA            & 0.006 & \textbf{0.199} & 0.344 & \textbf{0.183} \\
+DELTAv2          & 0.005 & 0.190 & \textbf{0.345} & 0.180 \\
 SpatialTrackerV2 & \textbf{0.008} & 0.192 & 0.179 & 0.126 \\
 TAPIP3D          & 0.006 & 0.131 & 0.164 & 0.100 \\
 \bottomrule
@@ -1056,6 +1057,7 @@ Method $+$ DA3-g & drivetrack & pstudio & adt & mean \\
 SEA-RAFT         & 0.136 & 0.175 & 0.269 & 0.193 \\
 WAFT (v40)       & 0.146 & 0.192 & 0.285 & 0.208 \\
 DELTA            & \textbf{0.164} & \textbf{0.194} & \textbf{0.324} & \textbf{0.227} \\
+DELTAv2          & 0.159 & 0.171 & 0.319 & 0.216 \\
 SpatialTrackerV2 & 0.043 & 0.184 & $0.170^{\dagger}$ & 0.132 \\
 TAPIP3D          & 0.110 & 0.148 & --$^{\ddagger}$ & $0.129^{\ddagger}$ \\
 \bottomrule
@@ -1998,6 +2000,7 @@ Method & drivetrack & pstudio & adt & mean \\
 \multicolumn{5}{l}{\emph{SOTA (external)}} \\
 SpatialTrackerV2\,$^{*}$         & 0.017 & 0.012 & 0.025 & 0.018 \\
 DELTA + DA3-l\,$^{\S}$             & \textbf{0.130} & \textbf{0.141} & 0.152 & \textbf{0.141} \\
+DELTAv2 + DA3-l\,$^{\S}$           & \textbf{0.130} & 0.136 & 0.155 & 0.140 \\
 TAPIP3D + DA3-l\,$^{\dagger}$      & 0.065 & 0.023 & 0.004 & 0.030 \\
 TAPIP3D + MegaSAM\,$^{\ddagger}$ & 0.000 & 0.003 & 0.004 & 0.002 \\
 TrackCraft3R\,$^{\P}$            & 0.003 & 0.013 & 0.010 & 0.009 \\
@@ -2032,7 +2035,8 @@ $^{\P}$ \S\ref{sec:trackcraft3r}.}
 Method (DA3-g) & drivetrack & pstudio & adt & mean \\
 \midrule
 \multicolumn{5}{l}{\emph{SOTA (external)}} \\
-DELTA + DA3-g            & \textbf{0.137} & \textbf{0.049} & \textbf{0.141} & \textbf{0.109} \\
+DELTA + DA3-g            & \textbf{0.137} & \textbf{0.049} & 0.141 & \textbf{0.109} \\
+DELTAv2 + DA3-g          & 0.131 & 0.046 & \textbf{0.148} & 0.108 \\
 SpatialTrackerV2 + DA3-g & 0.018 & 0.008 & 0.027 & 0.017 \\
 TAPIP3D + DA3-g          & 0.057 & 0.011 & ---   & 0.034 \\
 \midrule
@@ -2083,7 +2087,8 @@ Method & drivetrack & pstudio & adt & mean \\
 \midrule
 \multicolumn{5}{l}{\emph{SOTA (external)}} \\
 SpatialTrackerV2\,$^{*}$         & 0.008 & 0.192 & 0.179 & 0.126 \\
-DELTA + DA3-l\,$^{\S}$             & 0.006 & 0.199 & \textbf{0.344} & 0.183 \\
+DELTA + DA3-l\,$^{\S}$             & 0.006 & 0.199 & 0.344 & 0.183 \\
+DELTAv2 + DA3-l\,$^{\S}$           & 0.005 & 0.190 & \textbf{0.345} & 0.180 \\
 TAPIP3D + DA3-l                    & 0.006 & 0.131 & 0.164 & 0.100 \\
 TAPIP3D + MegaSAM                & 0.000 & 0.000 & 0.000 & 0.000 \\
 TrackCraft3R\,$^{\P}$            & 0.002 & 0.025 & 0.032 & 0.020 \\
@@ -2102,9 +2107,10 @@ v39, WAFT+DA3-l+vmamba3  & \textbf{0.141} & \textbf{0.279} & 0.318 & \textbf{0.2
 \end{tabular}
 \\[2pt]
 {\footnotesize $^{*}$ SpatialTrackerV2 evaluated with $s_{\text{wind}}{=}60$ on RTX\,4080\,Laptop (12\,GB); see Table~\ref{tab:median} footnote.
-$^{\S}$ DELTA$+$DA3-l, feed-forward on the same hardware; see Table~\ref{tab:median} footnote. On the absolute
-metric it attains the best \emph{adt} score of any method ($0.344$), but its far-field \emph{drivetrack}
-depth scale (like all DA3-based methods) keeps its mean below our v35.
+$^{\S}$ DELTA$+$DA3-l and its successor DELTAv2$+$DA3-l, feed-forward on the same hardware; see
+Table~\ref{tab:median} footnote. Between them they hold the best \emph{adt} score of any method
+(DELTAv2 $0.345$, DELTA $0.344$), but their far-field \emph{drivetrack} depth scale (like all DA3-based
+methods) keeps the mean below our v35.
 $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} footnote for explanation of low scores vs.\ the paper's Sim(3)-aligned numbers.}
 \end{table}
 
@@ -2123,6 +2129,7 @@ Method (DA3-g) & drivetrack & pstudio & adt & mean \\
 \midrule
 \multicolumn{5}{l}{\emph{SOTA (external)}} \\
 DELTA + DA3-g            & 0.164 & 0.194 & \textbf{0.324} & 0.227 \\
+DELTAv2 + DA3-g          & 0.159 & 0.171 & 0.319 & 0.216 \\
 SpatialTrackerV2 + DA3-g & 0.043 & 0.184 & 0.170 & 0.132 \\
 TAPIP3D + DA3-g          & 0.110 & 0.148 & ---   & 0.129 \\
 \midrule
@@ -2291,7 +2298,21 @@ close the adt gap: our refiner corrects each point's depth in isolation and neve
 motion. Closing it needs a model that estimates that shared motion across all points --- exactly the
 \S\ref{sec:v46} proposal.
 
-Figures~\ref{fig:6method-norm} and~\ref{fig:6method-abs} summarise the seven-method comparison.
+\paragraph{DELTAv2 (DenseTrack3Dv2).}
+DELTAv2~\cite{deltav2} is the direct successor to DELTA --- reported ${\approx}5\times$ faster at comparable
+accuracy --- and is \emph{lighter} ($51.4$\,M trainable vs DELTA's $59.2$\,M). We evaluated it identically
+(fed the same DA3-l and DA3-g depth caches; $0$ failures on all $150$ clips). It reproduces DELTA's profile
+almost exactly: the same adt stronghold and the same far-field drivetrack limit. On \textbf{DA3-l} it in fact
+sets the single best \emph{adt} score of \emph{any} method (absolute metric-AJ $0.345$, a hair over DELTA's
+$0.344$), with mean $0.180$ ($\approx$ DELTA $0.183$); on \textbf{DA3-g} it is a touch behind DELTA
+(adt $0.319$ vs $0.324$, mean $0.216$ vs $0.227$). So the DELTA family --- v1 and v2 --- owns adt but nothing
+else: our v39 (DA3-l, mean $0.246$) and v45 (DA3-g, mean $0.232$) still lead the \emph{mean} absolute metric,
+and beat both on drivetrack and pstudio. On throughput, DELTAv2 and DELTA are comparable in our $12$\,GB
+external-depth harness (${\approx}6.9$ vs $7.7$\,fps); the paper's $5\times$ speedup is measured on native
+full-resolution \emph{dense} tracking, whereas our sparse-query, precomputed-depth setup is memory-bound and
+does not exercise that regime.
+
+Figures~\ref{fig:6method-norm} and~\ref{fig:6method-abs} summarise the multi-method comparison.
 
 \begin{figure}[h]
 \centering
@@ -2408,6 +2429,7 @@ Method & fps & trainable & total \\
 TAPIP3D $+$ DA3-l$^{\star,\P}$          & ${\approx}3.1$  & $25.8$\,M & ${\approx}0.38$\,B \\
 SpatialTrackerV2 (s\_wind\,=\,60)      & ${\approx}4.0$  & ${\approx}1.23$\,B$^{\ddagger}$ & ${\approx}1.23$\,B \\
 DELTA (DenseTrack3D) $+$ DA3-l$^{\star,\P}$ & ${\approx}7.7$  & $59.2$\,M & ${\approx}0.41$\,B \\
+DELTAv2 (DenseTrack3Dv2) $+$ DA3-l$^{\star,\P}$ & ${\approx}6.9$  & $51.4$\,M & ${\approx}0.41$\,B \\
 TrackCraft3R$^{\S}$                    & ${\approx}0.06$ & $1.3$\,B$^{\S}$ & $1.3$\,B \\
 \midrule
 \multicolumn{4}{l}{\emph{Ours \& training-free baselines}} \\
@@ -2471,6 +2493,7 @@ Method & fps & trainable & total \\
 TAPIP3D $+$ DA3-g$^{\star,\P}$          & ${\approx}3.1$  & $25.8$\,M & ${\approx}1.43$\,B \\
 SpatialTrackerV2 (s\_wind\,=\,60)      & ${\approx}4.0$  & ${\approx}1.23$\,B$^{\ddagger}$ & ${\approx}1.23$\,B \\
 DELTA (DenseTrack3D) $+$ DA3-g$^{\star,\P}$ & ${\approx}7.7$  & $59.2$\,M & ${\approx}1.46$\,B \\
+DELTAv2 (DenseTrack3Dv2) $+$ DA3-g$^{\star,\P}$ & ${\approx}6.9$  & $51.4$\,M & ${\approx}1.46$\,B \\
 TrackCraft3R$^{\S,\natural}$           & ${\approx}0.06$ & $1.3$\,B$^{\S}$ & $1.3$\,B \\
 \midrule
 \multicolumn{4}{l}{\emph{Ours \& training-free baselines}} \\

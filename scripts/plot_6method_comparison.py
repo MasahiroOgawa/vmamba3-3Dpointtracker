@@ -33,6 +33,7 @@ METHODS = [
     "TAPIP3D\n+MegaSAM",
     "TrackCraft3R",
     "DELTA\n+DA3",
+    "DELTAv2\n+DA3",
     # ── Ours ─────────────────────────────────────────────────────────────────
     # The "Ours" group header disambiguates authorship, so labels omit "(Ours)".
     # DA3 is the common depth backbone across v33–v39, so it is dropped; only the
@@ -77,6 +78,7 @@ def build_data_tables() -> tuple[dict, dict]:
         "TAPIP3D+MegaSAM":    {"drivetrack": 0.000,  "pstudio": 0.003,  "adt": 0.004},
         "TrackCraft3R":       {"drivetrack": 0.003,  "pstudio": 0.013,  "adt": 0.010},
         "DELTA+DA3":          {"drivetrack": 0.130,  "pstudio": 0.141,  "adt": 0.152},
+        "DELTAv2+DA3":        {"drivetrack": 0.130,  "pstudio": 0.136,  "adt": 0.155},
         # Ours ──────────────────────────────────────────────────────────────────
         "SEA-RAFT+DA3":       {"drivetrack": 0.108,  "pstudio": 0.111,  "adt": 0.132},
         "SEA-RAFT+MegaSAM":   {"drivetrack": 0.103,  "pstudio": 0.135,  "adt": 0.163},
@@ -96,6 +98,7 @@ def build_data_tables() -> tuple[dict, dict]:
         "TAPIP3D+MegaSAM":    {"drivetrack": 0.000,  "pstudio": 0.000,  "adt": 0.000},
         "TrackCraft3R":       {"drivetrack": 0.002,  "pstudio": 0.025,  "adt": 0.032},
         "DELTA+DA3":          {"drivetrack": 0.006,  "pstudio": 0.199,  "adt": 0.344},
+        "DELTAv2+DA3":        {"drivetrack": 0.005,  "pstudio": 0.190,  "adt": 0.345},
         # Ours ──────────────────────────────────────────────────────────────────
         "SEA-RAFT+DA3":       {"drivetrack": 0.005,  "pstudio": 0.165,  "adt": 0.273},
         "SEA-RAFT+MegaSAM":   {"drivetrack": 0.000,  "pstudio": 0.082,  "adt": 0.209},
@@ -117,6 +120,7 @@ def build_data_tables() -> tuple[dict, dict]:
         "TAPIP3D+MegaSAM",
         "TrackCraft3R",
         "DELTA+DA3",
+        "DELTAv2+DA3",
         "SEA-RAFT+DA3",
         "SEA-RAFT+MegaSAM",
         "SEA-RAFT+DA3 bidir",
@@ -305,6 +309,7 @@ METHODS_DA3G = [
     "SpatialTracker\nV2",
     "TAPIP3D\n+DA3-g",
     "DELTA\n+DA3-g",
+    "DELTAv2\n+DA3-g",
     "SEA-RAFT\n+DA3-g\n(baseline)",
     "v40\n(WAFT\n+DA3-g)",
     "v41\n(WAFT+DA3-g\n+vmamba3)",
@@ -315,7 +320,7 @@ METHODS_DA3G = [
     "v46\n(within-frame\nmixing)",
     "v47\n(shared ego-\nmotion)",
 ]
-SOTA_COUNT_DA3G = 3
+SOTA_COUNT_DA3G = 4
 
 
 def build_da3g_tables() -> tuple[dict, dict]:
@@ -326,6 +331,7 @@ def build_da3g_tables() -> tuple[dict, dict]:
         {"drivetrack": 0.018, "pstudio": 0.008, "adt": 0.027},  # SpatialTrackerV2
         {"drivetrack": 0.057, "pstudio": 0.011, "adt": NaN},    # TAPIP3D+DA3-g
         {"drivetrack": 0.137, "pstudio": 0.049, "adt": 0.141},  # DELTA+DA3-g
+        {"drivetrack": 0.131, "pstudio": 0.046, "adt": 0.148},  # DELTAv2+DA3-g
         {"drivetrack": 0.112, "pstudio": 0.036, "adt": 0.120},  # SEA-RAFT+DA3-g
         {"drivetrack": 0.118, "pstudio": 0.039, "adt": 0.123},  # v40 WAFT+DA3-g
         {"drivetrack": 0.110, "pstudio": 0.022, "adt": 0.108},  # v41
@@ -340,6 +346,7 @@ def build_da3g_tables() -> tuple[dict, dict]:
         {"drivetrack": 0.043, "pstudio": 0.184, "adt": 0.170},  # SpatialTrackerV2
         {"drivetrack": 0.110, "pstudio": 0.148, "adt": NaN},    # TAPIP3D+DA3-g
         {"drivetrack": 0.164, "pstudio": 0.194, "adt": 0.324},  # DELTA+DA3-g
+        {"drivetrack": 0.159, "pstudio": 0.171, "adt": 0.319},  # DELTAv2+DA3-g
         {"drivetrack": 0.136, "pstudio": 0.175, "adt": 0.269},  # SEA-RAFT+DA3-g
         {"drivetrack": 0.146, "pstudio": 0.192, "adt": 0.285},  # v40 WAFT+DA3-g
         {"drivetrack": 0.166, "pstudio": 0.198, "adt": 0.285},  # v41

@@ -211,7 +211,7 @@ def main() -> int:
 
     # ---- clean 2-panel figure for the memo ----
     fig2, (axA, axB) = plt.subplots(1, 2, figsize=(16, 5))
-    colors = {"drivetrack": "C0", "pstudio": "C1", "adt": "C2"}
+    colors = {"drivetrack": "#4878CF", "pstudio": "#E06C2B", "adt": "#3A9E5C"}
     for sub in SUBSETS:
         m_l, _, _, _ = median_per_bin(
             np.concatenate(per[sub]["DA3-l"]["gt"]),
@@ -236,10 +236,10 @@ def main() -> int:
     lc = [np.mean(np.concatenate(per[s]["DA3-l"]["r_clip"])) for s in SUBSETS]
     gf = [np.mean(np.concatenate(per[s]["DA3-g"]["r"])) for s in SUBSETS]
     gc = [np.mean(np.concatenate(per[s]["DA3-g"]["r_clip"])) for s in SUBSETS]
-    axB.bar(x - 1.5 * w, lf, w, label="DA3-l per-frame", color="#9ecae1")
-    axB.bar(x - 0.5 * w, lc, w, label="DA3-l per-clip", color="#3182bd")
-    axB.bar(x + 0.5 * w, gf, w, label="DA3-g per-frame", color="#fdae6b")
-    axB.bar(x + 1.5 * w, gc, w, label="DA3-g per-clip", color="#e6550d")
+    axB.bar(x - 1.5 * w, lf, w, label="DA3-l per-frame", color="#A9C0E8")
+    axB.bar(x - 0.5 * w, lc, w, label="DA3-l per-clip", color="#4878CF")
+    axB.bar(x + 0.5 * w, gf, w, label="DA3-g per-frame", color="#F2B48C")
+    axB.bar(x + 1.5 * w, gc, w, label="DA3-g per-clip", color="#E06C2B")
     axB.set_xticks(x)
     axB.set_xticklabels(SUBSETS)
     axB.set_ylabel("mean |log(scale*pred/gt)|")

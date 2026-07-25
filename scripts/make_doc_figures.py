@@ -59,7 +59,7 @@ def fig_metric_reversal(searaft: dict, v33: dict) -> None:
     ]:
         sr, vv = col(searaft, key), col(v33, key)
         ax.bar(x - w / 2, sr, w, label="SEA-RAFT+DA3 (baseline)", color="#7f7f7f")
-        ax.bar(x + w / 2, vv, w, label="v33 (depth refiner)", color="#1f77b4")
+        ax.bar(x + w / 2, vv, w, label="v33 (depth refiner)", color="#4878CF")
         ax.set_xticks(x)
         ax.set_xticklabels(labels)
         ax.set_ylabel("3D-AJ")

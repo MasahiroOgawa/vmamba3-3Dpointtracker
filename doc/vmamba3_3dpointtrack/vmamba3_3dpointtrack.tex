@@ -25,7 +25,7 @@
     minimum height=9mm, minimum width=22mm, align=center, font=\small},
   learn/.style={rectangle, rounded corners, draw=cTrain!75!black, fill=cTrain!18, very thick,
     minimum height=9mm, minimum width=22mm, align=center, font=\small},
-  io/.style={rectangle, draw=black!40, fill=cInput!15, minimum height=8mm, align=center, font=\small},
+  io/.style={rectangle, draw=black!45, fill=white, minimum height=8mm, align=center, font=\small},
   arr/.style={-{Stealth[length=2.2mm]}, thick},
 }
 
@@ -532,7 +532,7 @@ v33, that refines depth.
   \node[frozen, right=of flow] (chain) {flow\\chaining};
   \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
   \node[frozen, below=17mm of flow] (da3) {DA3-l metric\\depth (frozen)};
-  % refiner inputs (orange) — the SAME orange input box as Fig 3 / Fig 5.
+  % refiner inputs (white) — the SAME white input box as Fig 3 / Fig 5.
   \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
   % the single learned module (large blue box); internals in Fig 3 / Fig 5.
   \node[learn, minimum width=30mm, minimum height=14mm, right=13mm of inp] (ref)
@@ -552,9 +552,9 @@ v33, that refines depth.
 \caption{Overall pipeline. Grey = frozen / training-free; the \textbf{large blue box} is the only
 learned module ($0.40$M params); its internals are Fig.~\ref{fig:arch} (v33) and
 Fig.~\ref{fig:v35-arch} (v35). SEA-RAFT's 2D track $\mathbf{u}_t$ (and visibility) are \emph{never}
-modified. The refiner's \emph{inputs} (orange box) --- the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$
+modified. The refiner's \emph{inputs} (white box) --- the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$
 (from $\mathbf{u}_t$ and the intrinsics), DA3-l's raw depth $z_{\text{raw}}$, and visibility $v$ --- are
-exactly the orange input boxes that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and
+exactly the white input boxes that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and
 Fig.~\ref{fig:v35-arch} (v35 additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The
 box corrects depth along the frozen ray and unprojects to 3D, so the 2D reprojection is invariant by
 construction (Fig.~\ref{fig:ray}).}
@@ -654,7 +654,7 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
       minimum height=8mm, minimum width=16mm, align=center, font=\small},
     learn/.style={rectangle, rounded corners, draw=cTrain!75!black, fill=cTrain!18, very thick,
       minimum height=8mm, minimum width=16mm, align=center, font=\small},
-    io/.style={rectangle, draw=black!40, fill=cInput!15,
+    io/.style={rectangle, draw=black!45, fill=white,
       minimum height=7mm, align=center, font=\small},
     arr/.style={-{Stealth[length=2mm]}, thick},
   ]
@@ -679,7 +679,7 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
   % Raise ONLY the box top (coordinate at the z_raw arrow height) so the arrow runs inside it.
   \coordinate (zrband) at (zraw.east -| z);
   % Solid blue container = the learned depth refiner (the blue box of Fig.~\ref{fig:pipeline});
-  % z_t sits inside; the orange inputs (left) and the 3D-track output (right) sit outside.
+  % z_t sits inside; the white inputs (left) and the 3D-track output (right) sit outside.
   \begin{scope}[on background layer]
     \node[draw=cTrain!75!black, thick, rounded corners, fill=cTrain!6,
           fit=(emb)(m1)(head)(z)(zrband), inner xsep=4mm, inner ysep=4mm,

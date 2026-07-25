@@ -6,6 +6,12 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{xcolor}
+% Semantic palette, matching the comparison-graph bar colours (blue/orange/green).
+% Meaning is fixed across all figures: blue = trainable, gray = frozen/non-trainable,
+% white = fixed output, orange = input / image feature / data. Green is reserved.
+\definecolor{cTrain}{HTML}{4878CF}   % blue   — trainable module (drivetrack bar)
+\definecolor{cInput}{HTML}{E06C2B}   % orange — input / image feature / data (pstudio bar)
+\definecolor{cAlt}{HTML}{3A9E5C}     % green  — reserved (adt bar)
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
 \usepackage{hyperref}
@@ -13,13 +19,13 @@
 
 % ---- tikz styles ----
 \tikzset{
-  block/.style={rectangle, rounded corners, draw=black!60, fill=blue!6,
+  block/.style={rectangle, rounded corners, draw=black!60, fill=cTrain!8,
     minimum height=9mm, minimum width=22mm, align=center, font=\small},
   frozen/.style={rectangle, rounded corners, draw=black!50, fill=black!7,
     minimum height=9mm, minimum width=22mm, align=center, font=\small},
-  learn/.style={rectangle, rounded corners, draw=blue!60!black, fill=blue!14, very thick,
+  learn/.style={rectangle, rounded corners, draw=cTrain!75!black, fill=cTrain!18, very thick,
     minimum height=9mm, minimum width=22mm, align=center, font=\small},
-  io/.style={rectangle, draw=black!40, fill=yellow!10, minimum height=8mm, align=center, font=\small},
+  io/.style={rectangle, draw=black!40, fill=cInput!15, minimum height=8mm, align=center, font=\small},
   arr/.style={-{Stealth[length=2.2mm]}, thick},
 }
 
@@ -526,12 +532,12 @@ v33, that refines depth.
   \node[frozen, right=of flow] (chain) {flow\\chaining};
   \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
   \node[frozen, below=17mm of flow] (da3) {DA3-l metric\\depth (frozen)};
-  % refiner inputs (yellow) — the SAME yellow input box as Fig 3 / Fig 5.
+  % refiner inputs (orange) — the SAME orange input box as Fig 3 / Fig 5.
   \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
   % the single learned module (large blue box); internals in Fig 3 / Fig 5.
   \node[learn, minimum width=30mm, minimum height=14mm, right=13mm of inp] (ref)
     {\textbf{learned}\\\textbf{depth refiner}\\{\scriptsize v33: Fig.~\ref{fig:arch}\ \ v35: Fig.~\ref{fig:v35-arch}}};
-  \node[io, right=13mm of ref] (out) {3D track\\$\hat{\mathbf X}_t$};
+  \node[io, fill=white, draw=black!45, right=13mm of ref] (out) {3D track\\$\hat{\mathbf X}_t$};
 
   \draw[arr] (vid) -- (flow);
   \draw[arr] (flow) -- (chain);
@@ -546,9 +552,9 @@ v33, that refines depth.
 \caption{Overall pipeline. Grey = frozen / training-free; the \textbf{large blue box} is the only
 learned module ($0.40$M params); its internals are Fig.~\ref{fig:arch} (v33) and
 Fig.~\ref{fig:v35-arch} (v35). SEA-RAFT's 2D track $\mathbf{u}_t$ (and visibility) are \emph{never}
-modified. The refiner's \emph{inputs} (yellow box) --- the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$
+modified. The refiner's \emph{inputs} (orange box) --- the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$
 (from $\mathbf{u}_t$ and the intrinsics), DA3-l's raw depth $z_{\text{raw}}$, and visibility $v$ --- are
-exactly the yellow input boxes that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and
+exactly the orange input boxes that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and
 Fig.~\ref{fig:v35-arch} (v35 additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The
 box corrects depth along the frozen ray and unprojects to 3D, so the 2D reprojection is invariant by
 construction (Fig.~\ref{fig:ray}).}
@@ -642,13 +648,13 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
 \centering
 \begin{tikzpicture}[
     node distance=4mm and 7mm,
-    block/.style={rectangle, rounded corners, draw=black!60, fill=blue!6,
+    block/.style={rectangle, rounded corners, draw=black!60, fill=cTrain!8,
       minimum height=8mm, minimum width=16mm, align=center, font=\small},
     frozen/.style={rectangle, rounded corners, draw=black!50, fill=black!7,
       minimum height=8mm, minimum width=16mm, align=center, font=\small},
-    learn/.style={rectangle, rounded corners, draw=blue!60!black, fill=blue!14, very thick,
+    learn/.style={rectangle, rounded corners, draw=cTrain!75!black, fill=cTrain!18, very thick,
       minimum height=8mm, minimum width=16mm, align=center, font=\small},
-    io/.style={rectangle, draw=black!40, fill=yellow!10,
+    io/.style={rectangle, draw=black!40, fill=cInput!15,
       minimum height=7mm, align=center, font=\small},
     arr/.style={-{Stealth[length=2mm]}, thick},
   ]
@@ -659,7 +665,7 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
   \node[block, right=of m1] (head) {$\Delta\!\log z$\\{\scriptsize head (0-init)}};
   \node[io, right=of head] (z) {$z_t = z_{\text{raw}}\,e^{\Delta\!\log z}$};
   % final 3D output box, OUTSIDE the refiner (matches Fig.~\ref{fig:pipeline}).
-  \node[io, right=9mm of z] (out) {3D track\\$\mathbf{X}_t$};
+  \node[io, fill=white, draw=black!45, right=9mm of z] (out) {3D track\\$\mathbf{X}_t$};
   % z_raw enters from the LEFT (a refiner input, matching Fig.~\ref{fig:pipeline}); combined inside.
   \node[io, above=1mm of in] (zraw) {$z_{\text{raw}}$ {\scriptsize (DA3-l, bypasses SSM)}};
   % Arrows: SSM path
@@ -673,9 +679,9 @@ learns improvements.  The model has $\approx0.40$M trainable parameters.
   % Raise ONLY the box top (coordinate at the z_raw arrow height) so the arrow runs inside it.
   \coordinate (zrband) at (zraw.east -| z);
   % Solid blue container = the learned depth refiner (the blue box of Fig.~\ref{fig:pipeline});
-  % z_t sits inside; the yellow inputs (left) and the 3D-track output (right) sit outside.
+  % z_t sits inside; the orange inputs (left) and the 3D-track output (right) sit outside.
   \begin{scope}[on background layer]
-    \node[draw=blue!60!black, thick, rounded corners, fill=blue!4,
+    \node[draw=cTrain!75!black, thick, rounded corners, fill=cTrain!6,
           fit=(emb)(m1)(head)(z)(zrband), inner xsep=4mm, inner ysep=4mm,
           label={[font=\scriptsize\bfseries, blue!45!black]above:{learned depth refiner}}] {};
   \end{scope}
@@ -764,12 +770,12 @@ consistent (Fig.~\ref{fig:v35-concept}).
   \draw[arr,densely dashed,black!60] (2.2,0.26) -- (3.35,0.57)
     node[midway,above,font=\scriptsize]{$\Delta\!\log z$};
   % DINOv3 and depth-patch inputs: spaced apart, both pointing to the Δlog z correction arrow.
-  \node[draw=orange!70!black,fill=orange!8,rounded corners,font=\scriptsize,inner sep=2pt,align=center]
+  \node[draw=cInput!75!black,fill=cInput!15,rounded corners,font=\scriptsize,inner sep=2pt,align=center]
     (dinobox) at (1.6,-1.25) {DINOv3\\feat (64-D)};
   \draw[-{Stealth[length=1.8mm]},orange!70!black] (dinobox.north) -- (2.55,0.35);
-  \node[draw=green!60!black,fill=green!8,rounded corners,font=\scriptsize,inner sep=2pt,align=center]
+  \node[draw=cInput!75!black,fill=cInput!15,rounded corners,font=\scriptsize,inner sep=2pt,align=center]
     (patchbox) at (3.5,-1.25) {depth patch\\$5{\times}5$};
-  \draw[-{Stealth[length=1.8mm]},green!60!black] (patchbox.north) -- (2.95,0.46);
+  \draw[-{Stealth[length=1.8mm]},cInput!75!black] (patchbox.north) -- (2.95,0.46);
 \end{tikzpicture}%
 }
 \caption{v35 joint correction. Two new inputs --- the DINOv3 appearance feature (orange) and a local
@@ -787,7 +793,7 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
 \begin{tikzpicture}[
     node distance=4mm and 8mm,
     io/.append style={minimum width=22mm},
-    new/.style={rectangle, rounded corners, draw=orange!70!black, fill=orange!8,
+    new/.style={rectangle, rounded corners, draw=cInput!75!black, fill=cInput!15,
       minimum height=8mm, minimum width=22mm, align=center, font=\small},
   ]
   % ── inputs: one left column, stacked top-to-bottom (common with the paper figure) ──
@@ -821,12 +827,12 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
     node[near end,left=1pt,font=\scriptsize,gray,align=center]{re-sample\\DA3-l at $\mathbf{u}_t$};
   % Solid blue container = the learned depth refiner; named so the output box sits outside it.
   \begin{scope}[on background layer]
-    \node[draw=blue!60!black, thick, rounded corners, fill=blue!4,
+    \node[draw=cTrain!75!black, thick, rounded corners, fill=cTrain!6,
           fit=(emb)(ssm)(dz)(duv)(zout)(uvout), inner xsep=4mm, inner ysep=8mm,
           label={[font=\scriptsize\bfseries, blue!45!black]above:{learned depth refiner}}] (refbox) {};
   \end{scope}
   % final 3D output box, clearly OUTSIDE the refiner box.
-  \node[io, right=9mm of refbox.east] (out) {3D track\\$\mathbf{X}_t$};
+  \node[io, fill=white, draw=black!45, right=9mm of refbox.east] (out) {3D track\\$\mathbf{X}_t$};
   % z_t and u_t merge and enter the 3D-track box at its left centre (matches Fig.~\ref{fig:pipeline}).
   \coordinate (omerge) at ($(out.west)+(-5mm,0)$);
   \draw[thick] (zout.east)  -| (omerge);
@@ -906,9 +912,9 @@ we evaluate separately.
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
     node distance=5mm and 10mm,
-    fwd/.style={rectangle, rounded corners, draw=blue!60, fill=blue!6,
+    fwd/.style={rectangle, rounded corners, draw=cTrain, fill=cTrain!8,
       minimum height=9mm, minimum width=22mm, align=center, font=\small},
-    mrg/.style={rectangle, rounded corners, draw=purple!60!black, fill=purple!6,
+    mrg/.style={rectangle, rounded corners, draw=black!50, fill=black!8,
       minimum height=9mm, minimum width=22mm, align=center, font=\small},
   ]
   \node[io] (vid) {video $t{=}0\ldots T$};
@@ -921,7 +927,7 @@ we evaluate separately.
   % v35 SSM
   \node[learn, right=8mm of merge] (v35) {v35 SSM\\(Fig.~\ref{fig:v35-arch})};
   % output
-  \node[io, right=6mm of v35] (out) {3D tracks\\$(F,N,3)$};
+  \node[io, fill=white, draw=black!45, right=6mm of v35] (out) {3D tracks\\$(F,N,3)$};
   % arrows
   \coordinate (vidfork) at ($(vid.east)+(8mm,0)$);
   \draw (vid.east) -- (vidfork);

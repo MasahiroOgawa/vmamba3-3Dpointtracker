@@ -21,6 +21,8 @@ import matplotlib.pyplot as plt
 from mamba3_tracker.data.tapvid3d import list_clips, load_clip
 from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES
 
+plt.rcParams.update({"font.size": 20})  # 2x doubled base font (default 10)
+
 DATA_ROOT = Path("~/data").expanduser()
 DA3 = {
     "DA3-l": Path("~/data/tapvid3d_da3").expanduser(),
@@ -208,7 +210,7 @@ def main() -> int:
     print(f"\n[saved] {out}")
 
     # ---- clean 2-panel figure for the memo ----
-    fig2, (axA, axB) = plt.subplots(1, 2, figsize=(13, 4.5))
+    fig2, (axA, axB) = plt.subplots(1, 2, figsize=(16, 5))
     colors = {"drivetrack": "C0", "pstudio": "C1", "adt": "C2"}
     for sub in SUBSETS:
         m_l, _, _, _ = median_per_bin(
@@ -224,7 +226,7 @@ def main() -> int:
     axA.set_xscale("log")
     axA.set_xlabel("GT distance (m)")
     axA.set_ylabel("median |log(scale*pred/gt)|")
-    axA.set_title("(a) spatial shape vs distance  (dashed=DA3-l, solid=DA3-g)")
+    axA.set_title("(a) shape vs GT distance")
     axA.grid(alpha=0.3)
     axA.legend(title="subset")
 
@@ -241,8 +243,8 @@ def main() -> int:
     axB.set_xticks(x)
     axB.set_xticklabels(SUBSETS)
     axB.set_ylabel("mean |log(scale*pred/gt)|")
-    axB.set_title("(b) per-frame vs per-clip scale  (per-clip gap = temporal drift)")
-    axB.legend(fontsize=8)
+    axB.set_title("(b) per-frame vs per-clip scale")
+    axB.legend(fontsize=(8 * 2))
     axB.grid(axis="y", alpha=0.3)
     fig2.tight_layout()
     out2 = Path("result/figures/da3lg_error_analysis.png")

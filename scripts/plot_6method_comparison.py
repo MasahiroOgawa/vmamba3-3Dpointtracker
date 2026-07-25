@@ -20,6 +20,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
+plt.rcParams.update({"font.size": 20})  # 2x doubled base font (default 10)
+
 REPO = Path(__file__).parent.parent
 OUT_DIR = REPO / "result" / "figures"
 
@@ -161,7 +163,7 @@ def make_figure(
     group_w = n_subsets * bar_w + group_gap
     x_centers = np.arange(n_methods) * group_w
 
-    fig, ax = plt.subplots(figsize=(17, 5.5))
+    fig, ax = plt.subplots(figsize=(20, 6.5))
 
     offsets = np.linspace(-(n_subsets - 1) / 2, (n_subsets - 1) / 2, n_subsets) * bar_w
     legend_handles = []
@@ -191,7 +193,7 @@ def make_figure(
                     "N/A",
                     ha="center",
                     va="bottom",
-                    fontsize=6.5,
+                    fontsize=(6.5 * 2),
                     color="#888",
                     rotation=90,
                 )
@@ -213,7 +215,7 @@ def make_figure(
                         label,
                         ha="center",
                         va="bottom",
-                        fontsize=5.5,
+                        fontsize=(5.5 * 2),
                         color="#444",
                         rotation=90,
                     )
@@ -224,7 +226,7 @@ def make_figure(
                         label,
                         ha="center",
                         va="bottom",
-                        fontsize=6.0,
+                        fontsize=(6.0 * 2),
                         color="#222",
                     )
 
@@ -232,10 +234,10 @@ def make_figure(
         legend_handles.append(patch)
 
     ax.set_xticks(x_centers)
-    ax.set_xticklabels(methods, fontsize=7.5)
-    ax.set_ylabel(ylabel, fontsize=10)
-    ax.set_title(title, fontsize=11, pad=10)
-    ax.legend(handles=legend_handles, fontsize=9, framealpha=0.85)
+    ax.set_xticklabels(methods, fontsize=(7.5 * 2))
+    ax.set_ylabel(ylabel, fontsize=(10 * 2))
+    ax.set_title(title, fontsize=(11 * 2), pad=10)
+    ax.legend(handles=legend_handles, fontsize=(9 * 2), framealpha=0.85)
     ax.set_xlim(x_centers[0] - group_w / 2, x_centers[-1] + group_w / 2)
     ax.set_ylim(0, None)
     ax.yaxis.set_major_formatter(
@@ -259,7 +261,7 @@ def make_figure(
         "SOTA",
         ha="center",
         va="top",
-        fontsize=9,
+        fontsize=(9 * 2),
         color="#555",
         style="italic",
     )
@@ -269,7 +271,7 @@ def make_figure(
         "Ours",
         ha="center",
         va="top",
-        fontsize=9,
+        fontsize=(9 * 2),
         color="#555",
         style="italic",
     )
@@ -369,13 +371,13 @@ def main():
 
     make_figure(
         norm_aj,
-        title="TAPVid-3D Normalised Median-AJ (leaderboard metric, higher = better)",
+        title="Normalized median 3D-AJ (leaderboard)",
         ylabel="3D-AJ [%]  (normalised, scale-invariant)",
         fname="fig1_normalized_aj",
     )
     make_figure(
         abs_aj,
-        title="Absolute Metric-AJ (fixed-metre thresholds, real 3D accuracy)",
+        title="Absolute metric-AJ",
         ylabel="Metric-AJ [%]  (absolute, 1cm–2.56m thresholds)",
         fname="fig2_absolute_aj",
     )
@@ -384,7 +386,7 @@ def main():
     norm_g, abs_g = build_da3g_tables()
     make_figure(
         norm_g,
-        title="TAPVid-3D Normalised Median-AJ — DA3-g depth (higher = better)",
+        title="Normalized median 3D-AJ (DA3-g)",
         ylabel="3D-AJ [%]  (normalised, scale-invariant)",
         fname="fig1_normalized_aj_da3g",
         methods=METHODS_DA3G,
@@ -392,7 +394,7 @@ def main():
     )
     make_figure(
         abs_g,
-        title="Absolute Metric-AJ — DA3-g depth (fixed-metre thresholds, real 3D accuracy)",
+        title="Absolute metric-AJ (DA3-g)",
         ylabel="Metric-AJ [%]  (absolute, 1cm–2.56m thresholds)",
         fname="fig2_absolute_aj_da3g",
         methods=METHODS_DA3G,

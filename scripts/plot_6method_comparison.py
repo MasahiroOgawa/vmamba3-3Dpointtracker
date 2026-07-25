@@ -234,7 +234,15 @@ def make_figure(
         legend_handles.append(patch)
 
     ax.set_xticks(x_centers)
-    ax.set_xticklabels(methods, fontsize=(7.5 * 2))
+    # method names: 1.2x the previous size and rotated 45° so they fit
+    ax.set_xticklabels(
+        [m.replace("\n", " ") for m in methods],
+        fontsize=(7.5 * 2 * 1.2),
+        rotation=45,
+        rotation_mode="anchor",
+        ha="right",
+        va="top",
+    )
     ax.set_ylabel(ylabel, fontsize=(10 * 2))
     ax.set_title(title, fontsize=(11 * 2), pad=10)
     ax.legend(handles=legend_handles, fontsize=(9 * 2), framealpha=0.85)

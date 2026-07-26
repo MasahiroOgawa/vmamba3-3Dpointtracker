@@ -2366,71 +2366,81 @@ does not beat the DA3-l v39 overall ($0.246$). TAPIP3D adt is OOM-limited (``N/A
 \end{figure}
 
 \subsection{Qualitative results}
-Figures~\ref{fig:qual-pstudio}--\ref{fig:qual-adt} show predicted (solid) vs ground-truth (dashed)
-3D trajectories, baseline vs v33, on the \emph{best-scoring} clip of each subset --- i.e.\ where our
-method performs at its best in 3D space. \textbf{The message of these figures is that our learned refiner
-improves on the WAFT$+$DA3 baseline in absolute 3D:} the solid predicted tracks move closer to the dashed
-ground truth. To make the improvement checkable rather than asserted, in every panel the \textcolor{red}{red
-circle} marks the region where the refiner reduces the baseline 3D error the most (the same physical region
-is circled in the baseline and in the v33 panel, so the two can be compared directly). The effect is clearest
-on drivetrack (Fig.~\ref{fig:qual-drivetrack}), where the baseline collapses the far points toward the camera
-and v33 pulls them back out to the true metric depth inside the circled region.
+Figures~\ref{fig:qual-pstudio}--\ref{fig:qual-adt} compare our best method \textbf{v39} (WAFT flow $+$ the
+vmamba3 depth refiner, our top absolute-metric-AJ pipeline) against the closest similar-size state of the art,
+\textbf{DELTA$+$DA3-l}, on the clip where \emph{v39} scores its highest per-clip absolute metric-AJ in each
+subset --- i.e.\ our method at its best in 3D space. Both methods share the same DA3-l metric-depth backbone,
+so the comparison isolates the tracker; DELTA runs its own DenseTrack3D 2D tracker (it cannot consume our WAFT
+front-end). Solid $=$ prediction, dashed $=$ ground truth. Both panels of a figure use the \emph{same} axis
+limits, taken from the ground-truth extent, so predictions that fall outside the true scene volume simply do
+not appear (matplotlib line-clipping to the box). \textbf{The message is that v39 beats the SOTA in absolute
+3D:} its solid tracks sit on the dashed ground truth, whereas DELTA's drift off it. To make the win checkable
+rather than asserted, in every panel the \textcolor{red}{red circle} marks the track where v39 reduces the 3D
+error over DELTA the most --- the identical physical region is circled in the DELTA and the v39 panel, so the
+two are directly comparable. The contrast is starkest on drivetrack (Fig.~\ref{fig:qual-drivetrack}), the
+far-field driving scene where DELTA collapses depth so badly that its predictions leave the ground-truth
+volume entirely, while v39 keeps the tracks on the true metric depth.
 
 \begin{figure}[h]
 \centering
 \begin{minipage}{0.49\textwidth}\centering
-  \includegraphics[width=\textwidth]{figs/qual_pstudio_baseline_3d.png}\\{\footnotesize baseline}
+  \includegraphics[width=\textwidth]{figs/qual_pstudio_delta_3d.png}\\{\footnotesize DELTA+DA3-l (SOTA)}
 \end{minipage}\hfill
 \begin{minipage}{0.49\textwidth}\centering
-  \includegraphics[width=\textwidth]{figs/qual_pstudio_v33_3d.png}\\{\footnotesize v33}
+  \includegraphics[width=\textwidth]{figs/qual_pstudio_v39_3d.png}\\{\footnotesize v39 (ours)}
 \end{minipage}
-\caption{pstudio (indoor, $\sim$3\,m), best clip \texttt{basketball\_3}: predicted (solid) vs
-ground-truth (dashed) 3D trajectories, baseline (left) vs our refiner v33 (right). Inside the
-\textcolor{red}{red circle} --- the track our refiner corrects the most --- v33's solid path sits closer to
-the dashed ground truth than the baseline's, i.e.\ the refiner improves the mid-range metric depth.}
+\caption{pstudio (indoor, $\sim$3\,m), best v39 clip \texttt{boxes\_5} (v39 absolute metric-AJ $0.485$ vs
+DELTA $0.335$): predicted (solid) vs ground-truth (dashed) 3D trajectories, DELTA$+$DA3-l (left) vs v39 (right).
+Inside the \textcolor{red}{red circle} --- the track v39 wins by the most --- DELTA's solid path pulls the depth
+arc toward the camera while v39's follows the dashed ground-truth loop, i.e.\ v39 recovers the mid-range metric
+depth the SOTA misses.}
 \label{fig:qual-pstudio}
 \end{figure}
 
 \begin{figure}[h]
 \centering
 \begin{minipage}{0.49\textwidth}\centering
-  \includegraphics[width=\textwidth]{figs/qual_drivetrack_baseline_3d.png}\\{\footnotesize baseline}
+  \includegraphics[width=\textwidth]{figs/qual_drivetrack_delta_3d.png}\\{\footnotesize DELTA+DA3-l (SOTA)}
 \end{minipage}\hfill
 \begin{minipage}{0.49\textwidth}\centering
-  \includegraphics[width=\textwidth]{figs/qual_drivetrack_v33_3d.png}\\{\footnotesize v33}
+  \includegraphics[width=\textwidth]{figs/qual_drivetrack_v39_3d.png}\\{\footnotesize v39 (ours)}
 \end{minipage}
-\caption{drivetrack (driving, $\sim$20\,m), best clip: the far-field scene where our refiner helps most.
-Predicted (solid) vs ground-truth (dashed), baseline (left) vs v33 (right). Inside the
-\textcolor{red}{red circle}, the baseline squashes the far tracks toward the camera (solid short of the
-dashed ground truth); v33 stretches them back out to the correct metric depth, closing most of the gap ---
-this is the single biggest source of our absolute-metric-AJ win on drivetrack.}
+\caption{drivetrack (driving, far-field), best v39 clip (v39 absolute metric-AJ $0.398$ vs DELTA $0.002$): the
+scene where v39 beats the SOTA most. Predicted (solid) vs ground-truth (dashed), DELTA$+$DA3-l (left) vs v39
+(right); both panels share the ground-truth axis box. \textbf{DELTA's predictions collapse the far points toward
+the camera so severely that no solid track lands inside the true scene volume} --- the left panel shows only the
+dashed ground truth and the anchor dots. v39 (right) keeps the solid tracks on the ground truth. The
+\textcolor{red}{red circle} marks the most-improved track; this far-field depth recovery is the single biggest
+source of our absolute-metric-AJ win on drivetrack.}
 \label{fig:qual-drivetrack}
 \end{figure}
 
 \begin{figure}[h]
 \centering
 \begin{minipage}{0.49\textwidth}\centering
-  \includegraphics[width=\textwidth]{figs/qual_adt_baseline_3d.png}\\{\footnotesize baseline}
+  \includegraphics[width=\textwidth]{figs/qual_adt_delta_3d.png}\\{\footnotesize DELTA+DA3-l (SOTA)}
 \end{minipage}\hfill
 \begin{minipage}{0.49\textwidth}\centering
-  \includegraphics[width=\textwidth]{figs/qual_adt_v33_3d.png}\\{\footnotesize v33}
+  \includegraphics[width=\textwidth]{figs/qual_adt_v39_3d.png}\\{\footnotesize v39 (ours)}
 \end{minipage}
-\caption{adt (egocentric, $\sim$1\,m), best clip \texttt{Apartment\_release\_meal\_seq136\_8}: near-field,
-where DA3-l depth is already accurate. Predicted (solid) vs ground-truth (dashed), baseline (left) vs v33
-(right). The \textcolor{red}{red circle} marks the most-corrected track; here the baseline is already close,
-so the refiner's improvement is small (consistent with the near-field tie in Fig.~\ref{fig:6method-abs}) ---
-crucially, it does not degrade the already-good near-field estimate.}
+\caption{adt (egocentric, near-field), best v39 clip \texttt{Lite\_release\_recognition\_WoodenBoxSmall\_seq031\_2}
+(v39 absolute metric-AJ $0.503$ vs DELTA $0.481$): near-field, where DA3-l depth is already accurate so both
+methods do well. Predicted (solid) vs ground-truth (dashed), DELTA$+$DA3-l (left) vs v39 (right). The
+\textcolor{red}{red circle} marks the track v39 wins by the most; the margin is small (consistent with the
+near-field near-tie in Fig.~\ref{fig:6method-abs}), but v39's solid path still tracks the ground truth slightly
+tighter and never degrades the already-good near-field estimate.}
 \label{fig:qual-adt}
 \end{figure}
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=0.92\textwidth]{figs/qual_drivetrack_baseline_st.png}
-\caption{Space-time view (drivetrack baseline): per-axis position over time, $X$-$t$/$Y$-$t$/$Z$-$t$,
-predicted (solid) vs ground truth (dashed). $X$ and $Y$ track the ground truth well; the error lives almost
-entirely in $Z$ (depth). The \textcolor{red}{red circle} on the $Z$-$t$ panel marks the largest baseline
-depth error --- the along-ray depth blow-up on the receding far point --- which is exactly the failure our
-depth refiner is built to correct (cf.\ the circled regions in Figs.~\ref{fig:qual-drivetrack}).}
+\includegraphics[width=0.92\textwidth]{figs/qual_drivetrack_delta_st.png}
+\caption{Space-time view of the SOTA (DELTA$+$DA3-l) on the best drivetrack clip: per-axis position over time,
+$X$-$t$/$Y$-$t$/$Z$-$t$, predicted (solid) vs ground truth (dashed). This decomposes DELTA's failure in
+Fig.~\ref{fig:qual-drivetrack} by axis: $X$ and $Y$ are roughly right, but in $Z$ (depth) DELTA's solid tracks
+sit at ${\approx}5$--$6$\,m while the ground truth is at ${\approx}9$--$11$\,m --- depth underestimated by about
+half. The \textcolor{red}{red circle} on the $Z$-$t$ panel marks this depth gap, exactly the along-ray error our
+depth refiner corrects (whence v39's win in Fig.~\ref{fig:qual-drivetrack}).}
 \label{fig:qual-st}
 \end{figure}
 

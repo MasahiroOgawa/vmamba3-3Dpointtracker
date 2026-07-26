@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Regenerate the qualitative 3D-trajectory figures (baseline vs v33) for the memo.
+"""Qualitative 3D-trajectory figures: our best method v39 vs the similar-size SOTA
+DELTA+DA3-l, on each subset's BEST-scoring v39 clip.
 
-For each subset we pick the BEST-scored v33 clip (highest per-clip metric-AJ from the
-v33 eval JSONs), then render baseline (WAFT+DA3 unprojection) and v33 (depth-refiner)
-3D tracks against GT, plus a space-time (X-t/Y-t/Z-t) view for drivetrack baseline.
-Fonts are 2x the previous size and titles are short. Reuses eval_metric3d._infer so
-baseline and v33 share the exact same cached WAFT front-end + DA3 depth.
+For each subset we pick the clip where v39 (WAFT flow + the v35 depth refiner) has the
+highest per-clip absolute metric-AJ, then render DELTA+DA3-l (left) and v39 (right) 3D
+tracks against GT. A red ring marks the track where v39 beats DELTA the most (same
+physical region circled in both panels, so the win is directly comparable). Both share
+the DA3-l depth backbone; DELTA runs its own DenseTrack3D 2D tracker (no WAFT), which is
+intrinsic to the two methods. Fonts are 2x the previous size and titles are short.
 
   uv run python scripts/render_qual_3d.py \
-    --v33-ckpt ~/proj/study/largescale3Dreconstruction_using_SSM/result/20260617-0001_v33/ckpt_20000.pt \
+    --v35-ckpt ~/proj/study/largescale3Dreconstruction_using_SSM/result/20260701_v35/ckpt_20000.pt \
     --waft-pred-dir ~/data/tapvid3d_baseline_preds/waft \
+    --delta-pred-dir ~/data/tapvid3d_baseline_preds/delta \
     --da3-depth-root ~/data/tapvid3d_da3 \
-    --scores-dir ~/proj/study/largescale3Dreconstruction_using_SSM/result/20260618-1718_metric3d_v33_fix/metric_results \
+    --scores-dir ~/proj/study/vmamba3-3Dpointtracker/result/20260710-1056_metric3d_v39_waft_v35/metric_results \
     --out-dir doc/vmamba3_3dpointtrack/figs
 """
 
@@ -36,7 +39,7 @@ _spec = importlib.util.spec_from_file_location(
     "eval_metric3d", _HERE / "eval_metric3d.py"
 )
 _ev = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_ev)  # provides _infer, load_clip, list_clips, MINIVAL_FILES
+_spec.loader.exec_module(_ev)  # provides _infer, _load_external, load_clip, list_clips
 
 SUBSETS = ["pstudio", "drivetrack", "adt"]
 IMAGE_SIZE = 896
@@ -57,18 +60,33 @@ def _pick_tracks(vis_NF: np.ndarray, k: int) -> list[int]:
     return list(order[:k])
 
 
-def _most_improved_center(base, v33, gt, vis):
-    """Among the plotted tracks, find the one whose per-frame 3D error is reduced
-    most by v33 vs the baseline, and return the (x,y,z) centroid of its GT path
-    (the region to circle). Returns None if no track actually improves."""
+def _gt_lims(gt, vis, pad: float = 0.1):
+    """Shared (x,y,z) axis limits from the GT of the plotted tracks, so the SOTA and
+    ours panels show the exact same volume and the red ring lands in the same place."""
+    pts = [
+        gt[n, vis[n].astype(bool)]
+        for n in _pick_tracks(vis, MAX_TRACKS)
+        if vis[n].astype(bool).sum() >= 2
+    ]
+    P = np.concatenate(pts, axis=0)
+    lo, hi = P.min(axis=0), P.max(axis=0)
+    rng = np.maximum(hi - lo, 1e-3)
+    lo, hi = lo - pad * rng, hi + pad * rng
+    return [(float(lo[i]), float(hi[i])) for i in range(3)]
+
+
+def _win_center(other, ours, gt, vis):
+    """Among the plotted tracks, find the one whose per-frame 3D error `ours` reduces
+    most vs `other` (the SOTA), and return the (x,y,z) centroid of its GT path (the
+    region to circle). Returns None if no track is actually better."""
     best_n, best_gain = None, 0.0
     for n in _pick_tracks(vis, MAX_TRACKS):
         m = vis[n].astype(bool)
         if m.sum() < 2:
             continue
-        be = np.linalg.norm(base[n, m] - gt[n, m], axis=1)
-        ve = np.linalg.norm(v33[n, m] - gt[n, m], axis=1)
-        gain = float((be - ve).sum())
+        oe = np.linalg.norm(other[n, m] - gt[n, m], axis=1)
+        ve = np.linalg.norm(ours[n, m] - gt[n, m], axis=1)
+        gain = float((oe - ve).sum())
         if gain > best_gain:
             best_gain, best_n = gain, n
     if best_n is None:
@@ -77,10 +95,26 @@ def _most_improved_center(base, v33, gt, vis):
     return gt[best_n, m].mean(axis=0)
 
 
-def _render_3d(pred, gt, vis, anchor, out_path: Path, title: str, highlight=None) -> None:
+def _render_3d(
+    pred, gt, vis, anchor, out_path: Path, title: str, highlight=None, lims=None
+) -> None:
     """pred/gt: (N,F,3); vis: (N,F); anchor: (N,). Short 2x-font 3D plot.
-    highlight: (3,) world point to ring in red (the most-improved region), or None."""
+    highlight: (3,) world point to ring in red (the region we win most), or None.
+    lims: shared [(xlo,xhi),(ylo,yhi),(zlo,zhi)] applied to both panels, or None."""
     N, Fn, _ = pred.shape
+
+    def _clip(p):
+        """Blank predicted points outside the displayed box so 3D line drawing
+        doesn't streak them across the axes (matplotlib does not clip 3D lines).
+        Identical rule for both methods; GT (which defines the box) is untouched."""
+        if lims is None:
+            return p
+        q = p.copy()
+        for i in range(3):
+            out = (q[:, i] < lims[i][0]) | (q[:, i] > lims[i][1])
+            q[out] = np.nan
+        return q
+
     fig = plt.figure(figsize=(11, 8))
     ax = fig.add_subplot(111, projection="3d")
     cmap = plt.get_cmap("tab20")
@@ -92,10 +126,11 @@ def _render_3d(pred, gt, vis, anchor, out_path: Path, title: str, highlight=None
         ax.plot(
             gt[n, m, 0], gt[n, m, 1], gt[n, m, 2], "--", lw=1.4, color=c, alpha=0.55
         )
+        pc = _clip(pred[n])
         ax.plot(
-            pred[n, m, 0],
-            pred[n, m, 1],
-            pred[n, m, 2],
+            pc[m, 0],
+            pc[m, 1],
+            pc[m, 2],
             "-",
             lw=2.0,
             color=c,
@@ -123,6 +158,10 @@ def _render_3d(pred, gt, vis, anchor, out_path: Path, title: str, highlight=None
             linewidths=3.0,
             zorder=20,
         )
+    if lims is not None:
+        ax.set_xlim(lims[0])
+        ax.set_ylim(lims[1])
+        ax.set_zlim(lims[2])
     ax.set_xlabel("X (m)", labelpad=12)
     ax.set_ylabel("Y (m)", labelpad=12)
     ax.set_zlabel("Z (m)", labelpad=12)
@@ -153,8 +192,7 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
         ax.set_ylabel(f"{lab} (m)")
         ax.set_title(f"{lab}-t")
         ax.grid(alpha=0.3)
-    # Ring the largest baseline depth error on the Z-t panel: this is the along-ray
-    # depth jitter our refiner is built to remove.
+    # Ring the largest depth error on the Z-t panel: depth (Z) is the hard axis.
     zerr = np.abs(pred[:, :, 2] - gt[:, :, 2]) * vis
     zerr[[n for n in range(N) if n not in picked]] = 0.0
     n_max, f_max = np.unravel_index(np.argmax(zerr), zerr.shape)
@@ -175,12 +213,39 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
     print(f"[qual] wrote {out_path}")
 
 
+def _build_v39(ckpt: Path, dev) -> torch.nn.Module:
+    """v39 = the v35 depth refiner (Mamba3V35Refiner) fed by the WAFT front-end."""
+    from mamba3_tracker.model.depth_refined_tracker import Mamba3V35Refiner
+
+    st = torch.load(ckpt, map_location="cpu", weights_only=False)
+    mc = st.get("cfg", {}).get("model", {})
+    model = Mamba3V35Refiner(
+        dim=int(mc.get("dim", 128)),
+        state_dim=int(mc.get("state_dim", 64)),
+        num_heads=int(mc.get("num_heads", 4)),
+        num_layers=int(mc.get("num_layers", 2)),
+        max_log_correction=float(mc.get("max_log_correction", 2.0)),
+        max_delta_uv=float(mc.get("max_delta_uv", 2.0)),
+        patch_size=int(mc.get("patch_size", 5)),
+        per_frame_scale=bool(mc.get("per_frame_scale", False)),
+        within_frame=bool(mc.get("within_frame", False)),
+        d_proj=int(mc.get("d_proj", 64)),
+        dino_model=str(mc.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")),
+        dino_image_size=int(mc.get("dino_image_size", 448)),
+        image_size=int(mc.get("image_size", 896)),
+    ).to(dev)
+    model.load_state_dict(st["model"])
+    model.eval()
+    return model
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--v33-ckpt", type=Path, required=True)
+    ap.add_argument("--v35-ckpt", type=Path, required=True)
     ap.add_argument("--waft-pred-dir", type=Path, required=True)
+    ap.add_argument("--delta-pred-dir", type=Path, required=True)
     ap.add_argument("--da3-depth-root", type=Path, required=True)
-    ap.add_argument("--scores-dir", type=Path, required=True)
+    ap.add_argument("--scores-dir", type=Path, required=True, help="v39 metric_results")
     ap.add_argument(
         "--out-dir", type=Path, default=Path("doc/vmamba3_3dpointtrack/figs")
     )
@@ -188,19 +253,7 @@ def main() -> int:
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    from mamba3_tracker.model.depth_refined_tracker import Mamba3DepthRefiner
-
-    st = torch.load(args.v33_ckpt, map_location="cpu", weights_only=False)
-    mc = st.get("cfg", {}).get("model", {})
-    v33 = Mamba3DepthRefiner(
-        dim=int(mc.get("dim", 128)),
-        state_dim=int(mc.get("state_dim", 64)),
-        num_heads=int(mc.get("num_heads", 4)),
-        num_layers=int(mc.get("num_layers", 2)),
-        max_log_correction=float(mc.get("max_log_correction", 2.0)),
-    ).to(dev)
-    v33.load_state_dict(st["model"])
-    v33.eval()
+    v39 = _build_v39(args.v35_ckpt, dev)
 
     for sub in SUBSETS:
         clip_id = _best_clip(args.scores_dir, sub)
@@ -213,8 +266,10 @@ def main() -> int:
         gt = clip.tracks_XYZ.numpy().transpose(1, 0, 2)  # (N,F,3)
         anchor = clip.queries_xyt[:, 2].numpy().astype(int)
 
-        common = dict(
+        v39xyz, vis = _ev._infer(
+            method="v35",
             flow_model=None,
+            model=v39,
             clip=clip,
             image_size=IMAGE_SIZE,
             fb_alpha=0.05,
@@ -224,39 +279,41 @@ def main() -> int:
             device=dev,
             waft_pred_dir=args.waft_pred_dir,
         )
-        base, vis = _ev._infer(method="searaft", model=None, **common)
-        v33xyz, _ = _ev._infer(method="v33", model=v33, **common)
-        hl = _most_improved_center(base, v33xyz, gt, vis)
+        delta, _ = _ev._load_external(args.delta_pred_dir, sub, clip_id)
+        hl = _win_center(delta, v39xyz, gt, vis)
+        lims = _gt_lims(gt, vis)
         print(
-            f"[qual] {sub}: best clip {clip_id}  N={gt.shape[0]} F={gt.shape[1]}  "
+            f"[qual] {sub}: best v39 clip {clip_id}  N={gt.shape[0]} F={gt.shape[1]}  "
             f"highlight={'none' if hl is None else hl.round(2)}"
         )
 
         _render_3d(
-            base,
+            delta,
             gt,
             vis,
             anchor,
-            args.out_dir / f"qual_{sub}_baseline_3d.png",
-            f"{sub}: baseline (WAFT+DA3)",
+            args.out_dir / f"qual_{sub}_delta_3d.png",
+            f"{sub}: DELTA+DA3-l (SOTA)",
             highlight=hl,
+            lims=lims,
         )
         _render_3d(
-            v33xyz,
+            v39xyz,
             gt,
             vis,
             anchor,
-            args.out_dir / f"qual_{sub}_v33_3d.png",
-            f"{sub}: v33",
+            args.out_dir / f"qual_{sub}_v39_3d.png",
+            f"{sub}: v39 (ours)",
             highlight=hl,
+            lims=lims,
         )
         if sub == "drivetrack":
             _render_st(
                 gt,
-                base,
+                delta,
                 vis,
-                args.out_dir / "qual_drivetrack_baseline_st.png",
-                "drivetrack baseline: position vs time",
+                args.out_dir / "qual_drivetrack_delta_st.png",
+                "drivetrack DELTA+DA3-l (SOTA): position vs time",
             )
     return 0
 

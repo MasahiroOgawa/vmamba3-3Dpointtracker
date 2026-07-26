@@ -57,8 +57,29 @@ def _pick_tracks(vis_NF: np.ndarray, k: int) -> list[int]:
     return list(order[:k])
 
 
-def _render_3d(pred, gt, vis, anchor, out_path: Path, title: str) -> None:
-    """pred/gt: (N,F,3); vis: (N,F); anchor: (N,). Short 2x-font 3D plot."""
+def _most_improved_center(base, v33, gt, vis):
+    """Among the plotted tracks, find the one whose per-frame 3D error is reduced
+    most by v33 vs the baseline, and return the (x,y,z) centroid of its GT path
+    (the region to circle). Returns None if no track actually improves."""
+    best_n, best_gain = None, 0.0
+    for n in _pick_tracks(vis, MAX_TRACKS):
+        m = vis[n].astype(bool)
+        if m.sum() < 2:
+            continue
+        be = np.linalg.norm(base[n, m] - gt[n, m], axis=1)
+        ve = np.linalg.norm(v33[n, m] - gt[n, m], axis=1)
+        gain = float((be - ve).sum())
+        if gain > best_gain:
+            best_gain, best_n = gain, n
+    if best_n is None:
+        return None
+    m = vis[best_n].astype(bool)
+    return gt[best_n, m].mean(axis=0)
+
+
+def _render_3d(pred, gt, vis, anchor, out_path: Path, title: str, highlight=None) -> None:
+    """pred/gt: (N,F,3); vis: (N,F); anchor: (N,). Short 2x-font 3D plot.
+    highlight: (3,) world point to ring in red (the most-improved region), or None."""
     N, Fn, _ = pred.shape
     fig = plt.figure(figsize=(11, 8))
     ax = fig.add_subplot(111, projection="3d")
@@ -91,6 +112,17 @@ def _render_3d(pred, gt, vis, anchor, out_path: Path, title: str) -> None:
                 edgecolors="black",
                 linewidths=0.6,
             )
+    if highlight is not None:
+        ax.scatter(
+            [highlight[0]],
+            [highlight[1]],
+            [highlight[2]],
+            s=9000,
+            facecolors="none",
+            edgecolors="red",
+            linewidths=3.0,
+            zorder=20,
+        )
     ax.set_xlabel("X (m)", labelpad=12)
     ax.set_ylabel("Y (m)", labelpad=12)
     ax.set_zlabel("Z (m)", labelpad=12)
@@ -108,8 +140,9 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
     t = np.arange(Fn)
     fig, axes = plt.subplots(1, 3, figsize=(20, 6.5))
     cmap = plt.get_cmap("tab20")
+    picked = _pick_tracks(vis, MAX_TRACKS)
     for ax, ax_i, lab in zip(axes, range(3), ["X", "Y", "Z"]):
-        for i, n in enumerate(_pick_tracks(vis, MAX_TRACKS)):
+        for i, n in enumerate(picked):
             m = vis[n].astype(bool)
             if m.sum() < 2:
                 continue
@@ -120,6 +153,21 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
         ax.set_ylabel(f"{lab} (m)")
         ax.set_title(f"{lab}-t")
         ax.grid(alpha=0.3)
+    # Ring the largest baseline depth error on the Z-t panel: this is the along-ray
+    # depth jitter our refiner is built to remove.
+    zerr = np.abs(pred[:, :, 2] - gt[:, :, 2]) * vis
+    zerr[[n for n in range(N) if n not in picked]] = 0.0
+    n_max, f_max = np.unravel_index(np.argmax(zerr), zerr.shape)
+    if zerr[n_max, f_max] > 0:
+        axes[2].scatter(
+            [t[f_max]],
+            [pred[n_max, f_max, 2]],
+            s=9000,
+            facecolors="none",
+            edgecolors="red",
+            linewidths=3.0,
+            zorder=20,
+        )
     fig.suptitle(title)
     fig.tight_layout()
     fig.savefig(out_path, dpi=140, bbox_inches="tight")
@@ -178,7 +226,11 @@ def main() -> int:
         )
         base, vis = _ev._infer(method="searaft", model=None, **common)
         v33xyz, _ = _ev._infer(method="v33", model=v33, **common)
-        print(f"[qual] {sub}: best clip {clip_id}  N={gt.shape[0]} F={gt.shape[1]}")
+        hl = _most_improved_center(base, v33xyz, gt, vis)
+        print(
+            f"[qual] {sub}: best clip {clip_id}  N={gt.shape[0]} F={gt.shape[1]}  "
+            f"highlight={'none' if hl is None else hl.round(2)}"
+        )
 
         _render_3d(
             base,
@@ -187,6 +239,7 @@ def main() -> int:
             anchor,
             args.out_dir / f"qual_{sub}_baseline_3d.png",
             f"{sub}: baseline (WAFT+DA3)",
+            highlight=hl,
         )
         _render_3d(
             v33xyz,
@@ -195,6 +248,7 @@ def main() -> int:
             anchor,
             args.out_dir / f"qual_{sub}_v33_3d.png",
             f"{sub}: v33",
+            highlight=hl,
         )
         if sub == "drivetrack":
             _render_st(

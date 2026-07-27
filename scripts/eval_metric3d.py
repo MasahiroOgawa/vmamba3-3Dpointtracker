@@ -375,6 +375,12 @@ def main() -> int:
             ),
             dino_image_size=int(mc.get("dino_image_size", 448)),
             image_size=int(mc.get("image_size", 896)),
+            feat_encoder=str(mc.get("feat_encoder", "dinov3")),
+            vmamba3_dim=int(mc.get("vmamba3_dim", 384)),
+            vmamba3_heads=int(mc.get("vmamba3_heads", 6)),
+            vmamba3_blocks=int(mc.get("vmamba3_blocks", 2)),
+            vmamba3_patch=int(mc.get("vmamba3_patch", 14)),
+            vmamba3_grid=int(mc.get("vmamba3_grid", 32)),
         ).to(device)
         model.load_state_dict(state["model"])
         model.eval()

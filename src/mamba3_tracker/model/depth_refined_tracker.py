@@ -166,6 +166,12 @@ class Mamba3V35Refiner(nn.Module):
         max_scale_correction: float = 0.5,
         within_frame: bool = False,
         pose_head: bool = False,
+        feat_encoder: str = "dinov3",
+        vmamba3_dim: int = 384,
+        vmamba3_heads: int = 6,
+        vmamba3_blocks: int = 2,
+        vmamba3_patch: int = 14,
+        vmamba3_grid: int = 32,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -177,10 +183,26 @@ class Mamba3V35Refiner(nn.Module):
         self.max_scale_correction = float(max_scale_correction)
         self.within_frame = bool(within_frame)
         self.pose_head = bool(pose_head)
+        self.feat_encoder = str(feat_encoder)
 
-        from .dino_encoder import DINOv2Encoder
+        # Appearance-feature encoder: off-the-shelf frozen DINOv3 ("dinov3"), or a
+        # trainable Vision-Mamba-3 (NC-SSD) encoder computed from scratch
+        # ("vmamba3", v48/v49). Both expose .dim and forward_video()->[(B,F,D,g,g)].
+        if self.feat_encoder == "vmamba3":
+            from .vmamba3_encoder import VMamba3Encoder
 
-        self.dino = DINOv2Encoder(model_name=dino_model, image_size=dino_image_size)
+            self.dino = VMamba3Encoder(
+                dim=vmamba3_dim,
+                num_heads=vmamba3_heads,
+                state_dim=state_dim,
+                patch=vmamba3_patch,
+                grid=vmamba3_grid,
+                blocks=vmamba3_blocks,
+            )
+        else:
+            from .dino_encoder import DINOv2Encoder
+
+            self.dino = DINOv2Encoder(model_name=dino_model, image_size=dino_image_size)
         self.feat_proj = nn.Linear(self.dino.dim, d_proj)
 
         # Input: [ray_x, ray_y, z/z_ref, vis] + depth_patch(k²) + dino_feat(d_proj)

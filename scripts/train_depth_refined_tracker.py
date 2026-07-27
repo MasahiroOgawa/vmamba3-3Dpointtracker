@@ -568,6 +568,12 @@ def main() -> int:
             ),
             dino_image_size=int(model_cfg.get("dino_image_size", 448)),
             image_size=int(model_cfg.get("image_size", 896)),
+            feat_encoder=str(model_cfg.get("feat_encoder", "dinov3")),
+            vmamba3_dim=int(model_cfg.get("vmamba3_dim", 384)),
+            vmamba3_heads=int(model_cfg.get("vmamba3_heads", 6)),
+            vmamba3_blocks=int(model_cfg.get("vmamba3_blocks", 2)),
+            vmamba3_patch=int(model_cfg.get("vmamba3_patch", 14)),
+            vmamba3_grid=int(model_cfg.get("vmamba3_grid", 32)),
         ).to(device)
         loss_fn = TrackingLossV35(
             weights=loss_cfg["weights"], image_size=image_size

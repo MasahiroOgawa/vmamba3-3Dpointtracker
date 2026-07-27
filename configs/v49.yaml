@@ -1,0 +1,70 @@
+version: v35
+
+# v49 — "true Vision-Mamba-3" refiner on DA3-g depth.
+#
+# Identical to v48 except the depth source is the DA3-Nested-Giant cache
+# (~/data/tapvid3d_da3nested) instead of DA3-l — the same DA3-l-vs-DA3-g axis
+# that distinguishes v35 from v41. The appearance features are computed by a
+# trainable Vision-Mamba-3 (NC-SSD) encoder from scratch (model.feat_encoder:
+# vmamba3), not the frozen DINOv3 backbone.
+#
+# Warm-start the refiner (SSM + heads) from the v41 checkpoint (v35 arch on
+# DA3-g) via --init-ckpt; the VMamba3 encoder starts from random init.
+# Evaluate with the WAFT front-end, --method v35, --da3-depth-root DA3-g.
+
+model:
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  d_proj: 64
+  image_size: 896
+  # --- true Vision-Mamba-3 feature encoder (replaces frozen DINOv3) ---
+  feat_encoder: vmamba3
+  vmamba3_dim: 384
+  vmamba3_heads: 6
+  vmamba3_blocks: 2
+  vmamba3_patch: 14
+  vmamba3_grid: 32
+
+flow:
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: null
+  fb_alpha: 0.05
+  fb_beta: 1.0
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested   # DA3-g
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 3.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1

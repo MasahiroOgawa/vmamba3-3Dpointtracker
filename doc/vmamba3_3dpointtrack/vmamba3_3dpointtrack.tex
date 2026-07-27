@@ -528,10 +528,10 @@ v33, that refines depth.
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[node distance=9mm and 12mm]
   \node[io] (vid) {video\\$\{I_t\}$};
-  \node[frozen, right=of vid] (flow) {SEA-RAFT\\flow (frozen)};
+  \node[frozen, right=of vid] (flow) {optical flow\\(frozen)};
   \node[frozen, right=of flow] (chain) {flow\\chaining};
   \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
-  \node[frozen, below=17mm of flow] (da3) {DA3-l metric\\depth (frozen)};
+  \node[frozen, below=17mm of flow] (da3) {metric depth\\(frozen)};
   % refiner inputs (white) — the SAME white input box as Fig 3 / Fig 5.
   \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
   % the single learned module (large blue box); internals in Fig 3 / Fig 5.
@@ -549,15 +549,17 @@ v33, that refines depth.
   \draw[arr] (ref) -- (out);
 \end{tikzpicture}%
 }
-\caption{Overall pipeline. Grey = frozen / training-free; the \textbf{large blue box} is the only
-learned module ($0.40$M params); its internals are Fig.~\ref{fig:arch} (v33) and
-Fig.~\ref{fig:v35-arch} (v35). SEA-RAFT's 2D track $\mathbf{u}_t$ (and visibility) are \emph{never}
-modified. The refiner's \emph{inputs} (white box) --- the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$
-(from $\mathbf{u}_t$ and the intrinsics), DA3-l's raw depth $z_{\text{raw}}$, and visibility $v$ --- are
-exactly the white input boxes that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and
-Fig.~\ref{fig:v35-arch} (v35 additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The
-box corrects depth along the frozen ray and unprojects to 3D, so the 2D reprojection is invariant by
-construction (Fig.~\ref{fig:ray}).}
+\caption{Overall pipeline. The flow front-end (SEA-RAFT or WAFT) and metric-depth backbone (DA3-l or
+DA3-g) are both frozen and swappable across this report's experiments. Grey = frozen / training-free;
+the \textbf{large blue box} is the only learned module ($0.40$M params); its internals are
+Fig.~\ref{fig:arch} (v33) and Fig.~\ref{fig:v35-arch} (v35). The frozen flow front-end's 2D track
+$\mathbf{u}_t$ (and visibility) is \emph{never} modified. The refiner's \emph{inputs} (white box) ---
+the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$ (from $\mathbf{u}_t$ and the intrinsics), the frozen
+depth backbone's raw depth $z_{\text{raw}}$, and visibility $v$ --- are exactly the white input boxes
+that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and Fig.~\ref{fig:v35-arch} (v35
+additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The box corrects depth along the
+frozen ray and unprojects to 3D, so the 2D reprojection is invariant by construction
+(Fig.~\ref{fig:ray}).}
 \label{fig:pipeline}
 \end{figure}
 

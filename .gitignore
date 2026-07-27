@@ -7,3 +7,25 @@ dist/
 build/
 .pytest_cache/
 result/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.toc
+*.out
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+*.bcf
+*.run.xml
+
+# Compiled documents (tex output). Keep figure PDFs (build inputs) tracked.
+*.pdf
+!doc/vmamba3_3dpointtrack/figs/*.pdf

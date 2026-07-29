@@ -17,6 +17,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 from mamba3_tracker.data.tapvid3d import list_clips, load_clip
 from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES
@@ -228,7 +229,18 @@ def main() -> int:
         ax.set_xlabel("GT distance (m)")
         ax.set_ylabel("median |log(scale*pred/gt)|")
         ax.grid(alpha=0.3)
-        ax.legend(title="subset")
+        # Colour encodes subset, line style encodes the depth backbone -- give each
+        # its own legend so the solid/dashed convention (DA3-g/DA3-l) is explicit.
+        subset_legend = ax.legend(title="subset", loc="upper right")
+        ax.add_artist(subset_legend)
+        ax.legend(
+            handles=[
+                Line2D([0], [0], color="black", ls="-", label="DA3-g"),
+                Line2D([0], [0], color="black", ls="--", label="DA3-l"),
+            ],
+            title="depth",
+            loc="upper center",
+        )
 
     def _panel_b(ax):
         x = np.arange(len(SUBSETS))

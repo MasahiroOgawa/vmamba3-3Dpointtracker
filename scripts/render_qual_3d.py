@@ -32,7 +32,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-plt.rcParams.update({"font.size": 20})  # 2x the previous base font (default 10)
+plt.rcParams.update({"font.size": 24})  # sized so lettering stays >=7pt effective
+# when these panels print at ~2.4 in (paper Fig 13) / ~3 in (memo Figs 14-16).
 
 _HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location(
@@ -172,12 +173,13 @@ def _render_3d(
     ax.set_xlabel("X (m)", labelpad=12)
     ax.set_ylabel("Y (m)", labelpad=12)
     ax.set_zlabel("Z (m)", labelpad=12)
-    ax.tick_params(labelsize=16)
-    ax.set_title(title)  # short
+    ax.tick_params(labelsize=24)  # ticks are the smallest text -> keep >=7pt effective
+    # No in-plot title: the method/subset is stated by the LaTeX sub-caption
+    # (paper Fig 13) / figure caption (memo), so a title here is redundant.
     fig.tight_layout()
     # pad_inches leaves whitespace so the rotated 3D "Z (m)" label (which
     # bbox_inches="tight" under-measures for mplot3d) is not clipped at the edge.
-    fig.savefig(out_path, dpi=140, bbox_inches="tight", pad_inches=0.5)
+    fig.savefig(out_path, dpi=330, bbox_inches="tight", pad_inches=0.5)
     plt.close(fig)
     print(f"[qual] wrote {out_path}")
 
@@ -219,7 +221,7 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
     fig.tight_layout()
     # pad_inches leaves whitespace so the rotated 3D "Z (m)" label (which
     # bbox_inches="tight" under-measures for mplot3d) is not clipped at the edge.
-    fig.savefig(out_path, dpi=140, bbox_inches="tight", pad_inches=0.5)
+    fig.savefig(out_path, dpi=330, bbox_inches="tight", pad_inches=0.5)
     plt.close(fig)
     print(f"[qual] wrote {out_path}")
 

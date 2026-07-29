@@ -206,50 +206,67 @@ def main() -> int:
     out = Path("result/figures/da3lg_shape_crossover.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
-    fig.savefig(out, dpi=130, bbox_inches="tight")
+    fig.savefig(out, dpi=460, bbox_inches="tight")
     print(f"\n[saved] {out}")
 
     # ---- clean 2-panel figure for the memo ----
-    fig2, (axA, axB) = plt.subplots(1, 2, figsize=(16, 5))
     colors = {"drivetrack": "#4878CF", "pstudio": "#E06C2B", "adt": "#3A9E5C"}
-    for sub in SUBSETS:
-        m_l, _, _, _ = median_per_bin(
-            np.concatenate(per[sub]["DA3-l"]["gt"]),
-            np.concatenate(per[sub]["DA3-l"]["r"]),
-        )
-        m_g, _, _, _ = median_per_bin(
-            np.concatenate(per[sub]["DA3-g"]["gt"]),
-            np.concatenate(per[sub]["DA3-g"]["r"]),
-        )
-        axA.plot(BIN_CENTERS, m_l, "--", color=colors[sub], alpha=0.9)
-        axA.plot(BIN_CENTERS, m_g, "-", color=colors[sub], label=sub)
-    axA.set_xscale("log")
-    axA.set_xlabel("GT distance (m)")
-    axA.set_ylabel("median |log(scale*pred/gt)|")
-    axA.set_title("(a) shape vs GT distance")
-    axA.grid(alpha=0.3)
-    axA.legend(title="subset")
 
-    x = np.arange(len(SUBSETS))
-    w = 0.2
-    lf = [np.mean(np.concatenate(per[s]["DA3-l"]["r"])) for s in SUBSETS]
-    lc = [np.mean(np.concatenate(per[s]["DA3-l"]["r_clip"])) for s in SUBSETS]
-    gf = [np.mean(np.concatenate(per[s]["DA3-g"]["r"])) for s in SUBSETS]
-    gc = [np.mean(np.concatenate(per[s]["DA3-g"]["r_clip"])) for s in SUBSETS]
-    axB.bar(x - 1.5 * w, lf, w, label="DA3-l per-frame", color="#A9C0E8")
-    axB.bar(x - 0.5 * w, lc, w, label="DA3-l per-clip", color="#4878CF")
-    axB.bar(x + 0.5 * w, gf, w, label="DA3-g per-frame", color="#F2B48C")
-    axB.bar(x + 1.5 * w, gc, w, label="DA3-g per-clip", color="#E06C2B")
-    axB.set_xticks(x)
-    axB.set_xticklabels(SUBSETS)
-    axB.set_ylabel("mean |log(scale*pred/gt)|")
+    def _panel_a(ax):
+        for sub in SUBSETS:
+            m_l, _, _, _ = median_per_bin(
+                np.concatenate(per[sub]["DA3-l"]["gt"]),
+                np.concatenate(per[sub]["DA3-l"]["r"]),
+            )
+            m_g, _, _, _ = median_per_bin(
+                np.concatenate(per[sub]["DA3-g"]["gt"]),
+                np.concatenate(per[sub]["DA3-g"]["r"]),
+            )
+            ax.plot(BIN_CENTERS, m_l, "--", color=colors[sub], alpha=0.9)
+            ax.plot(BIN_CENTERS, m_g, "-", color=colors[sub], label=sub)
+        ax.set_xscale("log")
+        ax.set_xlabel("GT distance (m)")
+        ax.set_ylabel("median |log(scale*pred/gt)|")
+        ax.grid(alpha=0.3)
+        ax.legend(title="subset")
+
+    def _panel_b(ax):
+        x = np.arange(len(SUBSETS))
+        w = 0.2
+        lf = [np.mean(np.concatenate(per[s]["DA3-l"]["r"])) for s in SUBSETS]
+        lc = [np.mean(np.concatenate(per[s]["DA3-l"]["r_clip"])) for s in SUBSETS]
+        gf = [np.mean(np.concatenate(per[s]["DA3-g"]["r"])) for s in SUBSETS]
+        gc = [np.mean(np.concatenate(per[s]["DA3-g"]["r_clip"])) for s in SUBSETS]
+        ax.bar(x - 1.5 * w, lf, w, label="DA3-l per-frame", color="#A9C0E8")
+        ax.bar(x - 0.5 * w, lc, w, label="DA3-l per-clip", color="#4878CF")
+        ax.bar(x + 0.5 * w, gf, w, label="DA3-g per-frame", color="#F2B48C")
+        ax.bar(x + 1.5 * w, gc, w, label="DA3-g per-clip", color="#E06C2B")
+        ax.set_xticks(x)
+        ax.set_xticklabels(SUBSETS)
+        ax.set_ylabel("mean |log(scale*pred/gt)|")
+        ax.legend(fontsize=(8 * 2))
+        ax.grid(axis="y", alpha=0.3)
+
+    # Combined figure (memo Fig 8) keeps the panel titles at the top.
+    fig2, (axA, axB) = plt.subplots(1, 2, figsize=(16, 5))
+    _panel_a(axA)
+    axA.set_title("(a) shape vs GT distance")
+    _panel_b(axB)
     axB.set_title("(b) per-frame vs per-clip scale")
-    axB.legend(fontsize=(8 * 2))
-    axB.grid(axis="y", alpha=0.3)
     fig2.tight_layout()
     out2 = Path("result/figures/da3lg_error_analysis.png")
-    fig2.savefig(out2, dpi=140, bbox_inches="tight")
+    fig2.savefig(out2, dpi=460, bbox_inches="tight")
     print(f"[saved] {out2}")
+
+    # Split panels (paper Fig 14): NO in-plot title -- the "(a)/(b)" label is a
+    # LaTeX subfigure caption at the bottom (paper CLAUDE.md convention).
+    for name, panel in (("da3lg_error_a", _panel_a), ("da3lg_error_b", _panel_b)):
+        figS, axS = plt.subplots(figsize=(8, 5))
+        panel(axS)
+        figS.tight_layout()
+        outS = Path(f"result/figures/{name}.png")
+        figS.savefig(outS, dpi=460, bbox_inches="tight")
+        print(f"[saved] {outS}")
     return 0
 
 

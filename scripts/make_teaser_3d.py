@@ -29,6 +29,10 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
+# Fig 1(b) prints at ~2.67 in (single-column fraction), so the canvas is shrunk
+# hard by LaTeX; size the lettering up front so it stays >=7pt effective.
+plt.rcParams.update({"font.size": 18})
+
 _HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("eval_metric3d", _HERE / "eval_metric3d.py")
 _ev = importlib.util.module_from_spec(_spec)
@@ -104,7 +108,7 @@ def _plot(pred, gt, vis, anchor, out_path: Path, elev: float, azim: float) -> No
     ax.set_xlabel("X (m)", labelpad=8)
     ax.set_ylabel("Z (m)", labelpad=8)
     ax.set_zlabel("Y (m)", labelpad=8)
-    fig.savefig(out_path, dpi=150, bbox_inches="tight", pad_inches=0.4)
+    fig.savefig(out_path, dpi=450, bbox_inches="tight", pad_inches=0.4)
     plt.close(fig)
     print(f"[teaser] wrote {out_path}  (elev={elev}, azim={azim})")
 

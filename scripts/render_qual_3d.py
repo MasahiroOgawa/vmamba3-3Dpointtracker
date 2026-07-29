@@ -159,9 +159,16 @@ def _render_3d(
             zorder=20,
         )
     if lims is not None:
-        ax.set_xlim(lims[0])
-        ax.set_ylim(lims[1])
-        ax.set_zlim(lims[2])
+        # Equal axis scale: give x, y, z a common span (the largest GT extent),
+        # each centred on its own midpoint, and force a cubic box so one metre is
+        # the same length on every axis. (Point-clipping above still uses the
+        # tighter GT box `lims`, so the "DELTA leaves the true volume" view holds.)
+        mids = [0.5 * (lo + hi) for (lo, hi) in lims]
+        half = max(hi - lo for (lo, hi) in lims) / 2.0
+        ax.set_xlim(mids[0] - half, mids[0] + half)
+        ax.set_ylim(mids[1] - half, mids[1] + half)
+        ax.set_zlim(mids[2] - half, mids[2] + half)
+        ax.set_box_aspect((1, 1, 1))
     ax.set_xlabel("X (m)", labelpad=12)
     ax.set_ylabel("Y (m)", labelpad=12)
     ax.set_zlabel("Z (m)", labelpad=12)

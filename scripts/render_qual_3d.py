@@ -175,7 +175,9 @@ def _render_3d(
     ax.tick_params(labelsize=16)
     ax.set_title(title)  # short
     fig.tight_layout()
-    fig.savefig(out_path, dpi=140, bbox_inches="tight")
+    # pad_inches leaves whitespace so the rotated 3D "Z (m)" label (which
+    # bbox_inches="tight" under-measures for mplot3d) is not clipped at the edge.
+    fig.savefig(out_path, dpi=140, bbox_inches="tight", pad_inches=0.5)
     plt.close(fig)
     print(f"[qual] wrote {out_path}")
 
@@ -215,7 +217,9 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
         )
     fig.suptitle(title)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=140, bbox_inches="tight")
+    # pad_inches leaves whitespace so the rotated 3D "Z (m)" label (which
+    # bbox_inches="tight" under-measures for mplot3d) is not clipped at the edge.
+    fig.savefig(out_path, dpi=140, bbox_inches="tight", pad_inches=0.5)
     plt.close(fig)
     print(f"[qual] wrote {out_path}")
 

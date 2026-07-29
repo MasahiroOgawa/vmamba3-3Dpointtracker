@@ -1850,6 +1850,64 @@ architectural, and closing it needs a stronger mechanism than a self-supervised 
 supervision on drivetrack and explicit parallax triangulation (refinements~2--3), not a bolt-on pose head.
 \textbf{v45 remains the best DA3-g pipeline} (absolute mean $0.232$).
 
+\subsection{v48/v49: genuine Vision-Mamba-3 appearance features (no DINOv3)}
+\label{sec:v4849}
+Every refiner so far (v33--v47) draws its per-point appearance features from a \emph{frozen, off-the-shelf}
+DINOv3 ViT-S backbone; the Vision-Mamba-3 contribution lived only in the SSM refiner core, never in the
+feature extractor itself. \textbf{v48} and \textbf{v49} close that gap: they replace the frozen DINOv3
+feature encoder with a \emph{trainable Vision-Mamba-3 (NC-SSD) pyramid encoder learned from scratch}, so the
+appearance features that condition the depth-along-ray refiner are themselves produced by genuine
+Vision-Mamba-3 attention. This lets the evaluation report the standalone ability of real Vision-Mamba-3
+features rather than borrowing DINOv3's. Everything else is held fixed at the best existing pipelines: the
+depth-along-ray refiner core, the loss, and the WAFT flow $+$ DA3 metric-depth front-end are identical to
+v39 (\S\ref{sec:waft}) and v45 (\S\ref{sec:v45}).
+
+\paragraph{What changes.} Only the feature encoder: from the frozen DINOv3 backbone to a NC-SSD
+\emph{pyramid encoder} with feature dimension $384$ (matched to DINOv3-S so the feature-projection and the
+warm-start align), $6$ heads, $2$ blocks, patch $14$ over a $32$-grid ($448$\,px encoder input --- the same
+resolution DINOv3 saw). The refiner (SSM core $+$ read-out heads) is warm-started from the v35 DA3-l
+checkpoint (\S\ref{sec:v35}); the Vision-Mamba-3 encoder is \emph{not} in that checkpoint and so starts from
+random init. Because the encoder is now trained rather than frozen, the trainable-parameter count rises from
+the $0.40$\,M refiner-only budget to $1.87$\,M (the extra ${\sim}1.5$\,M is the Vision-Mamba-3 encoder).
+Same recipe otherwise: $20$k steps, AdamW, lr $3\!\times\!10^{-4}$, warm-up $500$, $8$-frame windows, bf16
+($\sim$$14$\,h each on one RTX~4080 Laptop GPU).
+
+\paragraph{Two depth backbones.} \textbf{v48} keeps DA3-l depth --- the direct analog of v39 (WAFT flow $+$
+DA3-l $+$ refiner) --- while \textbf{v49} uses DA3-g depth, the analog of v45. Each is compared against its
+DINOv3-feature predecessor at the \emph{same} depth backbone, so the difference isolates the feature
+extractor alone.
+
+\paragraph{Result: from-scratch Vision-Mamba-3 features do not yet match frozen DINOv3.}
+Both variants train and evaluate cleanly on all $150$ clips. On the \emph{absolute} metric --- the one this
+work cares about --- replacing DINOv3 with a from-scratch Vision-Mamba-3 encoder \textbf{costs} accuracy on
+every subset and both depth backbones: v48 lowers the DA3-l mean from v39's $0.246$ to $0.205$ ($-0.041$),
+and v49 lowers the DA3-g mean from v45's $0.232$ to $0.208$ ($-0.024$).
+\begin{center}\small
+\begin{tabular}{lcccc|cccc}
+\toprule
+ & \multicolumn{4}{c|}{normalized 3D-AJ $\uparrow$} & \multicolumn{4}{c}{absolute metric-AJ $\uparrow$} \\
+Feature encoder & dt & ps & adt & mean & dt & ps & adt & mean \\
+\midrule
+\multicolumn{9}{l}{\emph{DA3-l depth}}\\
+\quad v39, DINOv3 (frozen)          & \textbf{0.098} & \textbf{0.073} & \textbf{0.151} & \textbf{0.107} & \textbf{0.141} & \textbf{0.279} & \textbf{0.318} & \textbf{0.246} \\
+\quad v48, Vision-Mamba-3 (scratch) & \textbf{0.098} & 0.047 & 0.125 & 0.090 & 0.134 & 0.196 & 0.286 & 0.205 \\
+\midrule
+\multicolumn{9}{l}{\emph{DA3-g depth}}\\
+\quad v45, DINOv3 (frozen)          & \textbf{0.118} & 0.029 & 0.118 & 0.088 & \textbf{0.173} & \textbf{0.226} & \textbf{0.297} & \textbf{0.232} \\
+\quad v49, Vision-Mamba-3 (scratch) & \textbf{0.118} & \textbf{0.039} & \textbf{0.123} & \textbf{0.093} & 0.146 & 0.192 & 0.285 & 0.208 \\
+\bottomrule
+\end{tabular}
+\end{center}
+The gap is uniform on the absolute metric but much smaller --- and on DA3-g even mildly reversed --- on the
+\emph{normalized} leaderboard: v49 edges v45 on normalized mean ($0.093$ vs $0.088$, from small pstudio/adt
+gains) and v48 ties v39 on drivetrack. The reading is consistent: DINOv3's large-scale pretraining buys
+appearance features that a $1.5$\,M-parameter encoder trained from scratch on only $4418$ clips cannot yet
+match, and what it loses concentrates in the \emph{absolute-scale-relevant} detail (relative/normalized
+shape is nearly preserved). Genuine Vision-Mamba-3 features are therefore a viable but currently
+\emph{lossy} drop-in for DINOv3 in the refiner; closing the ${\sim}0.02$--$0.04$ absolute-AJ gap would need
+either a larger or pretrained Vision-Mamba-3 encoder, or joint (rather than from-scratch) feature training.
+\textbf{The DINOv3-feature pipelines --- v39 on DA3-l, v45 on DA3-g --- remain best on the absolute metric.}
+
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
 visibility are frozen, so they carry no gradient):

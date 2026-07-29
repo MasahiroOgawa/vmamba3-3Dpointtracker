@@ -28,6 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 # Fig 1(b) prints at ~2.67 in (single-column fraction), so the canvas is shrunk
 # hard by LaTeX; size the lettering up front so it stays >=7pt effective.
@@ -81,7 +82,7 @@ def _remap(P):
 def _plot(pred, gt, vis, anchor, out_path: Path, elev: float, azim: float) -> None:
     Pp, Pg = _remap(pred), _remap(gt)
     sel = _pick_tracks(vis, MAX_TRACKS)
-    fig = plt.figure(figsize=(9, 7))
+    fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(111, projection="3d")
     cmap = plt.get_cmap("tab20")
     pts = []
@@ -99,16 +100,33 @@ def _plot(pred, gt, vis, anchor, out_path: Path, elev: float, azim: float) -> No
         pts.append(Pg[n, m])
     P = np.concatenate(pts, axis=0)
     lo, hi = P.min(0), P.max(0)
-    mid, half = 0.5 * (lo + hi), float((hi - lo).max()) / 2.0 * 1.05
-    ax.set_xlim(mid[0] - half, mid[0] + half)
-    ax.set_ylim(mid[1] - half, mid[1] + half)
-    ax.set_zlim(mid[2] - half, mid[2] + half)
-    ax.set_box_aspect((1, 1, 1))
+    span = hi - lo
+    lo, hi = lo - 0.05 * span, hi + 0.05 * span
+    # The ground plane (X, Z) keeps equal metric scale, but the tracks are nearly
+    # planar (height spans only ~1 m). Shown truthfully that axis collapses to an
+    # unreadable edge-on stub, so pad the height axis out to a fraction of the
+    # ground extent: it then carries a legible, non-overlapping tick scale while the
+    # data still visibly occupies a thin band, honestly conveying near-planarity.
+    y_floor = 0.5 * max(hi[0] - lo[0], hi[1] - lo[1])
+    y_mid = 0.5 * (lo[2] + hi[2])
+    y_half = max(0.5 * (hi[2] - lo[2]), 0.5 * y_floor)
+    lo[2], hi[2] = y_mid - y_half, y_mid + y_half
+    ax.set_xlim(lo[0], hi[0])
+    ax.set_ylim(lo[1], hi[1])
+    ax.set_zlim(lo[2], hi[2])
+    # Box hugs these extents (no empty cube); the taller height axis gives the Y
+    # ticks and label room to read instead of foreshortening to a sliver.
+    ax.set_box_aspect(tuple(hi - lo))
     ax.view_init(elev=elev, azim=azim)
-    ax.set_xlabel("X (m)", labelpad=8)
-    ax.set_ylabel("Z (m)", labelpad=8)
-    ax.set_zlabel("Y (m)", labelpad=8)
-    fig.savefig(out_path, dpi=450, bbox_inches="tight", pad_inches=0.4)
+    ax.xaxis.set_major_locator(MaxNLocator(4))
+    ax.yaxis.set_major_locator(MaxNLocator(4))
+    ax.zaxis.set_major_locator(MaxNLocator(4))
+    ax.set_xlabel("X (m)", labelpad=10)
+    ax.set_ylabel("Z (m)", labelpad=14)
+    ax.set_zlabel("Y (m)", labelpad=10)
+    # pad_inches guards the rotated 3D "Y (m)" axis label, which bbox_inches="tight"
+    # under-measures for mplot3d and would otherwise clip at the frame edge.
+    fig.savefig(out_path, dpi=450, bbox_inches="tight", pad_inches=0.5)
     plt.close(fig)
     print(f"[teaser] wrote {out_path}  (elev={elev}, azim={azim})")
 
@@ -119,8 +137,8 @@ def main() -> int:
     ap.add_argument("--waft-pred-dir", type=Path, default=Path("~/data/tapvid3d_baseline_preds/waft"))
     ap.add_argument("--da3-depth-root", type=Path, default=Path("~/data/tapvid3d_da3"))
     ap.add_argument("--out", type=Path, default=Path("/tmp/teaser_track3d.png"))
-    ap.add_argument("--elev", type=float, default=12.0)
-    ap.add_argument("--azim", type=float, default=-72.0)
+    ap.add_argument("--elev", type=float, default=30.0)
+    ap.add_argument("--azim", type=float, default=-58.0)
     ap.add_argument("--replot", action="store_true", help="re-plot from cached inference only")
     args = ap.parse_args()
 

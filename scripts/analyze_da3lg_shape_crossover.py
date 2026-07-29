@@ -231,7 +231,11 @@ def main() -> int:
         ax.grid(alpha=0.3)
         # Colour encodes subset, line style encodes the depth backbone -- give each
         # its own legend so the solid/dashed convention (DA3-g/DA3-l) is explicit.
-        subset_legend = ax.legend(title="subset", loc="upper right")
+        # Small font (matching panel b) + opposite upper corners to clear the curves.
+        leg_fs = 8 * 2
+        subset_legend = ax.legend(
+            title="subset", loc="upper right", fontsize=leg_fs, title_fontsize=leg_fs
+        )
         ax.add_artist(subset_legend)
         ax.legend(
             handles=[
@@ -239,7 +243,9 @@ def main() -> int:
                 Line2D([0], [0], color="black", ls="--", label="DA3-l"),
             ],
             title="depth",
-            loc="upper center",
+            loc="upper left",
+            fontsize=leg_fs,
+            title_fontsize=leg_fs,
         )
 
     def _panel_b(ax):

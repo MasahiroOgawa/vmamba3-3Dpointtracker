@@ -28,7 +28,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
-from matplotlib.ticker import MaxNLocator  # noqa: E402
+from matplotlib.ticker import MultipleLocator  # noqa: E402
 
 # Fig 1(b) prints at ~2.67 in (single-column fraction), so the canvas is shrunk
 # hard by LaTeX; size the lettering up front so it stays >=7pt effective.
@@ -43,6 +43,7 @@ _spec.loader.exec_module(_ev)
 TEASER_CLIP = "tapvid3d_1022527355599519580_4866_960_4886_960_2_L58RM2TH_i-3sYbjr6JjQQ"
 IMAGE_SIZE = 896
 MAX_TRACKS = 32
+TICK_M = 5.0  # identical tick interval (metres) on every axis (paper/CLAUDE.md)
 CACHE = Path("/tmp/teaser_3d_cache.npz")
 
 
@@ -118,9 +119,11 @@ def _plot(pred, gt, vis, anchor, out_path: Path, elev: float, azim: float) -> No
     # ticks and label room to read instead of foreshortening to a sliver.
     ax.set_box_aspect(tuple(hi - lo))
     ax.view_init(elev=elev, azim=azim)
-    ax.xaxis.set_major_locator(MaxNLocator(4))
-    ax.yaxis.set_major_locator(MaxNLocator(4))
-    ax.zaxis.set_major_locator(MaxNLocator(4))
+    # paper/CLAUDE.md: every axis shares one scale AND one tick interval. Equal
+    # scale comes from the span-proportional box aspect above; a single
+    # MultipleLocator gives all three axes the identical 5 m graduation.
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.set_major_locator(MultipleLocator(TICK_M))
     ax.set_xlabel("X (m)", labelpad=10)
     ax.set_ylabel("Z (m)", labelpad=14)
     ax.set_zlabel("Y (m)", labelpad=10)

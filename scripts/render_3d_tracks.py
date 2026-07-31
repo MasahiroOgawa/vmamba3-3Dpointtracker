@@ -43,6 +43,7 @@ import torch
 from mamba3_tracker.data.dataset import filter_to_split
 from mamba3_tracker.data.tapvid3d import SUBSETS, has_images, list_clips, load_clip
 from mamba3_tracker.model.tracker import Mamba3Tracker
+from mamba3_tracker.viz.track3d_axes import apply_image_like_view
 
 
 def _build_model(state: dict, device: torch.device) -> Mamba3Tracker:
@@ -143,9 +144,12 @@ def _plot_clip_3d_png(
             ax.scatter([gt_NF3[n, a, 0]], [gt_NF3[n, a, 1]], [gt_NF3[n, a, 2]],
                        s=18, color=color, edgecolors="black", linewidths=0.4)
 
+    # Same image-like camera as the paper's 3D track figures, so a diagnostic
+    # render and a published one can be read side by side.
+    apply_image_like_view(ax)
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
-    ax.set_zlabel("Z (m)")
+    ax.set_zlabel("Z (m)", labelpad=16)
     ax.set_title(f"{title}\nsolid = predicted, dashed = GT, dot = anchor frame", fontsize=10)
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)

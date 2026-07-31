@@ -9,6 +9,12 @@ physical region circled in both panels, so the win is directly comparable). Both
 the DA3-l depth backbone; DELTA runs its own DenseTrack3D 2D tracker (no WAFT), which is
 intrinsic to the two methods. Fonts are 2x the previous size and titles are short.
 
+Panels use the shared image-like camera (X right, Y down, Z 45 deg up-right) of
+`mamba3_tracker.viz.track3d_axes`, the same one as the Fig. 1(b) teaser.
+
+Inference is cached per subset so the panels can be re-rendered instantly via
+--replot (no checkpoint, no depth cache, no GPU) after a plotting change.
+
   uv run python scripts/render_qual_3d.py \
     --v35-ckpt ~/proj/study/largescale3Dreconstruction_using_SSM/result/20260701_v35/ckpt_20000.pt \
     --waft-pred-dir ~/data/tapvid3d_baseline_preds/waft \
@@ -16,6 +22,7 @@ intrinsic to the two methods. Fonts are 2x the previous size and titles are shor
     --da3-depth-root ~/data/tapvid3d_da3 \
     --scores-dir ~/proj/study/vmamba3-3Dpointtracker/result/20260710-1056_metric3d_v39_waft_v35/metric_results \
     --out-dir doc/vmamba3_3dpointtrack/figs
+  uv run python scripts/render_qual_3d.py --replot --out-dir doc/vmamba3_3dpointtrack/figs
 """
 
 from __future__ import annotations
@@ -32,6 +39,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
+from mamba3_tracker.paths import cache_dir  # noqa: E402
+from mamba3_tracker.viz.track3d_axes import (  # noqa: E402
+    apply_equal_cube,
+    apply_image_like_view,
+)
+
 plt.rcParams.update({"font.size": 24})  # sized so lettering stays >=7pt effective
 # when these panels print at ~2.4 in (paper Fig 13) / ~3 in (memo Figs 14-16).
 
@@ -45,6 +58,7 @@ _spec.loader.exec_module(_ev)  # provides _infer, _load_external, load_clip, lis
 SUBSETS = ["pstudio", "drivetrack", "adt"]
 IMAGE_SIZE = 896
 MAX_TRACKS = 32
+CACHE_DIR = cache_dir() / "qual_3d"
 
 
 def _best_clip(scores_dir: Path, subset: str) -> str:
@@ -160,19 +174,16 @@ def _render_3d(
             zorder=20,
         )
     if lims is not None:
-        # Equal axis scale: give x, y, z a common span (the largest GT extent),
-        # each centred on its own midpoint, and force a cubic box so one metre is
-        # the same length on every axis. (Point-clipping above still uses the
-        # tighter GT box `lims`, so the "DELTA leaves the true volume" view holds.)
-        mids = [0.5 * (lo + hi) for (lo, hi) in lims]
-        half = max(hi - lo for (lo, hi) in lims) / 2.0
-        ax.set_xlim(mids[0] - half, mids[0] + half)
-        ax.set_ylim(mids[1] - half, mids[1] + half)
-        ax.set_zlim(mids[2] - half, mids[2] + half)
-        ax.set_box_aspect((1, 1, 1))
+        # Equal span / equal ticks on all three axes. (Point-clipping above still
+        # uses the tighter GT box `lims`, so the "DELTA leaves the true volume"
+        # view holds.)
+        apply_equal_cube(ax, lims)
+    apply_image_like_view(ax)
     ax.set_xlabel("X (m)", labelpad=12)
     ax.set_ylabel("Y (m)", labelpad=12)
-    ax.set_zlabel("Z (m)", labelpad=12)
+    # Z runs diagonally under the box, so its label needs a bigger outward offset
+    # than X/Y or it collides with its own tick labels.
+    ax.set_zlabel("Z (m)", labelpad=40)
     ax.tick_params(labelsize=24)  # ticks are the smallest text -> keep >=7pt effective
     # No in-plot title: the method/subset is stated by the LaTeX sub-caption
     # (paper Fig 13) / figure caption (memo), so a title here is redundant.
@@ -252,47 +263,64 @@ def _build_v39(ckpt: Path, dev) -> torch.nn.Module:
     return model
 
 
+def _infer_subset(args, v39, dev, sub: str):
+    """Run (or load) the per-subset tracks. Cached to an npz so a plotting-only
+    change can be re-rendered with --replot, without the checkpoint or the GPU."""
+    cache = CACHE_DIR / f"{sub}.npz"
+    if args.replot:
+        d = np.load(cache)
+        return str(d["clip_id"]), d["gt"], d["anchor"], d["v39"], d["vis"], d["delta"]
+
+    clip_id = _best_clip(args.scores_dir, sub)
+    path = next(
+        p for p in _ev.list_clips(Path("~/data").expanduser(), [sub]) if p.stem == clip_id
+    )
+    clip = _ev.load_clip(path)
+    gt = clip.tracks_XYZ.numpy().transpose(1, 0, 2)  # (N,F,3)
+    anchor = clip.queries_xyt[:, 2].numpy().astype(int)
+    v39xyz, vis = _ev._infer(
+        method="v35",
+        flow_model=None,
+        model=v39,
+        clip=clip,
+        image_size=IMAGE_SIZE,
+        fb_alpha=0.05,
+        fb_beta=1.0,
+        da3_depth_root=args.da3_depth_root,
+        max_frames=0,
+        device=dev,
+        waft_pred_dir=args.waft_pred_dir,
+    )
+    delta, _ = _ev._load_external(args.delta_pred_dir, sub, clip_id)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    np.savez(cache, clip_id=clip_id, gt=gt, anchor=anchor, v39=v39xyz, vis=vis, delta=delta)
+    return clip_id, gt, anchor, v39xyz, vis, delta
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--v35-ckpt", type=Path, required=True)
-    ap.add_argument("--waft-pred-dir", type=Path, required=True)
-    ap.add_argument("--delta-pred-dir", type=Path, required=True)
-    ap.add_argument("--da3-depth-root", type=Path, required=True)
-    ap.add_argument("--scores-dir", type=Path, required=True, help="v39 metric_results")
+    ap.add_argument("--v35-ckpt", type=Path)
+    ap.add_argument("--waft-pred-dir", type=Path)
+    ap.add_argument("--delta-pred-dir", type=Path)
+    ap.add_argument("--da3-depth-root", type=Path)
+    ap.add_argument("--scores-dir", type=Path, help="v39 metric_results")
     ap.add_argument(
         "--out-dir", type=Path, default=Path("doc/vmamba3_3dpointtrack/figs")
     )
+    ap.add_argument(
+        "--replot", action="store_true", help="re-plot from cached inference only"
+    )
     args = ap.parse_args()
+    needed = ["v35_ckpt", "waft_pred_dir", "delta_pred_dir", "da3_depth_root", "scores_dir"]
+    if not args.replot and any(getattr(args, a) is None for a in needed):
+        ap.error("without --replot these are required: " + ", ".join("--" + a.replace("_", "-") for a in needed))
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    v39 = _build_v39(args.v35_ckpt, dev)
+    v39 = None if args.replot else _build_v39(args.v35_ckpt, dev)
 
     for sub in SUBSETS:
-        clip_id = _best_clip(args.scores_dir, sub)
-        path = next(
-            p
-            for p in _ev.list_clips(Path("~/data").expanduser(), [sub])
-            if p.stem == clip_id
-        )
-        clip = _ev.load_clip(path)
-        gt = clip.tracks_XYZ.numpy().transpose(1, 0, 2)  # (N,F,3)
-        anchor = clip.queries_xyt[:, 2].numpy().astype(int)
-
-        v39xyz, vis = _ev._infer(
-            method="v35",
-            flow_model=None,
-            model=v39,
-            clip=clip,
-            image_size=IMAGE_SIZE,
-            fb_alpha=0.05,
-            fb_beta=1.0,
-            da3_depth_root=args.da3_depth_root,
-            max_frames=0,
-            device=dev,
-            waft_pred_dir=args.waft_pred_dir,
-        )
-        delta, _ = _ev._load_external(args.delta_pred_dir, sub, clip_id)
+        clip_id, gt, anchor, v39xyz, vis, delta = _infer_subset(args, v39, dev, sub)
         hl = _win_center(delta, v39xyz, gt, vis)
         lims = _gt_lims(gt, vis)
         print(

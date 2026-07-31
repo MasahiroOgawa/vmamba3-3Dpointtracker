@@ -42,6 +42,19 @@ done
 
 - Never run `sudo` directly. If a command needs sudo, print the exact command and ask the user to run it.
 
+## 3D track figures
+
+- Every plot of world XYZ tracks (`make_teaser_3d.py`, `render_qual_3d.py`, `render_3d_tracks.py`)
+  must call `mamba3_tracker.viz.track3d_axes.apply_image_like_view(ax)` so all of them share one
+  image-like camera: +X right, +Y down, +Z (depth) 45° up-right. Plot world X/Y/Z on the plot's
+  x/y/z directly — never permute axes to fake a viewpoint, or the figures disagree with each other
+  and with the video frame. The camera is fixed on purpose; do not expose elev/azim as CLI flags.
+- Frame the box with `apply_equal_cube(ax, lims)` from the same module: equal span on all three
+  axes plus one shared tick interval. Don't hand-tune a per-figure box aspect or pad a thin axis
+  by hand — that made the teaser's height axis a different on-page length than Fig. 13's.
+- Keep the inference caches (`--replot`) working: a viewpoint or styling change must be
+  re-renderable without a checkpoint, the depth cache, or a GPU.
+
 ## Code style
 
 - Prefer concise expressions (comprehensions over for+append loops).

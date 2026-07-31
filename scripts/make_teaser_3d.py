@@ -1,9 +1,10 @@
 """Render Figure 1(b) teaser: v39 (our best) recovered metric 3D tracks on the
-teaser drivetrack clip, with equal x/y/z scale and a camera-like viewpoint that
-matches the 2D driving image in panel (a).
+teaser drivetrack clip, with equal x/y/z scale and the shared image-like camera
+(X right, Y down, Z 45 deg up-right) that matches the 2D driving image in panel
+(a) and the qualitative grid of Fig. 13 -- see `mamba3_tracker.viz.track3d_axes`.
 
 v39 = the v35 depth refiner fed by the WAFT front-end (same clip/caches as the
-eval). Inference is cached to an npz so the viewpoint can be re-tuned instantly
+eval). Inference is cached to an npz so the figure can be re-rendered instantly
 via --replot without re-running the model.
 
   # first run (inference, on CPU to leave the GPU for training):
@@ -11,9 +12,8 @@ via --replot without re-running the model.
       --v35-ckpt ~/data/ckpts/v35_da3l_ckpt_20000.pt \
       --waft-pred-dir ~/data/tapvid3d_baseline_preds/waft \
       --da3-depth-root ~/data/tapvid3d_da3 --out /tmp/teaser_track3d.png
-  # re-tune the view only (no inference):
-  uv run python scripts/make_teaser_3d.py --replot --elev 10 --azim -75 \
-      --out /tmp/teaser_track3d.png
+  # re-render from the cached inference only:
+  uv run python scripts/make_teaser_3d.py --replot --out /tmp/teaser_track3d.png
 """
 
 from __future__ import annotations
@@ -28,7 +28,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
-from matplotlib.ticker import MultipleLocator  # noqa: E402
+
+from mamba3_tracker.paths import cache_dir  # noqa: E402
+from mamba3_tracker.viz.track3d_axes import (  # noqa: E402
+    apply_equal_cube,
+    apply_image_like_view,
+)
 
 # Fig 1(b) prints at ~2.67 in (single-column fraction), so the canvas is shrunk
 # hard by LaTeX; size the lettering up front so it stays >=7pt effective.
@@ -43,8 +48,8 @@ _spec.loader.exec_module(_ev)
 TEASER_CLIP = "tapvid3d_1022527355599519580_4866_960_4886_960_2_L58RM2TH_i-3sYbjr6JjQQ"
 IMAGE_SIZE = 896
 MAX_TRACKS = 32
-TICK_M = 5.0  # identical tick interval (metres) on every axis (paper/CLAUDE.md)
-CACHE = Path("/tmp/teaser_3d_cache.npz")
+PAD = 0.1  # fraction of extent to pad the axis box by, matching render_qual_3d.py
+CACHE = cache_dir() / "teaser_3d.npz"
 
 
 def _build_v39(ckpt: Path, dev) -> torch.nn.Module:
@@ -74,14 +79,10 @@ def _pick_tracks(vis, k):
     return list(np.argsort(-vis.sum(axis=1))[:k])
 
 
-def _remap(P):
-    """World (X, Y, Z) -> plot axes (right=X, into-screen=Z depth, up=-Y height),
-    so the 3D view reads like the forward-facing driving camera of panel (a)."""
-    return np.stack([P[..., 0], P[..., 2], -P[..., 1]], axis=-1)
-
-
-def _plot(pred, gt, vis, anchor, out_path: Path, elev: float, azim: float) -> None:
-    Pp, Pg = _remap(pred), _remap(gt)
+def _plot(pred, gt, vis, anchor, out_path: Path) -> None:
+    # World (X, Y, Z) goes straight onto the plot's (x, y, z): the shared camera
+    # already turns them into image directions (X right, Y down, Z into-scene),
+    # so no axis permutation -- and no relabelling -- is needed here.
     sel = _pick_tracks(vis, MAX_TRACKS)
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(111, projection="3d")
@@ -92,46 +93,33 @@ def _plot(pred, gt, vis, anchor, out_path: Path, elev: float, azim: float) -> No
         if m.sum() < 2:
             continue
         c = cmap(i % 20)
-        ax.plot(Pg[n, m, 0], Pg[n, m, 1], Pg[n, m, 2], "--", lw=1.0, color=c, alpha=0.55)
-        ax.plot(Pp[n, m, 0], Pp[n, m, 1], Pp[n, m, 2], "-", lw=1.6, color=c, alpha=0.95)
+        ax.plot(gt[n, m, 0], gt[n, m, 1], gt[n, m, 2], "--", lw=1.0, color=c, alpha=0.55)
+        ax.plot(pred[n, m, 0], pred[n, m, 1], pred[n, m, 2], "-", lw=1.6, color=c, alpha=0.95)
         a = int(anchor[n])
         if 0 <= a < gt.shape[1] and m[a]:
-            ax.scatter([Pg[n, a, 0]], [Pg[n, a, 1]], [Pg[n, a, 2]], s=18,
+            ax.scatter([gt[n, a, 0]], [gt[n, a, 1]], [gt[n, a, 2]], s=18,
                        color=c, edgecolors="black", linewidths=0.4)
-        pts.append(Pg[n, m])
+        pts.append(gt[n, m])
     P = np.concatenate(pts, axis=0)
     lo, hi = P.min(0), P.max(0)
-    span = hi - lo
-    lo, hi = lo - 0.05 * span, hi + 0.05 * span
-    # The ground plane (X, Z) keeps equal metric scale, but the tracks are nearly
-    # planar (height spans only ~1 m). Shown truthfully that axis collapses to an
-    # unreadable edge-on stub, so pad the height axis out to a fraction of the
-    # ground extent: it then carries a legible, non-overlapping tick scale while the
-    # data still visibly occupies a thin band, honestly conveying near-planarity.
-    y_floor = 0.5 * max(hi[0] - lo[0], hi[1] - lo[1])
-    y_mid = 0.5 * (lo[2] + hi[2])
-    y_half = max(0.5 * (hi[2] - lo[2]), 0.5 * y_floor)
-    lo[2], hi[2] = y_mid - y_half, y_mid + y_half
-    ax.set_xlim(lo[0], hi[0])
-    ax.set_ylim(lo[1], hi[1])
-    ax.set_zlim(lo[2], hi[2])
-    # Box hugs these extents (no empty cube); the taller height axis gives the Y
-    # ticks and label room to read instead of foreshortening to a sliver.
-    ax.set_box_aspect(tuple(hi - lo))
-    ax.view_init(elev=elev, azim=azim)
-    # paper/CLAUDE.md: every axis shares one scale AND one tick interval. Equal
-    # scale comes from the span-proportional box aspect above; a single
-    # MultipleLocator gives all three axes the identical 5 m graduation.
-    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-        axis.set_major_locator(MultipleLocator(TICK_M))
+    span = np.maximum(hi - lo, 1e-3)
+    lo, hi = lo - PAD * span, hi + PAD * span
+    # Same cube framing as the Fig. 13 panels: every axis gets the full extent and
+    # the same tick interval, so the near-planar Y (height) axis still draws at full
+    # length -- shown at its own ~1 m extent it collapsed to an unreadable stub, and
+    # padding it by hand made it a different length from Fig. 13's.
+    apply_equal_cube(ax, [(float(lo[i]), float(hi[i])) for i in range(3)])
+    apply_image_like_view(ax)
     ax.set_xlabel("X (m)", labelpad=10)
-    ax.set_ylabel("Z (m)", labelpad=14)
-    ax.set_zlabel("Y (m)", labelpad=10)
-    # pad_inches guards the rotated 3D "Y (m)" axis label, which bbox_inches="tight"
+    ax.set_ylabel("Y (m)", labelpad=14)
+    # Z runs diagonally under the box, so its label needs a bigger outward offset
+    # than X/Y or it collides with its own tick labels.
+    ax.set_zlabel("Z (m)", labelpad=30)
+    # pad_inches guards the rotated 3D axis labels, which bbox_inches="tight"
     # under-measures for mplot3d and would otherwise clip at the frame edge.
-    fig.savefig(out_path, dpi=450, bbox_inches="tight", pad_inches=0.5)
+    fig.savefig(out_path, dpi=450, bbox_inches="tight", pad_inches=0.6)
     plt.close(fig)
-    print(f"[teaser] wrote {out_path}  (elev={elev}, azim={azim})")
+    print(f"[teaser] wrote {out_path}")
 
 
 def main() -> int:
@@ -140,14 +128,12 @@ def main() -> int:
     ap.add_argument("--waft-pred-dir", type=Path, default=Path("~/data/tapvid3d_baseline_preds/waft"))
     ap.add_argument("--da3-depth-root", type=Path, default=Path("~/data/tapvid3d_da3"))
     ap.add_argument("--out", type=Path, default=Path("/tmp/teaser_track3d.png"))
-    ap.add_argument("--elev", type=float, default=30.0)
-    ap.add_argument("--azim", type=float, default=-58.0)
     ap.add_argument("--replot", action="store_true", help="re-plot from cached inference only")
     args = ap.parse_args()
 
     if args.replot and CACHE.exists():
         d = np.load(CACHE)
-        _plot(d["pred"], d["gt"], d["vis"], d["anchor"], args.out, args.elev, args.azim)
+        _plot(d["pred"], d["gt"], d["vis"], d["anchor"], args.out)
         return 0
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -164,7 +150,7 @@ def main() -> int:
     )
     np.savez(CACHE, pred=pred, gt=gt, vis=vis, anchor=anchor)
     print(f"[teaser] clip {TEASER_CLIP}  N={gt.shape[0]} F={gt.shape[1]}  cached -> {CACHE}")
-    _plot(pred, gt, vis, anchor, args.out, args.elev, args.azim)
+    _plot(pred, gt, vis, anchor, args.out)
     return 0
 
 

@@ -49,7 +49,9 @@ centre.
 
 from __future__ import annotations
 
-from matplotlib.ticker import MaxNLocator, MultipleLocator
+import math
+
+from matplotlib.ticker import MultipleLocator
 
 # Fixed for every 3D track figure -- do not expose as a CLI knob, or the figures
 # drift apart again (paper Fig. 1(b) and Fig. 13 previously used different views,
@@ -65,27 +67,47 @@ def apply_image_like_view(ax) -> None:
     ax.view_init(elev=CAMERA_ELEV, azim=CAMERA_AZIM, roll=CAMERA_ROLL)
 
 
-def apply_equal_cube(ax, lims, nbins: int = 4) -> float:
-    """Give x/y/z the same span and the same tick interval, and return that interval.
+def _shared_tick_step(span: float, min_ticks: int = 3) -> float:
+    """Largest 1/2/2.5/5-decade step giving at least `min_ticks` labels on `span`.
 
-    `lims` is [(lo, hi)] * 3 of the data to frame. Every axis gets the largest of
-    the three spans, centred on its own midpoint, plus a cubic box aspect, so one
-    metre is the same length on all three axes and a thin axis still draws at full
-    length instead of collapsing to a stub. The tick interval is chosen once from
-    that common span and reused on all three axes (paper/CLAUDE.md wants a single
-    interval everywhere); `nbins=4` keeps it coarse enough to stay legible on the
-    depth axis, which the shared camera foreshortens to ~0.53x.
+    3, not 4: at 4 the teaser's ~16 m cube picks a 2.5 m step, and 6 labels per
+    axis overlap once the panel is scaled down to its printed width. 5 m fits with
+    room to spare, and the qualitative clips are unaffected (drivetrack still
+    steps at 1 m) because their cubes are small enough that the extra tick was
+    never what set their interval.
+    """
+    target = max(span, 1e-9) / min_ticks
+    decade = 10.0 ** math.floor(math.log10(target))
+    for mult in (5.0, 2.5, 2.0):
+        if mult * decade <= target:
+            return mult * decade
+    return decade  # 1.0 * decade <= target always holds, by construction of decade
+
+
+def apply_equal_cube(ax, lims, min_ticks: int = 3) -> float:
+    """Frame the data in an equal-span cube, as tight as possible, and return the
+    tick interval.
+
+    `lims` is [(lo, hi)] * 3 of the data to frame. All three axes get the *same*
+    span -- the largest of the three, centred on each axis's own midpoint -- with a
+    cubic box aspect. Equal span is a hard requirement: it is what lets a reader
+    compare an extent along X directly against one along Z, since a gridline step
+    is the same number of metres and the same number of pixels on every axis.
+
+    The cube is exactly the largest data span, with no additional padding, so the
+    data touches the box faces on its longest axis. That is the whole zoom budget
+    available: the cube must contain the longest axis, so a clip whose extents are
+    anisotropic will always show its short axes only partly filled (drivetrack
+    spans 1.2 m in X and Y against 5.4 m in Z, so X and Y fill ~22% however tight
+    the cube is). Filling every axis would mean giving each its own span, which
+    breaks equal span, or cropping real data.
     """
     mids = [0.5 * (lo + hi) for lo, hi in lims]
     half = max(hi - lo for lo, hi in lims) / 2.0
-    ax.set_xlim(mids[0] - half, mids[0] + half)
-    ax.set_ylim(mids[1] - half, mids[1] + half)
-    ax.set_zlim(mids[2] - half, mids[2] + half)
+    for setter, mid in zip((ax.set_xlim, ax.set_ylim, ax.set_zlim), mids):
+        setter(mid - half, mid + half)
     ax.set_box_aspect((1, 1, 1))
-    ticks = MaxNLocator(nbins=nbins, steps=[1, 2, 2.5, 5, 10]).tick_values(
-        mids[0] - half, mids[0] + half
-    )
-    step = float(ticks[1] - ticks[0])
+    step = _shared_tick_step(2.0 * half, min_ticks)
     for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
         axis.set_major_locator(MultipleLocator(step))
     return step

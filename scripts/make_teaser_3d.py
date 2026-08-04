@@ -48,7 +48,7 @@ _spec.loader.exec_module(_ev)
 TEASER_CLIP = "tapvid3d_1022527355599519580_4866_960_4886_960_2_L58RM2TH_i-3sYbjr6JjQQ"
 IMAGE_SIZE = 896
 MAX_TRACKS = 32
-PAD = 0.1  # fraction of extent to pad the axis box by, matching render_qual_3d.py
+PAD = 0.02  # tiny: it inflates the longest axis, which sets the cube for all three
 CACHE = cache_dir() / "teaser_3d.npz"
 
 
@@ -104,10 +104,10 @@ def _plot(pred, gt, vis, anchor, out_path: Path) -> None:
     lo, hi = P.min(0), P.max(0)
     span = np.maximum(hi - lo, 1e-3)
     lo, hi = lo - PAD * span, hi + PAD * span
-    # Same cube framing as the Fig. 13 panels: every axis gets the full extent and
-    # the same tick interval, so the near-planar Y (height) axis still draws at full
-    # length -- shown at its own ~1 m extent it collapsed to an unreadable stub, and
-    # padding it by hand made it a different length from Fig. 13's.
+    # Same framing helper as the Fig. 13 panels: one equal-span cube, sized to the
+    # largest extent, so a gridline step means the same number of metres on every
+    # axis. Y here is near-planar (~1 m against ~16 m of ground) and so fills only
+    # a thin band of its axis -- the honest consequence of equal span.
     apply_equal_cube(ax, [(float(lo[i]), float(hi[i])) for i in range(3)])
     apply_image_like_view(ax)
     ax.set_xlabel("X (m)", labelpad=10)

@@ -75,9 +75,14 @@ def _pick_tracks(vis_NF: np.ndarray, k: int) -> list[int]:
     return list(order[:k])
 
 
-def _gt_lims(gt, vis, pad: float = 0.1):
+def _gt_lims(gt, vis, pad: float = 0.02):
     """Shared (x,y,z) axis limits from the GT of the plotted tracks, so the SOTA and
-    ours panels show the exact same volume and the red ring lands in the same place."""
+    ours panels show the exact same volume and the red ring lands in the same place.
+
+    `pad` is deliberately tiny -- just enough that a track running along a box face
+    is not drawn exactly on it. It inflates the *longest* axis, which then sets the
+    cube for all three, so every percent of pad costs a percent of zoom on every
+    axis at once."""
     pts = [
         gt[n, vis[n].astype(bool)]
         for n in _pick_tracks(vis, MAX_TRACKS)
@@ -174,9 +179,10 @@ def _render_3d(
             zorder=20,
         )
     if lims is not None:
-        # Equal span / equal ticks on all three axes. (Point-clipping above still
-        # uses the tighter GT box `lims`, so the "DELTA leaves the true volume"
-        # view holds.)
+        # Equal metric scale with a box that hugs the data, so the tracks reach
+        # the axis edges instead of sitting in a small central region.
+        # (Point-clipping above still uses `lims`, so the "DELTA leaves the true
+        # volume" view holds.)
         apply_equal_cube(ax, lims)
     apply_image_like_view(ax)
     ax.set_xlabel("X (m)", labelpad=12)

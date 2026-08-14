@@ -414,6 +414,8 @@ def _build_overrides(args: argparse.Namespace) -> dict:
 
 
 def main() -> int:
+    from mamba3_tracker.cudnn_guard import survive_cudnn_mismatch
+    survive_cudnn_mismatch()
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, required=True)
     ap.add_argument("--out-dir", type=Path, required=True)
@@ -574,6 +576,7 @@ def main() -> int:
             vmamba3_blocks=int(model_cfg.get("vmamba3_blocks", 2)),
             vmamba3_patch=int(model_cfg.get("vmamba3_patch", 14)),
             vmamba3_grid=int(model_cfg.get("vmamba3_grid", 32)),
+            two_pool=bool(model_cfg.get("two_pool", False)),
         ).to(device)
         loss_fn = TrackingLossV35(
             weights=loss_cfg["weights"], image_size=image_size

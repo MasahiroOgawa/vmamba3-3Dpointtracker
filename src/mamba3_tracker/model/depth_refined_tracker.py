@@ -61,6 +61,7 @@ class Mamba3DepthRefiner(nn.Module):
         num_heads: int = 4,
         num_layers: int = 2,
         max_log_correction: float = 2.0,
+        two_pool: bool = False,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -76,6 +77,7 @@ class Mamba3DepthRefiner(nn.Module):
                     state_dim=state_dim,
                     variant="B",
                     bidirectional_mask=False,
+                    two_pool=two_pool,
                 )
                 for _ in range(num_layers)
             ]
@@ -172,6 +174,7 @@ class Mamba3V35Refiner(nn.Module):
         vmamba3_blocks: int = 2,
         vmamba3_patch: int = 14,
         vmamba3_grid: int = 32,
+        two_pool: bool = False,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -217,6 +220,7 @@ class Mamba3V35Refiner(nn.Module):
                     state_dim=state_dim,
                     variant="B",
                     bidirectional_mask=False,
+                    two_pool=two_pool,
                 )
                 for _ in range(num_layers)
             ]
@@ -480,6 +484,7 @@ class Mamba3DeflickerRefiner(nn.Module):
         num_heads: int = 4,
         num_layers: int = 2,
         max_scale_correction: float = 0.5,
+        two_pool: bool = False,
     ) -> None:
         super().__init__()
         self.dim = dim
@@ -497,6 +502,7 @@ class Mamba3DeflickerRefiner(nn.Module):
                     state_dim=state_dim,
                     variant="B",
                     bidirectional_mask=True,
+                    two_pool=two_pool,
                 )
                 for _ in range(num_layers)
             ]
@@ -574,14 +580,18 @@ class Mamba3V45(nn.Module):
         dino_image_size: int = 448,
         image_size: int = 896,
         pose_head: bool = False,
+        two_pool: bool = False,
     ) -> None:
         super().__init__()
+        # two_pool reaches both stages: the de-flicker mixer and the refiner both use the
+        # rank-1 variant-B mask, so both are subject to the limitation it lifts.
         self.deflicker = Mamba3DeflickerRefiner(
             dim=dim,
             state_dim=state_dim,
             num_heads=num_heads,
             num_layers=num_layers,
             max_scale_correction=max_scale_correction,
+            two_pool=two_pool,
         )
         self.v35 = Mamba3V35Refiner(
             dim=dim,
@@ -597,6 +607,7 @@ class Mamba3V45(nn.Module):
             image_size=image_size,
             per_frame_scale=False,
             pose_head=pose_head,
+            two_pool=two_pool,
         )
 
     def forward(

@@ -191,6 +191,8 @@ def _load_external(pred_dir: Path, subset: str, clip_id: str):
 
 
 def main() -> int:
+    from mamba3_tracker.cudnn_guard import survive_cudnn_mismatch
+    survive_cudnn_mismatch()
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--method",
@@ -278,6 +280,7 @@ def main() -> int:
             num_heads=int(mc.get("num_heads", 4)),
             num_layers=int(mc.get("num_layers", 2)),
             max_log_correction=float(mc.get("max_log_correction", 2.0)),
+            two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
         model.load_state_dict(state["model"])
         model.eval()
@@ -295,6 +298,7 @@ def main() -> int:
             num_heads=int(mc.get("num_heads", 4)),
             num_layers=int(mc.get("num_layers", 2)),
             max_scale_correction=float(mc.get("max_scale_correction", 0.5)),
+            two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
         model.load_state_dict(state["model"])
         model.eval()
@@ -321,6 +325,7 @@ def main() -> int:
             ),
             dino_image_size=int(mc.get("dino_image_size", 448)),
             image_size=int(mc.get("image_size", 896)),
+            two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
         model.load_state_dict(state["model"])
         model.eval()
@@ -348,6 +353,7 @@ def main() -> int:
             dino_image_size=int(mc.get("dino_image_size", 448)),
             image_size=int(mc.get("image_size", 896)),
             pose_head=True,
+            two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
         model.load_state_dict(state["model"])
         model.eval()
@@ -381,6 +387,7 @@ def main() -> int:
             vmamba3_blocks=int(mc.get("vmamba3_blocks", 2)),
             vmamba3_patch=int(mc.get("vmamba3_patch", 14)),
             vmamba3_grid=int(mc.get("vmamba3_grid", 32)),
+            two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
         model.load_state_dict(state["model"])
         model.eval()

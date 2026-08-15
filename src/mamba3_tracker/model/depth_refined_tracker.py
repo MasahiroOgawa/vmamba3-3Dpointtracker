@@ -75,7 +75,11 @@ class Mamba3DepthRefiner(nn.Module):
                     dim_kv=dim,
                     num_heads=num_heads,
                     state_dim=state_dim,
-                    variant="B",
+                    # Collapse form: pools the keys into an (N, head_dim) state read by C, which
+                    # is what makes cost linear in track length. The token-level form materialises
+                    # a T_q x T_kv similarity per pool -- identical output, but quadratic, and it
+                    # OOMed on adt's 300-frame clips once a second pool was added.
+                    variant="A",
                     bidirectional_mask=False,
                     two_pool=two_pool,
                 )
@@ -218,7 +222,11 @@ class Mamba3V35Refiner(nn.Module):
                     dim_kv=dim,
                     num_heads=num_heads,
                     state_dim=state_dim,
-                    variant="B",
+                    # Collapse form: pools the keys into an (N, head_dim) state read by C, which
+                    # is what makes cost linear in track length. The token-level form materialises
+                    # a T_q x T_kv similarity per pool -- identical output, but quadratic, and it
+                    # OOMed on adt's 300-frame clips once a second pool was added.
+                    variant="A",
                     bidirectional_mask=False,
                     two_pool=two_pool,
                 )

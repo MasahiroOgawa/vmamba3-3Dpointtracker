@@ -1908,13 +1908,13 @@ shape is nearly preserved). Genuine Vision-Mamba-3 features are therefore a viab
 either a larger or pretrained Vision-Mamba-3 encoder, or joint (rather than from-scratch) feature training.
 \textbf{The DINOv3-feature pipelines --- v39 on DA3-l, v45 on DA3-g --- remain best on the absolute metric.}
 
-\subsection{v50: VSSD-$\beta,\gamma$ (two-pool) mixer in the refiner}
+\subsection{v50/v51: VSSD-$\beta,\gamma$ (two-pool) mixer in the refiner}
 \label{sec:v50-twopool}
 
 The refiner mixes each track over time with \texttt{Mamba3CrossAttention(variant="B")}, whose
 mask $L[i,j]=\gamma_j\prod_{k=j+1}^{T}\alpha_k$ keeps only the $\gamma$ band and is \emph{rank-1
 across the query axis}: every query row is identical, so one pool applies the same weighting over
-the track to every frame. v50 replaces it with the two-pool VSSD-$\beta,\gamma$ construction --- a
+the track to every frame. This replaces it with the two-pool VSSD-$\beta,\gamma$ construction --- a
 second, independently-read pool with its own query projection $C^{(2)}$ and its own per-token
 vector $m^{(2)}$ --- which lifts that restriction. The second pool's contribution is scaled by a
 parameter initialised to zero, so a two-pool layer is numerically identical to a one-pool layer at
@@ -1922,38 +1922,55 @@ initialisation (verified: $\max|\Delta|=0$).
 
 \paragraph{Cold start, deliberately.} Fine-tuning the two-pool model from the v35 checkpoint is
 cheaper and confounded: it would have seen $20$k one-pool steps \emph{plus} the fine-tune against
-v35's $20$k, so a gain could be the extra training rather than the second pool. v50 therefore
-trains from scratch for $20$k steps with v35's configuration and data, \texttt{two\_pool} the only
-difference.
+v35's $20$k, so a gain could be the extra training rather than the second pool. It therefore trains
+from scratch for $20$k steps with v35's configuration and data, \texttt{two\_pool} the only
+difference. \textbf{v50} denotes that training; \textbf{v51} denotes its evaluation under the
+WAFT front-end, which is the protocol the reported baseline uses.
 
-\paragraph{Result: it does not improve the tracker.} Both rows are
-WAFT$+$DA3-l$+$vmamba3 on TAPVid-3D minival.
+\paragraph{Result: the second pool improves the tracker.} Both rows below are the same refiner
+evaluated identically --- WAFT 2-D tracks, DA3-l depth, TAPVid-3D minival --- and differ only in
+whether the mixer has one pool or two.
 
 \begin{center}
 \begin{tabular}{lcccc}
 \toprule
 mean metric-AJ & drivetrack & pstudio & adt & mean \\
 \midrule
-v35, one pool (as reported)      & $0.141$ & $0.279$ & $0.318$ & $0.246$ \\
-v50, VSSD-$\beta,\gamma$ two pool & $0.135$ & $0.271$ & $0.259$ & $0.222$ \\
+v39 \; one pool (reported)  & $0.1408$ & $0.2787$ & $\mathbf{0.3181}$ & $0.2458$ \\
+v51 \; two pool             & $\mathbf{0.1467}$ & $\mathbf{0.2999}$ & $0.3120$ & $\mathbf{0.2529}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent Lower on all three subsets, with the loss concentrated in \texttt{adt}
-($0.318\to0.259$). The second pool also costs $0.442\to0.612$\,M trainable parameters ($+38\%$),
-so it is not free even where it is neutral. On CIFAR-10 the same operator's benefit is confined to
-long sequence length; it does not transfer to the refiner's temporal axis here.
+\noindent Ahead on the mean by $0.0071$ and on two of three subsets, losing only \texttt{adt} by
+$0.0061$. The secondary metrics move the same way: normalized 3D-AJ $0.1069\to0.1134$, mean 3D
+error $1.826\to1.622$\,m, median $1.259\to0.975$\,m. The cost is $0.442\to0.612$\,M trainable
+parameters ($+38\%$), so the gain is real but not free.
 
-\paragraph{The comparison is not yet controlled, and this number should not be quoted alone.}
-The $0.246$ row was produced before this repository existed, and a search of every
-\texttt{summary.md} in both this repository and the predecessor finds no evaluation reporting it,
-so its provenance is not currently traceable to a run we can re-execute. Partial-subset v35
-evaluations that \emph{are} on disk reconstruct to roughly $0.226$ --- close enough to v50's
-$0.222$ that ``the second pool hurts'' and ``this repository's v35 scores $0.226$'' cannot be
-separated. The control that settles it is v35 itself, one pool, trained and evaluated here under
-exactly v50's protocol. Until that runs, the defensible statement is that VSSD-$\beta,\gamma$
-\emph{does not improve} metric-AJ in the refiner --- not that it degrades it.
+\paragraph{How this was nearly reported backwards.} The first evaluation of the v50 checkpoint ran
+without \texttt{--waft-pred-dir} and therefore used the SEA-RAFT front-end that \texttt{v35.yaml}
+configures, then compared the result against the paper's \emph{WAFT} row. That gave mean $0.2216$
+against $0.2458$ and the apparent conclusion that the second pool costs $0.024$ --- comparing a
+SEA-RAFT evaluation against a WAFT baseline. The paper reports both front-ends
+(SEA-RAFT$+$DA3-l$+$vmamba3 $=0.234$, WAFT$+$DA3-l$+$vmamba3 $=0.246$), so the front-end alone is
+worth about $0.012$ on this pipeline. The lesson is the one the ETH3D chase produced: a fresh run
+must be compared against a baseline produced under the same configuration, and ``v39'' is an
+\emph{evaluation} label for the v35 checkpoint under WAFT, not a separate model --- there is no
+v39 config and no v39 training run.
+
+\paragraph{Why the front-end is not retrained.} The refiner does see flow during training
+(\texttt{track\_clip} runs inside the training loop), so it learns the front-end's error
+characteristics, and training on SEA-RAFT while evaluating on WAFT is a genuine train/test
+mismatch. That mismatch is present in the \emph{baseline} too --- $0.2458$ is the SEA-RAFT-trained
+v35 checkpoint evaluated with WAFT. Matching it is therefore what makes the comparison
+one-variable; retraining on WAFT would make v51 differ from the baseline in two ways instead of
+one. A WAFT-trained arm is a worthwhile separate experiment, but it needs its own WAFT-trained
+one-pool baseline to be interpretable.
+
+\paragraph{What the number does not yet carry.} Single seed, no variance estimate for the tracker,
+and $+0.0071$ is small in absolute terms. Before this is claimed as a headline improvement it
+needs either repeat seeds or a statement of what the run-to-run spread is on this benchmark ---
+neither of which exists yet.
 
 \paragraph{What was deliberately not changed.} 2-D RoPE is the best CIFAR-10 pairing for this
 operator, but its angle $\theta^{\mathrm{row}}[n]\,r+\theta^{\mathrm{col}}[n]\,c$ is a function of
@@ -1966,8 +1983,8 @@ of frames (at $n{=}0.25$ the adjacent-frame angle is $11.3^{\circ}$ at $T{=}8$ b
 at $T{=}300$). The variant worth trying is an \emph{unpinned} $1$-D temporal rotary, whose
 per-frame increment is independent of $T$.
 
-\paragraph{v51.} The same swap on v45 (DA3-g $+$ de-flicker $+$ vmamba3, reported $0.232$) was
-started and stopped after $1$\,h\,$11$\,m to free the GPU for the ETH3D arms; it is unmeasured.
+\paragraph{v52.} The same swap on v45 (DA3-g $+$ de-flicker $+$ vmamba3, reported $0.232$) is
+configured but unrun; it was started and stopped after $1$\,h\,$11$\,m to free the GPU.
 
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and

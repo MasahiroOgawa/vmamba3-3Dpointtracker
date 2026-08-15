@@ -1,4 +1,7 @@
-# v51 — v45 with the refiner's mixer swapped to VSSD-beta,gamma (two-pool).
+# Renamed v51 -> v52 on 2026-08-15: 'v51' now denotes the WAFT-flow evaluation of the v50
+# two-pool checkpoint (result/v51_waft_eval), which is the comparison against the paper's
+# WAFT+DA3-l+vmamba3 row. This config is the unrun DA3-g + de-flicker two-pool arm.
+# v52 — v45 with the refiner's mixer swapped to VSSD-beta,gamma (two-pool).
 #
 # One variable against v45 (DA3-g + de-flicker, 0.232): Mamba3CrossAttention gains a second, independently-read
 # pool -- its own query projection C^(2) and its own per-token vector m^(2) -- which is the

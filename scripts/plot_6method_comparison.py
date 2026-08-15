@@ -247,7 +247,18 @@ def make_figure(
     )
     ax.set_ylabel(ylabel, fontsize=(10 * 2))
     ax.set_title(title, fontsize=(11 * 2), pad=10)
-    ax.legend(handles=legend_handles, fontsize=(9 * 2), framealpha=0.85)
+    # Legend above the axes, not inside them. Rotating every value label (above) made the
+    # labels grow upward, and an in-axes legend then sat on top of the leftmost groups' labels.
+    # Placing it outside guarantees it cannot cover data however tall the bars get.
+    ax.legend(
+        handles=legend_handles,
+        fontsize=(9 * 2),
+        framealpha=0.85,
+        ncol=len(legend_handles),
+        loc="lower left",
+        bbox_to_anchor=(0.0, 1.01),
+        borderaxespad=0.0,
+    )
     ax.set_xlim(x_centers[0] - group_w / 2, x_centers[-1] + group_w / 2)
     ax.set_ylim(0, None)
     ax.yaxis.set_major_formatter(

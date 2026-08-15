@@ -1951,15 +1951,17 @@ whether the mixer has one pool or two.
 \toprule
 mean metric-AJ & drivetrack & pstudio & adt & mean \\
 \midrule
-v39 \; one pool (reported)  & $0.1408$ & $0.2787$ & $\mathbf{0.3181}$ & $0.2458$ \\
-v51 \; two pool             & $\mathbf{0.1467}$ & $\mathbf{0.2999}$ & $0.3120$ & $\mathbf{0.2529}$ \\
+v39 \; one pool (reported)  & $0.1408$ & $0.2787$ & $0.3181$ & $0.2458$ \\
+v51 \; two pool             & $\mathbf{0.1467}$ & $\mathbf{0.2999}$ & $\mathbf{0.3214}$ & $\mathbf{0.2560}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent Ahead on the mean by $0.0071$ and on two of three subsets, losing only \texttt{adt} by
-$0.0061$. The secondary metrics move the same way: normalized 3D-AJ $0.1069\to0.1134$, mean 3D
-error $1.826\to1.622$\,m, median $1.259\to0.975$\,m. The cost is $0.442\to0.612$\,M trainable
+\noindent Ahead on the mean by $0.0102$ and on \emph{all three} subsets. The \texttt{adt} column is
+the one that moved: it read $0.3120$ and a loss of $0.0061$ until the two-pool arm was re-scored on
+the collapse path (\S\ref{sec:collapse-reeval}), because $23$ \texttt{adt} clips had been dropped by
+an out-of-memory failure the one-pool baseline never hit. The secondary metrics move the same way:
+normalized 3D-AJ $0.1069\to0.1153$. The cost is $0.442\to0.612$\,M trainable
 parameters ($+38\%$), so the gain is real but not free.
 
 \paragraph{How this was nearly reported backwards.} The first evaluation of the v50 checkpoint ran
@@ -1967,8 +1969,8 @@ without \texttt{--waft-pred-dir} and therefore used the SEA-RAFT front-end that 
 configures, then compared the result against the paper's \emph{WAFT} row. That gave mean $0.2216$
 against $0.2458$ and the apparent conclusion that the second pool costs $0.024$ --- comparing a
 SEA-RAFT evaluation against a WAFT baseline. The paper reports both front-ends
-(SEA-RAFT$+$DA3-l$+$vmamba3 $=0.234$, WAFT$+$DA3-l$+$vmamba3 $=0.246$), so the front-end alone is
-worth about $0.012$ on this pipeline. The lesson is the one the ETH3D chase produced: a fresh run
+(SEA-RAFT$+$DA3-l$+$vmamba3 $=0.225$, WAFT$+$DA3-l$+$vmamba3 $=0.246$), so the front-end alone is
+worth about $0.021$ on this pipeline. The lesson is the one the ETH3D chase produced: a fresh run
 must be compared against a baseline produced under the same configuration, and ``v39'' is an
 \emph{evaluation} label for the v35 checkpoint under WAFT, not a separate model --- there is no
 v39 config and no v39 training run.
@@ -2047,13 +2049,13 @@ SEA-RAFT + DA3-l (baseline)        & 0.108 & 0.111 & 0.132 & 0.117 \\
 SEA-RAFT + MegaSAM               & 0.103 & 0.135 & \textbf{0.163} & 0.134 \\
 v33, SEA-RAFT+DA3-l+mamba3            & 0.057 & 0.041 & 0.123 & 0.074 \\
 v34, SEA-RAFT+MegaSAM+mamba3        & 0.059 & 0.048 & 0.119 & 0.075 \\
-v35, SEA-RAFT+DA3-l+vmamba3               & 0.093 & 0.054 & 0.141 & 0.096 \\
+v35, SEA-RAFT+DA3-l+vmamba3               & 0.093 & 0.057 & 0.141 & 0.097 \\
 v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.093 & 0.057 & 0.141 & 0.097 \\
 v37, WAFT+DA3-l            & 0.115 & 0.116 & 0.137 & 0.123 \\
 v38, WAFTbidir+DA3-l  & 0.116 & 0.120 & 0.141 & 0.126 \\
-v39, WAFT+DA3-l+vmamba3  & 0.098 & 0.073 & 0.151 & 0.107 \\
-v50, SEA-RAFT+DA3-l+vmamba3(2-pool) & 0.101 & 0.083 & 0.075 & 0.086 \\
-v51, WAFT+DA3-l+vmamba3(2-pool) & 0.108 & 0.096 & 0.137 & 0.113 \\
+v39, WAFT+DA3-l+vmamba3  & 0.097 & 0.073 & 0.150 & 0.107 \\
+v50, SEA-RAFT+DA3-l+vmamba3(2-pool) & 0.101 & 0.083 & 0.132 & 0.105 \\
+v51, WAFT+DA3-l+vmamba3(2-pool) & 0.108 & 0.096 & 0.142 & 0.115 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -2142,13 +2144,13 @@ SEA-RAFT + DA3-l (baseline)        & 0.005 & 0.165 & 0.273 & 0.147 \\
 SEA-RAFT + MegaSAM               & 0.000 & 0.082 & 0.209 & 0.097 \\
 v33, SEA-RAFT+DA3-l+mamba3            & 0.082 & 0.186 & 0.272 & 0.180 \\
 v34, SEA-RAFT+MegaSAM+mamba3        & 0.001 & 0.092 & 0.208 & 0.100 \\
-v35, SEA-RAFT+DA3-l+vmamba3               & 0.130 & 0.274 & 0.298 & 0.234 \\
+v35, SEA-RAFT+DA3-l+vmamba3               & 0.130 & 0.248 & 0.298 & 0.225 \\
 v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.130 & 0.249 & 0.298 & 0.226 \\
 v37, WAFT+DA3-l            & 0.005 & 0.181 & 0.289 & 0.159 \\
 v38, WAFTbidir+DA3-l  & 0.005 & 0.181 & 0.292 & 0.159 \\
 v39, WAFT+DA3-l+vmamba3  & 0.141 & 0.279 & 0.318 & 0.246 \\
-v50, SEA-RAFT+DA3-l+vmamba3(2-pool) & 0.135 & 0.271 & 0.259 & 0.222 \\
-v51, WAFT+DA3-l+vmamba3(2-pool) & \textbf{0.147} & \textbf{0.300} & 0.312 & \textbf{0.253} \\
+v50, SEA-RAFT+DA3-l+vmamba3(2-pool) & 0.135 & 0.271 & 0.299 & 0.235 \\
+v51, WAFT+DA3-l+vmamba3(2-pool) & \textbf{0.147} & \textbf{0.300} & \textbf{0.321} & \textbf{0.256} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -2749,9 +2751,77 @@ TAPIP3D (${\approx}3.1$\,fps) and SpatialTrackerV2 (${\approx}4.0$\,fps) are sub
 slower than our pipeline despite relying on simpler (non-diffusion) architectures,
 indicating that their multi-frame windowing and cost-volume computations are the bottleneck.
 Combined with the accuracy advantage on the absolute metric
-(Table~\ref{tab:abs}: mean metric-AJ $0.234$ vs $0.020$ for TrackCraft3R across all three subsets;
+(Table~\ref{tab:abs}: mean metric-AJ $0.256$ vs $0.020$ for TrackCraft3R across all three subsets;
 see \S\ref{sec:trackcraft3r}),
 our pipeline is competitive on both quality and efficiency axes.
+
+\section{The refiner ran the quadratic path, and every learned row was re-scored}
+\label{sec:collapse-reeval}
+
+\texttt{Mamba3CrossAttention} has two paths that compute the same function. The \emph{collapse}
+path builds the pooled state $h=\sum_j m_j B_j V_j^{\top}$ of size $(N,d_\mathrm{head})$ and reads
+it with $C$ --- the VSSD collapse as written, linear in $T$. The \emph{token-level} path instead
+materialises the full $T_q\times T_{kv}$ similarity and multiplies it by the expanded mask, at
+$O(T^2)$.
+
+The token-level path was the module default, and all three refiner sites inherited it. Nothing
+required this: \texttt{build\_cross\_mask} computed a per-token \emph{vector} and then expanded it
+across the query axis, its own docstring noting that all $T_q$ rows are identical. The
+bidirectional mask is likewise a vector, $\gamma_j(\mathrm{fwd}+\mathrm{rev})$. That vector is now
+\texttt{build\_cross\_scale} and both paths consume it, so the collapse path handles bidirectional
+directly and no site needs the quadratic one.
+
+\paragraph{What it cost.} Peak memory on the token-level path grows with batch $\times\,T^2$. On
+\texttt{adt} --- $T=300$ frames and $679$--$957$ tracked points, against \texttt{pstudio}'s $150$
+and $223$ --- one such tensor is already $2.4$\,GB, and the second pool's measured $1.58\times$ took
+a $12$\,GB card over. The two-pool arms lost $33$ and $23$ \texttt{adt} clips to out-of-memory
+failures; the one-pool arms never hit it and always covered all $25814$ frames. The published
+$0.2529$ was therefore scored on $18914$ frames against a $25814$-frame baseline, and the exclusion
+was systematic rather than random: every \texttt{adt} clip is $T=300$, so what decided the failure
+was track count, meaning the clips with the most tracked points were the ones lost.
+
+\paragraph{The re-scoring.} Every learned row was re-evaluated on the collapse path. The two paths
+agree to $2.8$--$3.1\times10^{-6}$ relative across $\{$bidirectional$\}\times\{$two-pool$\}$, and
+through the trained v50 weights to $5.1\times10^{-6}$ at $T=300$, so the checkpoints transfer
+unchanged. Nothing was retrained; this is a change of evaluation cost, not of function.
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+arm & quantity & before & after \\
+\midrule
+v35 SEA-RAFT$+$DA3-l$+$vmamba3 & mean metric-AJ & $0.234$ & $0.225$ \\
+v39 WAFT$+$DA3-l$+$vmamba3     & mean metric-AJ & $0.2458$ & $0.2458$ \\
+v41 WAFT$+$DA3-g$+$vmamba3     & mean metric-AJ & $0.2161$ & $0.2161$ \\
+v42 $+$ pstudio oversample     & mean metric-AJ & $0.2246$ & $0.2246$ \\
+v43 $+$ scale head             & mean metric-AJ & $0.2292$ & $0.2292$ \\
+v44 de-flicker standalone      & mean metric-AJ & $0.2026$ & $0.2026$ \\
+v45 de-flicker $+$ refiner     & mean metric-AJ & $0.2320$ & $0.2320$ \\
+\midrule
+v50 SEA-RAFT$+$2pool & mean metric-AJ (frames) & $0.222$ ($15914$) & $\mathbf{0.235}$ ($25814$) \\
+v51 WAFT$+$2pool     & mean metric-AJ (frames) & $0.253$ ($18914$) & $\mathbf{0.256}$ ($25814$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Six of the seven complete arms reproduce to four decimals, which is the expected result
+and the reason the sweep was worth running rather than assumed. Only the two-pool rows moved, and
+only through \texttt{adt}: \texttt{drivetrack} and \texttt{pstudio} shifted by at most $0.0002$,
+because those subsets never lost a clip.
+
+\paragraph{v35 does not reconcile, and is recorded as measured.} The $0.234$ previously carried for
+v35 is not reproducible. Only four evaluations ever used that checkpoint --- $0.2458$ (WAFT),
+$0.2263$ (the \texttt{v36\_fuse} directory), $0.2255$ (this re-run) and $0.0034$ (drivetrack only)
+--- and none yields $0.234$. The disagreement is confined to \texttt{pstudio} ($0.274$ against
+$0.248$); \texttt{drivetrack} and \texttt{adt} match exactly. The re-run used the default
+front-end, which is v35's configuration rather than v36's \texttt{--bidir-fuse}, yet lands on the
+v36 row. The tables now carry the measured $0.225$. This is a flow-chaining provenance gap, not an
+operator one --- every arm that shares the operator reproduced exactly.
+
+\paragraph{Throughput.} On the collapse path the second pool costs nothing measurable. Matched
+protocol, all $25814$ frames: WAFT $41.20$\,fps one-pool against $41.58$ two-pool, SEA-RAFT $6.72$
+against $6.92$ --- against the $1.58\times$ memory and the out-of-memory failures the token-level
+path produced.
 
 % Force all deferred floats before the bibliography
 \clearpage

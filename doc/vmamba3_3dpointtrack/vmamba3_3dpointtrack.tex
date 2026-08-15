@@ -50,7 +50,7 @@ single degree of freedom that determines 3D error, while keeping the model small
 parameters) and the pipeline interpretable.
 On the TAPVid-3D~\cite{tapvid3d} minival benchmark, our best configuration (WAFT flow $+$
 Depth-Anything-3 depth $+$ the DINOv3-conditioned refiner, with the two-pool
-VSSD-$\beta,\gamma$ mixer of \S\ref{sec:v50-twopool}) attains the highest \emph{absolute}
+VSSD-2pool mixer of \S\ref{sec:v50-twopool}) attains the highest \emph{absolute}
 metric accuracy of all methods evaluated under identical conditions --- mean metric-AJ $0.253$,
 ahead of strong feed-forward 3D trackers --- confirming that a targeted depth-only refinement
 recovers real-world 3D structure that scale-invariant training leaves on the table. To measure
@@ -975,7 +975,7 @@ pipeline as every other row):
     DINOv3-SSM depth refiner. This combines the best 2D front-end with depth-scale correction and
     was our best absolute-metric model until v51: metric-AJ $0.246$, beating the SEA-RAFT-fed v35
     ($0.234$) on all three subsets (Table~\ref{tab:abs}). Swapping its mixer for the two-pool
-    VSSD-$\beta,\gamma$ operator raises it further to $0.253$ (\S\ref{sec:v50-twopool}).
+    VSSD-2pool operator raises it further to $0.253$ (\S\ref{sec:v50-twopool}).
     As with v35, the refiner trades
     relative-structure quality for absolute-scale correctness, so v39's normalised AJ ($0.107$) sits
     below WAFT$+$DA3-l (v37, $0.123$).
@@ -1911,17 +1911,29 @@ shape is nearly preserved). Genuine Vision-Mamba-3 features are therefore a viab
 either a larger or pretrained Vision-Mamba-3 encoder, or joint (rather than from-scratch) feature training.
 \textbf{The DINOv3-feature pipelines --- v39 on DA3-l, v45 on DA3-g --- remain best on the absolute metric.}
 
-\subsection{v50/v51: VSSD-$\beta,\gamma$ (two-pool) mixer in the refiner}
+\subsection{v50/v51: VSSD-2pool mixer in the refiner}
 \label{sec:v50-twopool}
 
 The refiner mixes each track over time with \texttt{Mamba3CrossAttention(variant="B")}, whose
 mask $L[i,j]=\gamma_j\prod_{k=j+1}^{T}\alpha_k$ keeps only the $\gamma$ band and is \emph{rank-1
 across the query axis}: every query row is identical, so one pool applies the same weighting over
-the track to every frame. This replaces it with the two-pool VSSD-$\beta,\gamma$ construction --- a
+the track to every frame. This replaces it with the VSSD-2pool construction --- a
 second, independently-read pool with its own query projection $C^{(2)}$ and its own per-token
 vector $m^{(2)}$ --- which lifts that restriction. The second pool's contribution is scaled by a
 parameter initialised to zero, so a two-pool layer is numerically identical to a one-pool layer at
 initialisation (verified: $\max|\Delta|=0$).
+
+\paragraph{Why ``2-pool'' and not ``VSSD-$\beta,\gamma$''.} The operator was previously named
+after the bands of the Mamba-3 mask its pools were meant to carry: VSSD-$\gamma$ for the single
+pool and VSSD-$\beta,\gamma$ for the pair. That name claims more than we can show. The collapse
+sets $m_j = 1/A_j$, which is a reinterpretation of the state transition, not literally
+$\gamma_j = \lambda_j\Delta_j$; and the second pool's $m^{(2)}$ is a freely-learned per-token
+vector that is never constrained to equal $\beta$. The companion note says as much --- the second
+pool is ``a motivated capacity extension, not a proof that it reproduces Mamba-3's causal
+$\beta$-band behaviour'' --- so the band-based name asserts a correspondence the text itself
+declines to make. \textbf{VSSD-1pool} and \textbf{VSSD-2pool} instead name the construction: how
+many independently-read pools the operator has. That is verifiable from the code, is what
+actually distinguishes the two, and carries no claim about which bands survive the collapse.
 
 \paragraph{Cold start, deliberately.} Fine-tuning the two-pool model from the v35 checkpoint is
 cheaper and confounded: it would have seen $20$k one-pool steps \emph{plus} the fine-tune against
@@ -2109,7 +2121,7 @@ version, Fig.~\ref{fig:6method-norm}.}
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (no scaling, fixed-metre thresholds 1\,cm--2.56\,m;
 higher better) --- \textbf{DA3-l depth}. Bold = best per column. ``---'' = result unavailable.
-\textbf{Overall winner across all four tables: v51} (DA3-l $+$ refiner with the two-pool VSSD-$\beta,\gamma$ mixer, mean $0.253$; the one-pool v39 is $0.246$) --- no DA3-g pipeline
+\textbf{Overall winner across all four tables: v51} (DA3-l $+$ refiner with the VSSD-2pool mixer, mean $0.253$; the one-pool v39 is $0.246$) --- no DA3-g pipeline
 reaches it (best DA3-g is DELTA$+$DA3-g at $0.227$, Table~\ref{tab:abs-g}).
 All numbers are produced by our own evaluation pipeline on the same hardware.}
 \label{tab:abs}
@@ -2152,7 +2164,7 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 \centering
 \includegraphics[width=\textwidth]{figs/fig2_absolute_aj}
 \captionof{figure}{Same methods, absolute metric-AJ (fixed-metre thresholds 1\,cm--2.56\,m; higher
-better). v51 (WAFT flow $+$ v35 refiner with the two-pool VSSD-$\beta,\gamma$ mixer) leads all
+better). v51 (WAFT flow $+$ v35 refiner with the VSSD-2pool mixer) leads all
 methods at $0.253$, ahead of the one-pool v39 ($0.246$) and the SEA-RAFT-fed v35 ($0.234$),
 despite all three ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \label{fig:6method-abs}

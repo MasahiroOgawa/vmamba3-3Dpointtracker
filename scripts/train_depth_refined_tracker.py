@@ -167,14 +167,60 @@ def _fmt_grad_row(g: dict) -> str:
 
 
 @torch.no_grad()
-def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta):
+def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
+                    waft_pred_dir=None):
     """Return (ray, z_raw, vis, uv, images, K) — all on device.
 
     images: (B,F,3,H,W) in [0,1] (needed by v35 DINOv3 encoder)
+
+    With ``waft_pred_dir`` the 2-D track comes from precomputed WAFT predictions instead of
+    running SEA-RAFT, so the refiner is TRAINED on the front-end it will be evaluated with.
+    Without it the refiner learns SEA-RAFT's error characteristics and is then scored on WAFT,
+    which is what every published row here actually does.
+
+    The saved tracks are full-clip, so each batch item is sliced to its own window
+    (``batch.frame_start``) and to the query columns that survived subsampling and the
+    anchor-in-window filter (``batch.query_idx``). Projection uses the batch's K, which is
+    already scaled to image_size, and is resolution-invariant -- the same reasoning
+    eval_metric3d relies on.
     """
     B, F_ = batch.images.shape[:2]
     all_uv, all_vis = [], []
-    for b in range(B):
+    if waft_pred_dir is not None:
+        root = Path(waft_pred_dir).expanduser()
+        K_cpu = batch.K
+        for b in range(B):
+            wp = root / batch.subsets[b] / (batch.clip_ids[b] + ".npz")
+            start = batch.frame_start[b]
+            idx = batch.query_idx[b].numpy()
+            if not wp.exists():
+                raise FileNotFoundError(
+                    f"no WAFT track for {batch.subsets[b]}/{batch.clip_ids[b]} at {wp}. "
+                    "The published prediction set covers minival (150 clips) only, which is the "
+                    "EVALUATION split. Generate tracks for the training clips first:\n"
+                    "  uv run python scripts/eval_waft.py --split full_eval "
+                    "--out-dir ~/data/tapvid3d_baseline_preds/waft_full_eval"
+                )
+            with np.load(wp) as wd:
+                xyz = np.asarray(wd["tracks_XYZ"][start:start + F_], dtype=np.float32)
+                vw = np.asarray(wd["visibility"][start:start + F_]).astype(np.float32)
+            xyz, vw = xyz[:, idx], vw[:, idx]
+            Kb = K_cpu[b]
+            fx, fy = float(Kb[0, 0]), float(Kb[1, 1])
+            cx, cy = float(Kb[0, 2]), float(Kb[1, 2])
+            zc = np.clip(xyz[..., 2], 1e-6, None)
+            u = fx * xyz[..., 0] / zc + cx
+            v = fy * xyz[..., 1] / zc + cy
+            n_pad = batch.queries_xyt.shape[1] - u.shape[1]
+            uv_b = torch.from_numpy(np.stack([u, v], -1)).float()
+            vis_b = torch.from_numpy(vw).float()
+            if n_pad > 0:   # collate padded N_q to the batch max; pad to match
+                uv_b = torch.cat([uv_b, uv_b.new_zeros(F_, n_pad, 2)], dim=1)
+                vis_b = torch.cat([vis_b, vis_b.new_zeros(F_, n_pad)], dim=1)
+            all_uv.append(uv_b.to(device))
+            all_vis.append(vis_b.to(device))
+    else:
+      for b in range(B):
         imgs = batch.images[b].to(device) * 255.0
         q = batch.queries_xyt[b].to(device)
         anchor_t = q[:, 2].long().clamp(0, F_ - 1)
@@ -215,6 +261,7 @@ def _validate(
     fb_alpha,
     fb_beta,
     n_clips=5,
+    waft_pred_dir=None,
 ):
     model.eval()
     totals: dict[str, list[float]] = defaultdict(list)
@@ -223,7 +270,8 @@ def _validate(
         queries = batch.queries_xyt.to(device)
         qmask = batch.query_mask.to(device)
         ray, z_raw, vis, uv, images, K = _run_flow_batch(
-            flow_model, batch, device, image_size, fb_alpha, fb_beta
+            flow_model, batch, device, image_size, fb_alpha, fb_beta,
+            waft_pred_dir=waft_pred_dir,
         )
         pred = _model_forward(
             model,
@@ -433,6 +481,16 @@ def main() -> int:
     ap.add_argument("--batch", type=int, default=None)
     ap.add_argument("--window", type=int, default=None)
     ap.add_argument("--amp", choices=["bf16", "fp16", "fp32"], default=None)
+    ap.add_argument(
+        "--waft-pred-dir",
+        dest="waft_pred_dir",
+        type=Path,
+        default=None,
+        help="Train on precomputed WAFT 2-D tracks instead of running SEA-RAFT each step. "
+        "Requires tracks for the FULL_EVAL clips (scripts/eval_waft.py --split full_eval); the "
+        "published prediction set covers minival only, which is the evaluation split and must "
+        "not be trained on.",
+    )
     ap.add_argument("--num-workers", dest="num_workers", type=int, default=None)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--subsets", nargs="+", default=None)
@@ -732,7 +790,8 @@ def main() -> int:
         qmask = batch.query_mask.to(device, non_blocking=True)
         depth_d = batch.depth.to(device, non_blocking=True)
         ray, z_raw, vis, uv, images, K_d = _run_flow_batch(
-            flow_model, batch, device, image_size, fb_alpha, fb_beta
+            flow_model, batch, device, image_size, fb_alpha, fb_beta,
+            waft_pred_dir=args.waft_pred_dir,
         )
 
         pred = _model_forward(
@@ -798,6 +857,7 @@ def main() -> int:
                 image_size,
                 fb_alpha,
                 fb_beta,
+                waft_pred_dir=args.waft_pred_dir,
             )
             print(f"[train] step {step:6d}  VAL     {_fmt_loss_row(v)}", flush=True)
             history.append({"step": step, "val": v})

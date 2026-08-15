@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -26,6 +26,12 @@ class TrackingBatch:
     K: torch.Tensor               # (B, 3, 3)
     clip_ids: list[str]
     subsets: list[str]
+    # Needed only to align a precomputed full-clip flow track (e.g. WAFT) with this window.
+    # frame_start is the window's offset into the clip; query_idx maps each surviving query
+    # slot back to its column in the clip's original query list, after BOTH the max_queries
+    # subsample and the anchor-in-window filter.
+    frame_start: list[int] = field(default_factory=list)
+    query_idx: list[torch.Tensor] = field(default_factory=list)
     depth: torch.Tensor | None = None  # v31: (B, F, Hd, Wd) cached DA3 metric depth
 
 
@@ -103,11 +109,13 @@ class TAPVid3DDataset(Dataset):
 
         # Subselect queries if there are more than `max_queries`.
         N_q = clip.N_q
+        orig_idx = torch.arange(N_q)
         if N_q > self.max_queries:
             picked = sorted(self._rng.sample(range(N_q), self.max_queries))
             queries = clip.queries_xyt[picked]
             tracks = tracks[:, picked]
             vis = vis[:, picked]
+            orig_idx = orig_idx[picked]
             N_q = self.max_queries
         else:
             queries = clip.queries_xyt
@@ -123,6 +131,7 @@ class TAPVid3DDataset(Dataset):
         else:
             queries = queries[keep].clone()
             tracks = tracks[:, keep]
+            orig_idx = orig_idx[keep]
             vis = vis[:, keep]
         queries[:, 2] -= start
         # Scale (x, y) into the resized image's pixel coords.
@@ -146,6 +155,8 @@ class TAPVid3DDataset(Dataset):
             "K": K,
             "clip_id": clip.clip_id,
             "subset": clip.subset,
+            "frame_start": int(start),
+            "query_idx": orig_idx,
         }
         if self.da3_depth_root is not None:
             depth_path = self.da3_depth_root / clip.subset / (clip.clip_id + ".npz")
@@ -206,6 +217,9 @@ def collate_tracking(items: list[dict]) -> TrackingBatch:
         vis[b, :, :n] = it["visibility"]
         qmask[b, :n] = True
 
+    frame_start = [int(it["frame_start"]) for it in items]
+    query_idx = [it["query_idx"] for it in items]
+
     depth = None
     if "depth" in items[0]:
         depth = torch.stack([it["depth"] for it in items], dim=0)
@@ -219,6 +233,8 @@ def collate_tracking(items: list[dict]) -> TrackingBatch:
         K=K,
         clip_ids=[it["clip_id"] for it in items],
         subsets=[it["subset"] for it in items],
+        frame_start=frame_start,
+        query_idx=query_idx,
         depth=depth,
     )
 

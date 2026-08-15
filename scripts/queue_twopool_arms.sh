@@ -66,7 +66,6 @@ run_arm () {
 
 # Arm A first: it is the headline configuration, so if only one finishes it should be this one.
 run_arm v50 configs/v50.yaml v35 "$HOME/data/tapvid3d_da3"
-run_arm v52 configs/v52.yaml v45 "$HOME/data/tapvid3d_da3nested"
 
 echo "[twopool] all arms finished at $(date -Is)"
 echo "  compare against: v35/DA3-l = 0.246 | v45/DA3-g+de-flicker = 0.232 (mean metric-AJ)"

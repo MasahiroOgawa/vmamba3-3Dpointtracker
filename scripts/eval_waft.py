@@ -44,7 +44,10 @@ from model import fetch_model  # noqa: E402
 from utils.utils import load_ckpt  # noqa: E402
 from inference_tools import InferenceWrapper  # noqa: E402
 from searaft_flow.flow_tracker import track_clip, track_clip_fuse  # noqa: E402
-from mamba3_tracker.data.tapvid3d_splits import MINIVAL_FILES  # noqa: E402
+from mamba3_tracker.data.tapvid3d_splits import (  # noqa: E402
+    MINIVAL_FILES,
+    get_full_eval_files,
+)
 
 TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
 DA3_ROOT = Path("/home/mas/data/tapvid3d_da3")
@@ -190,6 +193,15 @@ def main():
         help="v38: forward+backward flow fusion per hop (d=0.5*(d_fwd-d_bwd)), "
         "with reject-on-inconsistency. Default off = v37 forward chaining.",
     )
+    ap.add_argument(
+        "--split",
+        choices=["minival", "full_eval"],
+        default="minival",
+        help="Which clips to generate tracks for. minival (150 clips) is the evaluation set and "
+        "is what the published WAFT predictions cover. full_eval (4419 clips) is the TRAINING "
+        "set: tracks for it must exist before a refiner can be trained on WAFT flow rather than "
+        "merely evaluated with it.",
+    )
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
@@ -205,7 +217,8 @@ def main():
             continue
         out_sub = args.out_dir / subset
         out_sub.mkdir(parents=True, exist_ok=True)
-        clips = MINIVAL_FILES[subset]
+        clips = (MINIVAL_FILES[subset] if args.split == "minival"
+                 else get_full_eval_files(subset))
         if args.limit:
             clips = clips[: args.limit]
         for clip_name in tqdm(clips, desc=subset):

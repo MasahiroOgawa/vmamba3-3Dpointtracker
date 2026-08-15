@@ -2647,11 +2647,14 @@ v33 (depth refiner)$^{\star}$            & 12.5            & $0.40$\,M & $0.37$\
 v35 (DINOv3 $+$ SSM)$^{\star,\dagger}$   & 7.7             & $0.44$\,M & $0.39$\,B \\
 v36 (bidir $+$ v35)$^{\star}$            & 6.2             & $0.44$\,M & $0.39$\,B \\
 v39 (WAFT flow $+$ v35, ours)$^{\star}$  & ${\approx}6.3$  & $\mathbf{0.44}$\,\textbf{M} & ${\approx}\mathbf{0.44}$\,\textbf{B} \\
+v50 (v35 $+$ VSSD-2pool)$^{\star,\P}$   & ---             & $0.61$\,M & ${\approx}0.44$\,B \\
+v51 (WAFT flow $+$ v50)$^{\star,\P}$    & ---             & $0.61$\,M & ${\approx}0.44$\,B \\
 \bottomrule
 \end{tabular}
 \\[2pt]
 {\footnotesize
 $^{\star}$ Loads precomputed DA3-l depth from cache; not counted in fps.
+$^{\P}$ Throughput not measured on an idle GPU: the v50 eval in \texttt{result/v50\_twopool} ran while ETH3D training held the card and covered $15914$ of $25814$ frames ($4.12$\,fps, against $10$--$62$ for sibling runs of the same method), and v51's $30.51$\,fps reads WAFT flow from cache so excludes the front-end. \texttt{scripts/measure\_efficiency\_2pool.sh} re-measures both on an idle GPU. The second pool adds $0.17$\,M parameters ($2\times$ \texttt{q\_proj2}$+$\texttt{m2}$+$\texttt{pool2\_gate}) and no frozen network.
 The preprocessing runs at ${\approx}10$\,fps on the same GPU and is a one-time
 offline step shared by all such methods.
 $^{\dagger}$ v35 throughput measured on the drivetrack subset only.

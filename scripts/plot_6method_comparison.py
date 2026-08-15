@@ -50,6 +50,8 @@ METHODS = [
     "v37\n(WAFT)",
     "v38\n(WAFTbidir)",
     "v39\n(WAFT\n+vmamba3)",
+    "v50\n(SEARAFT\n+vmamba3\n2-pool)",
+    "v51\n(WAFT\n+vmamba3\n2-pool)",
 ]
 
 # Number of SOTA methods listed first; used to draw the group separator.
@@ -92,6 +94,8 @@ def build_data_tables() -> tuple[dict, dict]:
         "WAFT+DA3":           {"drivetrack": 0.115,  "pstudio": 0.116,  "adt": 0.137},
         "WAFT+DA3 bidir":     {"drivetrack": 0.116,  "pstudio": 0.120,  "adt": 0.141},
         "WAFT+v35":           {"drivetrack": 0.098,  "pstudio": 0.073,  "adt": 0.151},
+        "v50":                {"drivetrack": 0.1006, "pstudio": 0.0825, "adt": 0.0749},
+        "v51":                {"drivetrack": 0.1076, "pstudio": 0.0958, "adt": 0.1368},
     }
     data_abs = {
         # SOTA ──────────────────────────────────────────────────────────────────
@@ -112,6 +116,8 @@ def build_data_tables() -> tuple[dict, dict]:
         "WAFT+DA3":           {"drivetrack": 0.005,  "pstudio": 0.181,  "adt": 0.289},
         "WAFT+DA3 bidir":     {"drivetrack": 0.005,  "pstudio": 0.181,  "adt": 0.292},
         "WAFT+v35":           {"drivetrack": 0.141,  "pstudio": 0.279,  "adt": 0.318},
+        "v50":                {"drivetrack": 0.1351, "pstudio": 0.2708, "adt": 0.2590},
+        "v51":                {"drivetrack": 0.1467, "pstudio": 0.2999, "adt": 0.3120},
     }
     # fmt: on
 
@@ -133,6 +139,8 @@ def build_data_tables() -> tuple[dict, dict]:
         "WAFT+DA3",
         "WAFT+DA3 bidir",
         "WAFT+v35",
+        "v50",
+        "v51",
     ]
     NaN = float("nan")
     norm_aj: dict[int, dict[str, float]] = {}
@@ -208,27 +216,21 @@ def make_figure(
                     linewidth=0.5,
                 )
                 label = f"{hi:.2f}" if hi < 1.0 else f"{hi:.1f}"
-                if hi < 0.8:  # small bar: rotate label upward to avoid crowding
-                    ax.text(
-                        xi,
-                        hi + 0.15,
-                        label,
-                        ha="center",
-                        va="bottom",
-                        fontsize=(5.5 * 2),
-                        color="#444",
-                        rotation=90,
-                    )
-                else:
-                    ax.text(
-                        xi,
-                        hi + 0.3,
-                        label,
-                        ha="center",
-                        va="bottom",
-                        fontsize=(6.0 * 2),
-                        color="#222",
-                    )
+                # Every value label is rotated 90 degrees, not just the short ones. A
+                # horizontal label is wider than its bar once the method count grows, so
+                # neighbouring labels collide -- adding v50/v51 put "30.0" and "31.2" on top of
+                # each other. Rotated, a label occupies only the bar's width, so the figure
+                # stays legible however many methods are added.
+                ax.text(
+                    xi,
+                    hi + (0.15 if hi < 0.8 else 0.3),
+                    label,
+                    ha="center",
+                    va="bottom",
+                    fontsize=(5.5 * 2) if hi < 0.8 else (6.0 * 2),
+                    color="#444" if hi < 0.8 else "#222",
+                    rotation=90,
+                )
 
         patch = mpatches.Patch(color=color, alpha=0.85, label=SUBSET_LABELS[subset])
         legend_handles.append(patch)

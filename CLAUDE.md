@@ -28,6 +28,45 @@ All external repos live at `~/proj/study/` (single shared clone) and are symlink
 
 Never edit files inside any `third_party/` entry.
 
+### `third_party/visionMamba3` is a mirror, never a place to work
+
+`~/proj/study/visionMamba3` is the **single, canonical repository** for all Vision-Mamba-3 code.
+`third_party/visionMamba3` is a submodule pointer at a commit of it and nothing else. Therefore,
+in `third_party/visionMamba3`:
+
+- **Never commit.**
+- **Never create a branch.**
+- **Never push.**
+
+To change Vision-Mamba-3 code, edit `~/proj/study/visionMamba3`, commit and push there, then in
+this repository run `git -C third_party/visionMamba3 fetch && git -C third_party/visionMamba3
+checkout <sha>` and commit the moved pointer. The pointer must always name a commit reachable
+from `origin/main` of the canonical repo.
+
+If anything original is ever found committed inside `third_party/visionMamba3`, move it to
+`~/proj/study/visionMamba3`, push it there, and re-pin.
+
+**Why this is spelled out, when "never edit third_party" already appears above.** On 2026-08-15
+the two-pool (VSSD-beta,gamma) operator was implemented correctly in the canonical repo, then
+implemented a *second* time as a local branch inside `third_party/visionMamba3` and committed
+there. The reasoning was superficially good: the canonical `main` had moved ahead of the pinned
+commit, bumping the pin might change the operator numerically, and that would invalidate the
+baselines the new arm was being compared against — so patching the pinned commit "avoided the
+risk". Two things were wrong with it.
+
+1. It produced a submodule pointer to a commit that existed only on one machine. `git ls-remote`
+   matched zero refs; `git clone --recursive` would have failed for anyone else, which is exactly
+   the reproducibility property the submodule exists to provide.
+2. The risk it was avoiding was never measured. When finally checked, the divergence was additive
+   and gated off by default (`rope_angles=False` keeps the projection width and the outputs
+   unchanged), and the canonical operator was **bit-identical** to the patched pinned one: the
+   same weights gave `max|diff| = 0` and the trained checkpoint loaded with zero missing or
+   unexpected keys.
+
+The rule to take from it: if bumping the pin looks risky, **measure the divergence** — build the
+layer both ways with the same weights and compare — rather than forking to avoid finding out.
+Forking is not the cautious option; it is the one that silently breaks the clone.
+
 After cloning on a new machine:
 ```bash
 git submodule update --init

@@ -220,15 +220,15 @@ def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
             all_uv.append(uv_b.to(device))
             all_vis.append(vis_b.to(device))
     else:
-      for b in range(B):
-        imgs = batch.images[b].to(device) * 255.0
-        q = batch.queries_xyt[b].to(device)
-        anchor_t = q[:, 2].long().clamp(0, F_ - 1)
-        uv, vis = track_clip(
-            flow_model, imgs, q[:, :2], anchor_t, image_size, fb_alpha, fb_beta
-        )
-        all_uv.append(uv)
-        all_vis.append(vis)
+        for b in range(B):
+            imgs = batch.images[b].to(device) * 255.0
+            q = batch.queries_xyt[b].to(device)
+            anchor_t = q[:, 2].long().clamp(0, F_ - 1)
+            uv, vis = track_clip(
+                flow_model, imgs, q[:, :2], anchor_t, image_size, fb_alpha, fb_beta
+            )
+            all_uv.append(uv)
+            all_vis.append(vis)
     uv = torch.stack(all_uv).to(device)  # (B,F,N,2)
     vis = torch.stack(all_vis).to(device)  # (B,F,N)
     K = batch.K.to(device)

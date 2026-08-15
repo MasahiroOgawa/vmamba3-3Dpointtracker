@@ -54,8 +54,12 @@ METHODS = [
     "v51\n(WAFT\n+vmamba3\n2-pool)",
 ]
 
-# Number of SOTA methods listed first; used to draw the group separator.
-SOTA_COUNT = 5
+# Number of SOTA methods, i.e. the index at which "ours" begins. The separator is drawn at
+# boundaries[SOTA_COUNT - 1], the midpoint AFTER that many methods, so this must equal the count
+# of external methods (6: SpatialTrackerV2, TAPIP3D+DA3, TAPIP3D+MegaSAM, TrackCraft3R,
+# DELTA+DA3, DELTAv2+DA3), not the index of the last one. It was 5, which drew the SOTA/Ours
+# line between DELTA and DELTAv2 -- inside the SOTA group.
+SOTA_COUNT = 6
 
 SUBSET_COLORS = {
     "drivetrack": "#4878CF",  # steel blue

@@ -1908,6 +1908,67 @@ shape is nearly preserved). Genuine Vision-Mamba-3 features are therefore a viab
 either a larger or pretrained Vision-Mamba-3 encoder, or joint (rather than from-scratch) feature training.
 \textbf{The DINOv3-feature pipelines --- v39 on DA3-l, v45 on DA3-g --- remain best on the absolute metric.}
 
+\subsection{v50: VSSD-$\beta,\gamma$ (two-pool) mixer in the refiner}
+\label{sec:v50-twopool}
+
+The refiner mixes each track over time with \texttt{Mamba3CrossAttention(variant="B")}, whose
+mask $L[i,j]=\gamma_j\prod_{k=j+1}^{T}\alpha_k$ keeps only the $\gamma$ band and is \emph{rank-1
+across the query axis}: every query row is identical, so one pool applies the same weighting over
+the track to every frame. v50 replaces it with the two-pool VSSD-$\beta,\gamma$ construction --- a
+second, independently-read pool with its own query projection $C^{(2)}$ and its own per-token
+vector $m^{(2)}$ --- which lifts that restriction. The second pool's contribution is scaled by a
+parameter initialised to zero, so a two-pool layer is numerically identical to a one-pool layer at
+initialisation (verified: $\max|\Delta|=0$).
+
+\paragraph{Cold start, deliberately.} Fine-tuning the two-pool model from the v35 checkpoint is
+cheaper and confounded: it would have seen $20$k one-pool steps \emph{plus} the fine-tune against
+v35's $20$k, so a gain could be the extra training rather than the second pool. v50 therefore
+trains from scratch for $20$k steps with v35's configuration and data, \texttt{two\_pool} the only
+difference.
+
+\paragraph{Result: it does not improve the tracker.} Both rows are
+WAFT$+$DA3-l$+$vmamba3 on TAPVid-3D minival.
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+mean metric-AJ & drivetrack & pstudio & adt & mean \\
+\midrule
+v35, one pool (as reported)      & $0.141$ & $0.279$ & $0.318$ & $0.246$ \\
+v50, VSSD-$\beta,\gamma$ two pool & $0.135$ & $0.271$ & $0.259$ & $0.222$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Lower on all three subsets, with the loss concentrated in \texttt{adt}
+($0.318\to0.259$). The second pool also costs $0.442\to0.612$\,M trainable parameters ($+38\%$),
+so it is not free even where it is neutral. On CIFAR-10 the same operator's benefit is confined to
+long sequence length; it does not transfer to the refiner's temporal axis here.
+
+\paragraph{The comparison is not yet controlled, and this number should not be quoted alone.}
+The $0.246$ row was produced before this repository existed, and a search of every
+\texttt{summary.md} in both this repository and the predecessor finds no evaluation reporting it,
+so its provenance is not currently traceable to a run we can re-execute. Partial-subset v35
+evaluations that \emph{are} on disk reconstruct to roughly $0.226$ --- close enough to v50's
+$0.222$ that ``the second pool hurts'' and ``this repository's v35 scores $0.226$'' cannot be
+separated. The control that settles it is v35 itself, one pool, trained and evaluated here under
+exactly v50's protocol. Until that runs, the defensible statement is that VSSD-$\beta,\gamma$
+\emph{does not improve} metric-AJ in the refiner --- not that it degrades it.
+
+\paragraph{What was deliberately not changed.} 2-D RoPE is the best CIFAR-10 pairing for this
+operator, but its angle $\theta^{\mathrm{row}}[n]\,r+\theta^{\mathrm{col}}[n]\,c$ is a function of
+a patch's row and column on an image grid, and this mixer runs over a track's \emph{time} axis,
+which has neither. The pinned rotary does not apply either: variant B forms $C^{q}B^{kv\top}$
+pairwise before the mask, so absolute angles cancel and there is no pooled sum to decohere --- the
+failure pinning repairs cannot occur here. Pinning would additionally normalise by sequence
+length, which is wrong when training uses $8$-frame windows and inference uses clips of hundreds
+of frames (at $n{=}0.25$ the adjacent-frame angle is $11.3^{\circ}$ at $T{=}8$ but $0.30^{\circ}$
+at $T{=}300$). The variant worth trying is an \emph{unpinned} $1$-D temporal rotary, whose
+per-frame increment is independent of $T$.
+
+\paragraph{v51.} The same swap on v45 (DA3-g $+$ de-flicker $+$ vmamba3, reported $0.232$) was
+started and stopped after $1$\,h\,$11$\,m to free the GPU for the ETH3D arms; it is unmeasured.
+
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
 visibility are frozen, so they carry no gradient):

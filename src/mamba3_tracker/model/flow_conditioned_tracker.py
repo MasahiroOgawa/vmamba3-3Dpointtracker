@@ -54,7 +54,6 @@ class FlowConditionedTracker(nn.Module):
                     dim_kv=dim,
                     num_heads=num_heads,
                     state_dim=state_dim,
-                    variant="B",
                     bidirectional_mask=False,
                 )
                 for _ in range(num_layers)

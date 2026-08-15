@@ -163,7 +163,7 @@ class CausalCrossPropagator(nn.Module):
             [
                 Mamba3CrossAttention(
                     dim_q=dim, dim_kv=dim, num_heads=num_heads,
-                    state_dim=state_dim, variant="B",
+                    state_dim=state_dim,
                 )
                 for _ in range(num_pyramid_levels)
             ]

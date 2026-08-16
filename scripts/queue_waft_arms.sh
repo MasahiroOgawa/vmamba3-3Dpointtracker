@@ -20,8 +20,17 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# cuDNN 9.25 ahead of torch's bundled 9.20; without this every convolution falls back to the
+# no-cuDNN path and track generation runs at ~30 s/clip instead of using the GPU properly.
+# shellcheck source=/dev/null
+source "$(dirname "$0")/cudnn_env.sh"
+
 WAFT_TRAIN=${WAFT_TRAIN:-$HOME/data/tapvid3d_baseline_preds/waft_full_eval}
-WAFT_EVAL=${WAFT_EVAL:-$HOME/data/tapvid3d_baseline_preds/waft}
+# Regenerated below rather than reusing the 2026-07-09 minival cache: those were produced on a
+# different cuDNN path, and train/eval tracks must come from one code path or the comparison
+# carries a variant of the defect this whole sweep exists to remove. The old directory is left
+# untouched so the existing rows stay reproducible.
+WAFT_EVAL=${WAFT_EVAL:-$HOME/data/tapvid3d_baseline_preds/waft_minival_cudnn925}
 STEPS=${STEPS:-20000}
 
 # Wait for any GPU job, in this repo or the sibling one.
@@ -37,6 +46,13 @@ echo "[waft-arms] GPU free at $(date -Is)"
 echo "=== [step 0] WAFT tracks for full_eval ($(date -Is)) ==="
 uv run python scripts/eval_waft.py --split full_eval --out-dir "$WAFT_TRAIN" \
   || { echo "[waft-arms] track generation FAILED; arms cannot run"; exit 1; }
+echo "=== [step 0b] WAFT tracks for minival, same code path ($(date -Is)) ==="
+uv run python scripts/eval_waft.py --split minival --out-dir "$WAFT_EVAL" \
+  || { echo "[waft-arms] minival track generation FAILED"; exit 1; }
+m=$(find "$WAFT_EVAL" -name '*.npz' | wc -l)
+echo "[waft-arms] $m/150 eval clips have tracks"
+[ "$m" -lt 150 ] && { echo "[waft-arms] incomplete eval tracks; stopping"; exit 1; }
+
 n=$(find "$WAFT_TRAIN" -name '*.npz' | wc -l)
 echo "[waft-arms] $n/4419 training clips have tracks"
 [ "$n" -lt 4000 ] && { echo "[waft-arms] too few tracks; stopping rather than training on a partial set"; exit 1; }

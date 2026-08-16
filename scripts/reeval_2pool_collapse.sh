@@ -5,7 +5,7 @@
 # systematic, not random -- all adt clips are T=300, so what decided OOM was query count, meaning
 # the clips with the most tracked points were the ones lost.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 CK=result/v50_twopool/ckpt_20000.pt
 run () {
   local tag=$1; shift

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Source before any GPU job in this repo: `source scripts/cudnn_env.sh`
 #
 # torch 2.12.1+cu130 bundles cuDNN 9.20, which does not ship libcudnn_engines_tensor_ir. cuDNN's

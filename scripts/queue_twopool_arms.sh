@@ -22,10 +22,11 @@
 # which could shift the operator numerically and invalidate the very baselines being compared
 # against. Only the two_pool addition is applied, on a branch off the pinned commit.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 STEPS=${STEPS:-20000}
 LSSM=/home/mas/proj/study/largescale3Dreconstruction_using_SSM
+# shellcheck disable=SC2034  # recorded deliberately; see the note below
 # Baselines to compare against, NOT used for initialisation -- recorded so the comparison target
 # is unambiguous and so a later warm-start experiment knows where they are.
 A_BASE=$LSSM/result/20260701_v35/ckpt_20000.pt        # mean metric-AJ 0.246

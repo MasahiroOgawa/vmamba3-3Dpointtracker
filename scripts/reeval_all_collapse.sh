@@ -17,7 +17,7 @@
 # Checkpoints and method flags are taken verbatim from each run's own metrics.json, not
 # reconstructed from configs.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 DA3L="$HOME/data/tapvid3d_da3"
 DA3G="$HOME/data/tapvid3d_da3nested"

@@ -12,7 +12,7 @@
 # Contention is the whole point of this script, so it waits for an idle GPU and refuses to start
 # while anything else is resident.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 STEPS_DIR=result/efficiency_2pool
 mkdir -p "$STEPS_DIR"

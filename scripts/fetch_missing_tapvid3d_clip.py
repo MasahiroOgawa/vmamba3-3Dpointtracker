@@ -31,9 +31,18 @@ def missing_clips(subset: str) -> list[str]:
     return [c for c in get_full_eval_files(subset) if not (TAPVID3D_ROOT / subset / c).exists()]
 
 
-def fetch_from_tarballs(subset: str, wanted: set[str], out_dir: Path) -> set[str]:
-    """Stream each tarball, extracting any wanted member. Returns the names still missing."""
-    for i in range(BATCHES[subset]):
+def fetch_from_tarballs(subset: str, wanted: set[str], out_dir: Path,
+                       reverse: bool = True) -> set[str]:
+    """Stream each tarball, extracting any wanted member. Returns the names still missing.
+
+    Batches are searched last-first by default. The local copy was populated by downloading
+    batch 0..N in order, so an interrupted tail leaves its gap in the final archives, not the
+    early ones -- the extraction-time histogram of the surviving clips shows the last hour
+    producing 195 files against 391-647 in the hours before it. Searching forward means
+    streaming almost the whole 309 GB before reaching the batch that actually holds the clip.
+    """
+    order = range(BATCHES[subset] - 1, -1, -1) if reverse else range(BATCHES[subset])
+    for i in order:
         if not wanted:
             break
         url = f"{HF_BASE}/{subset}_batch_{i}.tar.gz"
@@ -72,6 +81,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--subsets", nargs="+", default=["drivetrack", "pstudio", "adt"])
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--forward", action="store_true",
+                    help="search batches 0..N instead of the default last-first order")
     args = ap.parse_args()
 
     rc = 0
@@ -82,7 +93,8 @@ def main() -> int:
             print(f"    {c}")
         if not miss or args.dry_run:
             continue
-        left = fetch_from_tarballs(subset, set(miss), TAPVID3D_ROOT / subset)
+        left = fetch_from_tarballs(subset, set(miss), TAPVID3D_ROOT / subset,
+                                   reverse=not args.forward)
         if left:
             print(f"{subset}: STILL MISSING {len(left)}: {sorted(left)}")
             rc = 1

@@ -31,8 +31,8 @@ def missing_clips(subset: str) -> list[str]:
     return [c for c in get_full_eval_files(subset) if not (TAPVID3D_ROOT / subset / c).exists()]
 
 
-def fetch_from_tarballs(subset: str, wanted: set[str], out_dir: Path,
-                       reverse: bool = True) -> set[str]:
+def fetch_from_tarballs(subset: str, wanted: set[str], out_dir: Path, reverse: bool = True,
+                        batches: list[int] | None = None, attempts: int = 3) -> set[str]:
     """Stream each tarball, extracting any wanted member. Returns the names still missing.
 
     Batches are searched last-first by default. The local copy was populated by downloading
@@ -41,39 +41,51 @@ def fetch_from_tarballs(subset: str, wanted: set[str], out_dir: Path,
     producing 195 files against 391-647 in the hours before it. Searching forward means
     streaming almost the whole 309 GB before reaching the batch that actually holds the clip.
     """
-    order = range(BATCHES[subset] - 1, -1, -1) if reverse else range(BATCHES[subset])
+    order = batches if batches else (
+        range(BATCHES[subset] - 1, -1, -1) if reverse else range(BATCHES[subset]))
     for i in order:
         if not wanted:
             break
         url = f"{HF_BASE}/{subset}_batch_{i}.tar.gz"
-        print(f"  [batch {i}] streaming {url}", flush=True)
-        try:
-            with requests.get(url, stream=True, timeout=120) as r:
-                r.raise_for_status()
-                # "r|gz" is the streaming mode: sequential, no seeking, so the transfer can be
-                # abandoned the moment the member is found instead of reading the whole archive.
-                with tarfile.open(fileobj=r.raw, mode="r|gz") as tar:
-                    for member in tar:
-                        name = Path(member.name).name
-                        if name not in wanted:
-                            continue
-                        src = tar.extractfile(member)
-                        if src is None:
-                            continue
-                        out_dir.mkdir(parents=True, exist_ok=True)
-                        dest = out_dir / name
-                        tmp = dest.with_suffix(dest.suffix + ".part")
-                        with tmp.open("wb") as fh:
-                            while chunk := src.read(1 << 20):
-                                fh.write(chunk)
-                        tmp.rename(dest)
-                        wanted.discard(name)
-                        print(f"  [batch {i}] recovered {name} ({dest.stat().st_size/2**20:.1f} MB)",
-                              flush=True)
-                        if not wanted:
-                            break
-        except Exception as e:  # a bad batch must not stop the remaining ones
-            print(f"  [batch {i}] aborted: {type(e).__name__}: {str(e)[:90]}", flush=True)
+        for attempt in range(1, attempts + 1):
+            if not wanted:
+                break
+            print(f"  [batch {i}] streaming {url} (attempt {attempt}/{attempts})", flush=True)
+            found_before = len(wanted)
+            try:
+                with requests.get(url, stream=True, timeout=120) as r:
+                    r.raise_for_status()
+                    # "r|gz" is streaming mode: sequential, no seeking, so the transfer can be
+                    # abandoned the moment the member is found rather than read to the end.
+                    with tarfile.open(fileobj=r.raw, mode="r|gz") as tar:
+                        for member in tar:
+                            name = Path(member.name).name
+                            if name not in wanted:
+                                continue
+                            src = tar.extractfile(member)
+                            if src is None:
+                                continue
+                            out_dir.mkdir(parents=True, exist_ok=True)
+                            dest = out_dir / name
+                            tmp = dest.with_suffix(dest.suffix + ".part")
+                            with tmp.open("wb") as fh:
+                                while chunk := src.read(1 << 20):
+                                    fh.write(chunk)
+                            tmp.rename(dest)
+                            wanted.discard(name)
+                            print(f"  [batch {i}] recovered {name} "
+                                  f"({dest.stat().st_size/2**20:.1f} MB)", flush=True)
+                            if not wanted:
+                                break
+                break  # archive read to the end without error; no retry needed
+            except Exception as e:
+                # A truncated transfer means this batch was NOT fully searched, so "absent" cannot
+                # be concluded from it. Batch 8 died at 17.4 GB of 25.5 GB on the first sweep and
+                # was silently treated as searched, which is why this retries instead of moving on.
+                print(f"  [batch {i}] attempt {attempt} aborted: {type(e).__name__}: "
+                      f"{str(e)[:80]}", flush=True)
+                if len(wanted) < found_before:
+                    break
     return wanted
 
 
@@ -83,6 +95,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--forward", action="store_true",
                     help="search batches 0..N instead of the default last-first order")
+    ap.add_argument("--batches", type=int, nargs="+",
+                    help="search only these batch numbers, in the order given")
+    ap.add_argument("--attempts", type=int, default=3,
+                    help="retries per batch; a truncated transfer leaves it unsearched")
     args = ap.parse_args()
 
     rc = 0
@@ -94,7 +110,8 @@ def main() -> int:
         if not miss or args.dry_run:
             continue
         left = fetch_from_tarballs(subset, set(miss), TAPVID3D_ROOT / subset,
-                                   reverse=not args.forward)
+                                   reverse=not args.forward, batches=args.batches,
+                                   attempts=args.attempts)
         if left:
             print(f"{subset}: STILL MISSING {len(left)}: {sorted(left)}")
             rc = 1

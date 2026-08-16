@@ -173,6 +173,12 @@ def build_flow(cfg_path: Path, ckpt: Path, device: torch.device) -> WAFTFlow:
 
 
 def main():
+    # This host's system cuDNN mismatches torch's bundled one, and every convolution raises
+    # "cudnnFinalize failed" without this. eval_metric3d.py has always called it; eval_waft.py
+    # never did, so full_eval track generation failed on all 4419 clips while the progress bar
+    # advanced normally and the run looked healthy.
+    from mamba3_tracker.cudnn_guard import survive_cudnn_mismatch
+    survive_cudnn_mismatch()
     ap = argparse.ArgumentParser()
     ap.add_argument("--subsets", nargs="+", default=["drivetrack", "pstudio", "adt"])
     ap.add_argument("--out-dir", type=Path, required=True)

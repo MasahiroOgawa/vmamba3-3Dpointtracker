@@ -34,6 +34,7 @@ dependencies = [
     "trimesh>=4.12.2",
     "pycocotools",
     "py7zr",
+    "timm>=1.0.28",
 ]
 
 [tool.uv.sources]

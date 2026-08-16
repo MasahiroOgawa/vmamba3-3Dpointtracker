@@ -656,6 +656,7 @@ def main() -> int:
             ),
             dino_image_size=int(model_cfg.get("dino_image_size", 448)),
             image_size=int(model_cfg.get("image_size", 896)),
+            two_pool=bool(model_cfg.get("two_pool", False)),
         ).to(device)
         loss_fn = TrackingLossV35(
             weights=loss_cfg["weights"], image_size=image_size
@@ -677,6 +678,7 @@ def main() -> int:
             ),
             dino_image_size=int(model_cfg.get("dino_image_size", 448)),
             image_size=int(model_cfg.get("image_size", 896)),
+            two_pool=bool(model_cfg.get("two_pool", False)),
             pose_head=True,
         ).to(device)
         loss_fn = TrackingLossV47(

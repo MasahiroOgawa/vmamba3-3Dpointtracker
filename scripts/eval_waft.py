@@ -217,6 +217,7 @@ def main():
         f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir_fuse={args.bidir_fuse}"
     )
 
+    n_missing = 0
     for subset in args.subsets:
         if subset not in MINIVAL_FILES:
             print(f"[warn] unknown subset {subset!r}, skip")
@@ -231,9 +232,18 @@ def main():
             out_path = out_sub / clip_name
             if out_path.exists():
                 continue
+            src = TAPVID3D_ROOT / subset / clip_name
+            # A clip listed in full_eval but absent locally used to abort the whole sweep: this
+            # load sat outside the try below, so one missing file of 4419 threw FileNotFoundError
+            # and discarded four hours of completed work. Missing input is now the same kind of
+            # per-clip skip as a failed inference.
+            if not src.exists():
+                n_missing += 1
+                tqdm.write(f"[waft] {subset}/{clip_name}: SKIPPED, not present locally")
+                continue
             # allow_pickle: images_jpeg_bytes is an object array; our own local
             # TAPVid-3D benchmark files, not untrusted input.
-            data = dict(np.load(TAPVID3D_ROOT / subset / clip_name, allow_pickle=True))
+            data = dict(np.load(src, allow_pickle=True))
             try:
                 xyz, vis = infer_clip(
                     flow_model,
@@ -255,6 +265,8 @@ def main():
                 torch.cuda.empty_cache()
                 tqdm.write(f"[error] {subset}/{clip_name}: {type(e).__name__}: {e}")
 
+    if n_missing:
+        print(f"[waft] {n_missing} clip(s) listed but absent locally; skipped")
     print(f"[waft] done -> {args.out_dir}")
 
 

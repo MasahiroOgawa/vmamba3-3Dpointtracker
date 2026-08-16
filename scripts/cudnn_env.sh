@@ -5,6 +5,13 @@
 # with CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH. Every convolution then fails, which is what
 # cudnn_guard.py works around by disabling cuDNN entirely -- correct but slow.
 #
+# CORRECTION: this restores cuDNN but does NOT speed up WAFT track generation. Measured on the
+# same clips, 32.7 s/clip with cuDNN against 35.4 without -- about 1.08x. An earlier claim of
+# 15.8x here was wrong: it compared tqdm's instantaneous rate over a stretch where most clips
+# were already on disk and skipped instantly. WAFT's cost is dominated by something other than
+# cuDNN convolutions. Keep this file because a correct cuDNN is worth having and costs nothing,
+# not because it makes this job fast.
+#
 # The fix is to make the whole set 9.25, matching the host, by putting a complete 9.25 wheel ahead
 # of the bundled one on the loader path. Upgrading the venv's nvidia-cudnn-cu13 instead does NOT
 # work: torch 2.12.1 pins 9.20.0.48, and asking for 9.25 makes the resolver downgrade torch to

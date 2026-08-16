@@ -2755,6 +2755,46 @@ Combined with the accuracy advantage on the absolute metric
 see \S\ref{sec:trackcraft3r}),
 our pipeline is competitive on both quality and efficiency axes.
 
+\section{History: the SEA-RAFT-trained, WAFT-evaluated rows}
+\label{sec:searaft-trained-waft-eval}
+
+Every WAFT row recorded before v57 was \emph{trained} with the SEA-RAFT front-end and only
+\emph{evaluated} on WAFT. The refiner sees flow during training --- \texttt{track\_clip} runs inside
+the training loop --- so it learns one front-end's error characteristics and is then scored on a
+different one. That is a train/test mismatch, and those numbers are superseded by the WAFT-trained
+arms v57--v60. They are kept here, and only here: the paper carries the corrected numbers alone,
+because a manuscript reports what the method does, not the order in which it was measured.
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+row & front-end at train / eval & mean metric-AJ & status \\
+\midrule
+v35 & SEA-RAFT / SEA-RAFT & $0.225$ & matched, superseded by v57 \\
+v39 & SEA-RAFT / WAFT     & $0.2458$ & \emph{mismatched} \\
+v50 & SEA-RAFT / SEA-RAFT & $0.235$ & matched, superseded by v58 \\
+v51 & SEA-RAFT / WAFT     & $0.2560$ & \emph{mismatched} \\
+\midrule
+v45 & SEA-RAFT / WAFT     & $0.2320$ & \emph{mismatched}, superseded by v59 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The mismatched rows score \emph{higher} than their matched counterparts --- $0.2458$
+against $0.225$ for one pool, $0.2560$ against $0.235$ for two --- which is why the defect was not
+obvious from the numbers. WAFT is the stronger front-end, and swapping it in at evaluation time
+improves the input the refiner is given without the refiner having been trained for it. The gain is
+real but it is not the gain a WAFT pipeline would deliver, and it cannot be attributed to the
+refiner: the arm changed two things at once. v57--v60 hold the front-end fixed at WAFT for both
+training and evaluation, which is the only configuration that answers ``how good is this pipeline
+on WAFT''.
+
+\paragraph{Two further defects in the same rows.} They were also produced on the token-level
+attention path (\S\ref{sec:collapse-reeval}), and their evaluation tracks came from a 2026-07-09
+cache built under a different cuDNN configuration. v57--v60 use the collapse path throughout and
+regenerate both the training and the evaluation tracks from one code path.
+
+%% ================================================================
 \section{The refiner ran the quadratic path, and every learned row was re-scored}
 \label{sec:collapse-reeval}
 

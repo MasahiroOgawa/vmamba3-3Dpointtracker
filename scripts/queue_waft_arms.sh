@@ -2,10 +2,14 @@
 # The 2x2 that the paper's WAFT rows should have been all along: depth backbone x mixer, with the
 # flow front-end held fixed at WAFT for BOTH training and evaluation.
 #
-#   v53  DA3-l                  VSSD-gamma      (one pool)
-#   v54  DA3-l                  VSSD-beta,gamma (two pool)
-#   v55  DA3-g + de-flicker     VSSD-gamma      (one pool)
-#   v56  DA3-g + de-flicker     VSSD-beta,gamma (two pool)
+#   v57  DA3-l                  VSSD-1pool
+#   v58  DA3-l                  VSSD-2pool
+#   v59  DA3-g + de-flicker     VSSD-1pool
+#   v60  DA3-g + de-flicker     VSSD-2pool
+#
+# New numbers rather than v53-v56: those labels belong to the earlier design of this sweep, and the
+# SEA-RAFT-trained/WAFT-evaluated rows they would have displaced (v39, v50, v51) are kept as history
+# in doc/vmamba3_3dpointtrack. Reusing the numbers would make the two protocols share an identifier.
 #
 # Why this exists: every WAFT row reported so far was TRAINED on SEA-RAFT and only EVALUATED on
 # WAFT. The refiner sees flow during training (track_clip runs in the training loop), so it learns
@@ -79,10 +83,10 @@ run_arm () {
 
 # DA3-l pair first: it is the headline backbone, and the one-pool arm is the control that makes
 # the two-pool number interpretable, so it runs before its own treatment.
-run_arm v53 v35 "$HOME/data/tapvid3d_da3"
-run_arm v54 v35 "$HOME/data/tapvid3d_da3"
-run_arm v55 v45 "$HOME/data/tapvid3d_da3nested"
-run_arm v56 v45 "$HOME/data/tapvid3d_da3nested"
+run_arm v57 v35 "$HOME/data/tapvid3d_da3"
+run_arm v58 v35 "$HOME/data/tapvid3d_da3"
+run_arm v59 v45 "$HOME/data/tapvid3d_da3nested"
+run_arm v60 v45 "$HOME/data/tapvid3d_da3nested"
 
 echo "[waft-arms] finished at $(date -Is)"
 echo "  reference rows, SEA-RAFT-trained/WAFT-evaluated: DA3-l 0.2458 | DA3-g+de-flicker 0.232"

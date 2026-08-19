@@ -905,6 +905,141 @@ exactly as \texttt{Mamba3V35Refiner.\_extract\_depth\_patch} performs it. Write 
 batch, $F$ for frames, $N$ for tracked points, $k=5$, and $(H_d,W_d)$ for the cached depth map's
 resolution.
 
+\begin{figure}[p]
+\centering
+\begin{tikzpicture}[font=\footnotesize]
+% ─────────── (a) where the 25 samples land ───────────
+\begin{scope}
+  \fill[black!10] (0,0) rectangle (5.6,5.6);
+  \fill[cInput!28] (0,5.6) -- (5.6,5.6) -- (5.6,3.0) -- (0,1.4) -- cycle;
+  \draw[black!35] (0,0) rectangle (5.6,5.6);
+  \foreach \i in {0.7,1.4,2.1,2.8,3.5,4.2,4.9} {
+    \draw[black!12] (\i,0) -- (\i,5.6);
+    \draw[black!12] (0,\i) -- (5.6,\i);
+  }
+  \draw[black!60, thick] (0,1.4) -- (5.6,3.0);
+  \foreach \dx in {-2,-1,0,1,2} {
+    \foreach \dy in {-2,-1,0,1,2} {
+      \fill[black!80] ({2.8+\dx*1.05},{2.8+\dy*1.05}) circle (1.7pt);
+    }
+  }
+  \fill[cTrain] (2.8,2.8) circle (3pt);
+  \node[anchor=west, cTrain!80!black] at (3.0,2.55) {$\mathbf{u}_0$};
+  \draw[{Stealth[length=1.6mm]}-{Stealth[length=1.6mm]}, black!75]
+    (1.75,4.95) -- (2.8,4.95) node[midway, above, yshift=-0.3mm] {$64$\,px};
+  \draw[{Stealth[length=1.6mm]}-{Stealth[length=1.6mm]}, black!75]
+    (0.7,-0.45) -- (4.9,-0.45) node[midway, below] {$256$\,px};
+  % legend kept OUTSIDE the image square so nothing can overlap the samples
+  \fill[cInput!28, draw=black!35] (0,-1.35) rectangle ++(0.42,0.34);
+  \node[anchor=west, black!70] at (0.5,-1.18) {far, ${\approx}8$\,m};
+  \fill[black!10, draw=black!35] (2.9,-1.35) rectangle ++(0.42,0.34);
+  \node[anchor=west, black!70] at (3.4,-1.18) {near, ${\approx}3$\,m};
+  \node[anchor=north, align=center] at (2.8,-1.85)
+    {(a) the 25 sample locations for \emph{one} point,\\centred on that point's own $\mathbf{u}_0$};
+\end{scope}
+
+% ─────────── (b) samples become ratios ───────────
+\begin{scope}[xshift=7.9cm, yshift=1.15cm]
+  \node[anchor=south, align=center] at (2.1,4.55) {the 25 sampled depths (m)};
+  \foreach \c/\r in {0/0,1/0,2/0,3/0,4/0, 0/1,1/1,2/1,3/1,4/1, 2/2,3/2,4/2, 4/3}
+    \fill[cInput!28, draw=black!35] (\c*0.84,{3.7-\r*0.84}) rectangle ++(0.8,0.8);
+  \foreach \c/\r in {0/2,1/2, 0/3,1/3,2/3,3/3, 0/4,1/4,2/4,3/4,4/4}
+    \fill[black!10, draw=black!35] (\c*0.84,{3.7-\r*0.84}) rectangle ++(0.8,0.8);
+  \draw[black!60, thick] (0,{3.7+0.8-2.05*0.84}) -- (4.2,{3.7+0.8-0.95*0.84});
+  \draw[cTrain, very thick] (2*0.84,{3.7-2*0.84}) rectangle ++(0.8,0.8);
+  \node at (0.4,4.1)  {$8.0$};
+  \node at (3.8,4.1)  {$8.0$};
+  \node[cTrain!80!black] at (2.08,2.42) {$3.1$};
+  \node at (0.4,1.58) {$3.0$};
+  \node[anchor=west, black!65] at (4.35,2.42) {centre};
+
+  \draw[-{Stealth[length=2mm]}, thick] (1.68,0.15) -- (1.68,-0.6)
+    node[midway, right, xshift=1.5mm, align=left] {divide every cell\\by the centre, $3.1$};
+
+  \foreach \c/\r in {0/0,1/0,2/0,3/0,4/0, 0/1,1/1,2/1,3/1,4/1, 2/2,3/2,4/2, 4/3}
+    \fill[cInput!28, draw=black!35] (\c*0.84,{-1.5-\r*0.84}) rectangle ++(0.8,0.8);
+  \foreach \c/\r in {0/2,1/2, 0/3,1/3,2/3,3/3, 0/4,1/4,2/4,3/4,4/4}
+    \fill[black!10, draw=black!35] (\c*0.84,{-1.5-\r*0.84}) rectangle ++(0.8,0.8);
+  \draw[black!60, thick] (0,{-1.5+0.8-2.05*0.84}) -- (4.2,{-1.5+0.8-0.95*0.84});
+  \draw[cTrain, very thick] (2*0.84,{-1.5-2*0.84}) rectangle ++(0.8,0.8);
+  \node at (0.4,-1.1)  {$2.58$};
+  \node at (3.8,-1.1)  {$2.58$};
+  \node[cTrain!80!black] at (2.08,-2.78) {$1.00$};
+  \node at (0.4,-3.62) {$0.97$};
+  \node[anchor=north, align=center] at (2.1,-5.0)
+    {(b) the 25 ratios; the centre is exactly $1$ and the\\
+     $2.6\times$ step across the line is the object boundary};
+\end{scope}
+\end{tikzpicture}
+\caption{How one point's depth patch is built. (a) The five per-axis offsets $\{-2,-1,0,1,2\}$ live
+in \texttt{grid\_sample}'s normalised frame at a step of $2/14$ --- one Depth-Anything-3 patch
+stride, which is $64$\,px at our $896$-px input --- so the 25 locations span a $256{\times}256$-px
+window. The offsets are shared by every point; the \emph{centre} is not, since each of the $N$ points
+is sampled at its own $\mathbf{u}_0$ in each frame. A location falling outside the image is clamped
+to the border rather than returned as $0$, because $0$ would read as a depth discontinuity that is
+not present. (b) The 25 sampled depths are divided by that point's \emph{own} centre sample, per
+point and per frame, never by a clip- or frame-level statistic. What reaches the network is therefore
+local depth \emph{structure}: the ratios do not change if the whole neighbourhood moves nearer or
+further, while the surface boundary survives as a large step. Only five of the 25 cells are labelled,
+to keep the grids readable. An occluded point is zeroed entirely instead, because a centre of $1$ is
+exactly what smooth geometry produces and would be read as an observation.}
+\label{fig:depth-patch-build}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[font=\footnotesize,
+  tok/.style={draw=black!45, minimum height=5mm, minimum width=6mm, inner sep=1pt},
+  blk/.style={draw=black!60, fill=cTrain!12, rounded corners, minimum height=7mm, align=center},
+  lbl/.style={black!60}]
+
+% ── one token: what a single (point, frame) carries ──
+\node[anchor=west] at (-0.2,4.4) {\textbf{one token} $=$ one point in one frame};
+\node[tok, fill=black!8,    anchor=west] (ray)  at (0,3.6) {$\mathbf{r}$};
+\node[tok, fill=black!8,    right=0.6mm of ray]   (zr)   {$z/z_{\mathrm{ref}}$};
+\node[tok, fill=black!8,    right=0.6mm of zr]    (vis)  {vis};
+\node[tok, fill=cInput!30, right=0.6mm of vis, minimum width=26mm] (pat) {depth patch};
+\node[tok, fill=cInput!18, right=0.6mm of pat, minimum width=22mm] (din) {DINOv3};
+\foreach \n/\d in {ray/2, zr/1, vis/1, pat/25, din/64}
+  \node[lbl, below=0.5mm of \n] {\d};
+\node[lbl, anchor=west] at (9.7,3.6) {$=93$};
+
+% ── embed ──
+\node[blk, below=8mm of pat.south, xshift=-6mm] (emb) {MLP embed $\to 128$};
+\draw[-{Stealth[length=2mm]}, black!70] (pat.south) ++(0,-0.55) -- (emb.north);
+
+% ── the N x F token grid, folded to per-point sequences ──
+\node[anchor=west] at (-0.2,0.55) {\textbf{all tokens}: $N$ points $\times$ $F$ frames};
+\begin{scope}[yshift=-1.1cm]
+  % \ifcase inside \foreach does not expand reliably; carry the label in the loop instead
+  \foreach \n/\plab in {0/1, 1/2, 2/{$N$}} {
+    \foreach \f in {0,1,2,3,4} {
+      \fill[cInput!25, draw=black!35] (\f*0.78, -\n*0.62) rectangle ++(0.66,0.5);
+    }
+    \draw[-{Stealth[length=2mm]}, cTrain!85!black, thick]
+      (-0.12,-\n*0.62+0.25) -- (4.05,-\n*0.62+0.25);
+    \node[lbl, anchor=east] at (-0.25,-\n*0.62+0.25) {point \plab};
+  }
+  \node[lbl, anchor=north] at (1.95,-2.05) {frames $1\ldots F$ (the only axis mixed)};
+  \node[blk, anchor=west, minimum height=19mm, text width=34mm] at (5.0,-0.65)
+    {fold to $(BN,F,128)$\\[1mm] Mamba-3 mixes \emph{along $F$ only}};
+  \draw[-{Stealth[length=2mm]}, black!70] (4.25,-0.65) -- (4.95,-0.65);
+  \node[anchor=west, align=left, text width=42mm] at (9.0,-0.65)
+    {\textcolor{black!75}{no arrow crosses points:}\\ point $n$ never sees point $n'$};
+\end{scope}
+\end{tikzpicture}
+\caption{How the patch reaches the operator. The 25 ratios are concatenated with the ray, the depth
+ratio and the visibility flag into a $93$-dimensional token, one per point per frame, which an MLP
+embeds to $128$. The $(B,F,N,128)$ tensor is then folded to $(BN,F,128)$, so each of the $BN$ rows is
+one point's trajectory and the operator mixes \emph{only} along $F$. Two consequences follow, and
+together they are why the patch exists. Nothing crosses between points, which is exactly the
+limitation the frame-level de-flicker stage of \S\ref{sec:v44} exists to remove; and because the
+operator has no spatial axis, the only spatial context available is whatever each token already
+carries --- the $5{\times}5$ patch and the DINOv3 feature.}
+\label{fig:depth-patch-route}
+\end{figure}
+
+
 \paragraph{1. The 25 offsets are built once, in normalised coordinates.} The five per-axis offsets
 are $(\{0,1,2,3,4\}-2)\cdot\tfrac{2}{14}$, and a \texttt{meshgrid} turns them into $k^2=25$ pairs
 $(\Delta x,\Delta y)$. They live in \texttt{grid\_sample}'s normalised frame, where $[-1,1]$ spans

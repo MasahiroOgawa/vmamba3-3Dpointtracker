@@ -743,7 +743,8 @@ v35 gives it that context through two new per-track inputs:
   $1$), and concatenate all 25 into the SSM input. Passing ratios rather than raw depths lets the SSM
   read local depth \emph{structure} --- the relative jumps that mark object boundaries --- independent
   of how far away the point is; this is the depth-discontinuity cue that v32 lacked and overshot
-  without.
+  without. \S\ref{sec:depth-patch-mechanics} gives the construction and the shape of every tensor
+  involved, since ``a $5{\times}5$ patch per point'' leaves the indexing ambiguous.
 \end{itemize}
 
 A second output head (also zero-initialised) predicts a 2D correction $\Delta\mathbf{u}$. Its raw
@@ -896,6 +897,95 @@ recovered from this temporal pattern. The frozen ray guarantees the multi-frame 
 depth along each point's fixed line of sight, so it stays geometrically consistent frame-to-frame.
 
 % -----------------------------------------------------------------------
+\subsubsection{How the depth patch is built and how it reaches the operator}
+\label{sec:depth-patch-mechanics}
+
+``A $5{\times}5$ depth patch per point'' understates the indexing, so this records the construction
+exactly as \texttt{Mamba3V35Refiner.\_extract\_depth\_patch} performs it. Write $B$ for clips in the
+batch, $F$ for frames, $N$ for tracked points, $k=5$, and $(H_d,W_d)$ for the cached depth map's
+resolution.
+
+\paragraph{1. The 25 offsets are built once, in normalised coordinates.} The five per-axis offsets
+are $(\{0,1,2,3,4\}-2)\cdot\tfrac{2}{14}$, and a \texttt{meshgrid} turns them into $k^2=25$ pairs
+$(\Delta x,\Delta y)$. They live in \texttt{grid\_sample}'s normalised frame, where $[-1,1]$ spans
+the whole image, so a step of $2/14$ is exactly one fourteenth of the image extent --- one
+Depth-Anything-3 patch stride. This is why the offsets are defined normalised rather than in pixels:
+the spacing is tied to the \emph{input image}, and the same 25 offsets stay correct whatever
+$(H_d,W_d)$ the depth cache happens to have. The $64$\,px figure quoted above is that fraction
+measured in $896$-px input coordinates, not in depth-map pixels.
+
+\paragraph{2. Each point's pixel becomes the grid centre.} The tracked pixels
+$\mathbf{u}\in\mathbb{R}^{B\times F\times N\times 2}$, in input-image pixels, are normalised by
+$\tilde{\mathbf{u}} = 2\mathbf{u}/\text{image\_size}-1$, then broadcast against the offsets:
+%
+\[
+  \text{grid}[b,f,n,j] \;=\; \tilde{\mathbf{u}}[b,f,n] \;+\; (\Delta x_j,\Delta y_j),
+  \qquad j = 1..25 .
+\]
+%
+Every one of the $N$ points therefore carries its \emph{own} $5{\times}5$ grid, centred on wherever
+that point currently sits in that frame --- the offsets are shared, the centres are not. The result
+is flattened to $(BF,\,1,\,N k^2,\,2)$ so that a single \texttt{grid\_sample} call samples all
+points of all frames at once.
+
+\paragraph{3. One bilinear sample per grid location.} The depth map is reshaped to $(BF,1,H_d,W_d)$
+and sampled with \texttt{mode="bilinear"} and \texttt{padding\_mode="border"}. The border mode
+matters for points near an image edge: an offset can fall outside the image, and rather than
+returning $0$ --- which the network would read as a depth discontinuity that is not there --- the
+sampler clamps to the nearest valid pixel. The output is reshaped back to $(B,F,N,k^2)$.
+
+\paragraph{4. Ratios, taken against the centre of that point's own grid.} Element $k^2/2=12$ is the
+centre sample. Dividing the whole 25-vector by it gives the scale-invariant ratios described above,
+with the centre exactly $1$. The division is per $(b,f,n)$: each point is normalised by \emph{its
+own} depth in \emph{that} frame, never by a clip-level or frame-level statistic.
+
+\paragraph{5. Invisible points are zeroed, not left at ratio 1.} The patch is multiplied by the
+visibility flag, so an occluded point contributes an all-zero 25-vector rather than a vector whose
+centre is $1$. That distinction is deliberate: $\mathbf{0}$ is a value the model cannot mistake for
+observed flat geometry, whereas a centre of $1$ is exactly what a smooth surface produces.
+
+\paragraph{6. The patch is concatenated per point, per frame.} The 25 ratios join the other
+per-point inputs along the feature axis,
+%
+\[
+  \underbrace{\mathbf{r}}_{2}
+  \;\Vert\; \underbrace{z^{\mathrm{raw}}/z_{\mathrm{ref}}}_{1}
+  \;\Vert\; \underbrace{\text{vis}}_{1}
+  \;\Vert\; \underbrace{\text{patch}}_{25}
+  \;\Vert\; \underbrace{\text{DINOv3}}_{64}
+  \;=\; 93 \text{ dims},
+\]
+%
+giving $(B,F,N,93)$, which the input MLP embeds to $(B,F,N,D)$ with $D=128$.
+
+\paragraph{7. Every point is its own sequence.} The embedded tensor is permuted and folded as
+$(B,F,N,D)\to(BN,F,D)$ before the Mamba-3 layers run. Each of the $BN$ rows is one point's
+trajectory over $F$ frames, and the operator mixes \emph{only} along $F$. Two consequences follow,
+and they are the reason the patch exists at all. First, no information crosses between points: point
+$n$'s prediction never sees point $n'$'s patch, which is precisely the limitation that motivates the
+frame-level de-flicker stage of \S\ref{sec:v44}. Second, spatial context reaches the model only
+through what is packed into each token --- the $5{\times}5$ patch and the DINOv3 feature --- because
+the operator itself has no spatial axis to mix over. After the layers the tensor is unfolded back to
+$(B,F,N,D)$ for the two output heads.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+stage & shape & note \\
+\midrule
+offsets                & $(25,2)$              & shared by every point, normalised units \\
+tracked pixels         & $(B,F,N,2)$           & input-image pixels \\
+sample grid            & $(BF,1,N{\cdot}25,2)$ & one grid per point per frame \\
+sampled depths         & $(B,F,N,25)$          & bilinear, border-clamped \\
+ratios                 & $(B,F,N,25)$          & divided by element 12, then $\times$ vis \\
+concatenated features  & $(B,F,N,93)$          & $2+1+1+25+64$ \\
+embedded               & $(B,F,N,128)$         & input MLP \\
+into the operator      & $(BN,F,128)$          & one sequence per point \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
 \subsection{v36: bidirectional flow}
 \label{sec:v36}
 

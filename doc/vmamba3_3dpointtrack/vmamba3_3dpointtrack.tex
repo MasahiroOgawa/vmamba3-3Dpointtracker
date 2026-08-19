@@ -909,63 +909,67 @@ resolution.
 \centering
 \begin{tikzpicture}[font=\footnotesize]
 % ─────────── (a) where the 25 samples land ───────────
+% Geometry note: the boundary runs BETWEEN sample columns 2 and 3, so every sample is
+% unambiguously on one side and panel (b)'s colouring is the same pattern, column for column.
 \begin{scope}
   \fill[black!10] (0,0) rectangle (5.6,5.6);
-  \fill[cInput!28] (0,5.6) -- (5.6,5.6) -- (5.6,3.0) -- (0,1.4) -- cycle;
+  \fill[cInput!28] (3.25,0) -- (5.6,0) -- (5.6,5.6) -- (3.45,5.6) -- cycle;
   \draw[black!35] (0,0) rectangle (5.6,5.6);
   \foreach \i in {0.7,1.4,2.1,2.8,3.5,4.2,4.9} {
     \draw[black!12] (\i,0) -- (\i,5.6);
     \draw[black!12] (0,\i) -- (5.6,\i);
   }
-  \draw[black!60, thick] (0,1.4) -- (5.6,3.0);
+  \draw[black!60, thick] (3.25,0) -- (3.45,5.6);
   \foreach \dx in {-2,-1,0,1,2} {
     \foreach \dy in {-2,-1,0,1,2} {
       \fill[black!80] ({2.8+\dx*1.05},{2.8+\dy*1.05}) circle (1.7pt);
     }
   }
   \fill[cTrain] (2.8,2.8) circle (3pt);
-  \node[anchor=west, cTrain!80!black] at (3.0,2.55) {$\mathbf{u}_0$};
+  \node[anchor=east, cTrain!80!black] at (2.62,2.52) {$\mathbf{u}_0$};
   \draw[{Stealth[length=1.6mm]}-{Stealth[length=1.6mm]}, black!75]
-    (1.75,4.95) -- (2.8,4.95) node[midway, above, yshift=-0.3mm] {$64$\,px};
+    (1.75,5.15) -- (2.8,5.15) node[midway, above, yshift=-0.4mm] {$64$\,px};
   \draw[{Stealth[length=1.6mm]}-{Stealth[length=1.6mm]}, black!75]
     (0.7,-0.45) -- (4.9,-0.45) node[midway, below] {$256$\,px};
-  % legend kept OUTSIDE the image square so nothing can overlap the samples
-  \fill[cInput!28, draw=black!35] (0,-1.35) rectangle ++(0.42,0.34);
-  \node[anchor=west, black!70] at (0.5,-1.18) {far, ${\approx}8$\,m};
-  \fill[black!10, draw=black!35] (2.9,-1.35) rectangle ++(0.42,0.34);
-  \node[anchor=west, black!70] at (3.4,-1.18) {near, ${\approx}3$\,m};
-  \node[anchor=north, align=center] at (2.8,-1.85)
+  \fill[black!10, draw=black!35] (0,-1.4) rectangle ++(0.42,0.34);
+  \node[anchor=west, black!70] at (0.5,-1.23) {near, ${\approx}3$\,m};
+  \fill[cInput!28, draw=black!35] (3.0,-1.4) rectangle ++(0.42,0.34);
+  \node[anchor=west, black!70] at (3.5,-1.23) {far, ${\approx}8$\,m};
+  \node[anchor=north, align=center] at (2.8,-1.95)
     {(a) the 25 sample locations for \emph{one} point,\\centred on that point's own $\mathbf{u}_0$};
 \end{scope}
 
 % ─────────── (b) samples become ratios ───────────
+% Columns 0-2 near, columns 3-4 far: the same split as (a), read column for column.
 \begin{scope}[xshift=7.9cm, yshift=1.15cm]
-  \node[anchor=south, align=center] at (2.1,4.55) {the 25 sampled depths (m)};
-  \foreach \c/\r in {0/0,1/0,2/0,3/0,4/0, 0/1,1/1,2/1,3/1,4/1, 2/2,3/2,4/2, 4/3}
-    \fill[cInput!28, draw=black!35] (\c*0.84,{3.7-\r*0.84}) rectangle ++(0.8,0.8);
-  \foreach \c/\r in {0/2,1/2, 0/3,1/3,2/3,3/3, 0/4,1/4,2/4,3/4,4/4}
+  \node[anchor=south] at (2.1,4.55) {the 25 sampled depths (m)};
+  \foreach \c in {0,1,2} \foreach \r in {0,1,2,3,4}
     \fill[black!10, draw=black!35] (\c*0.84,{3.7-\r*0.84}) rectangle ++(0.8,0.8);
-  \draw[black!60, thick] (0,{3.7+0.8-2.05*0.84}) -- (4.2,{3.7+0.8-0.95*0.84});
+  \foreach \c in {3,4} \foreach \r in {0,1,2,3,4}
+    \fill[cInput!28, draw=black!35] (\c*0.84,{3.7-\r*0.84}) rectangle ++(0.8,0.8);
+  \draw[black!60, thick] (2.52,{3.7-4*0.84}) -- (2.52,{3.7+0.8});
   \draw[cTrain, very thick] (2*0.84,{3.7-2*0.84}) rectangle ++(0.8,0.8);
-  \node at (0.4,4.1)  {$8.0$};
-  \node at (3.8,4.1)  {$8.0$};
+  \node at (0.4,4.1)  {$3.0$};
+  \node at (3.76,4.1) {$8.0$};
   \node[cTrain!80!black] at (2.08,2.42) {$3.1$};
-  \node at (0.4,1.58) {$3.0$};
+  \node at (0.4,0.74) {$3.0$};
+  \node at (3.76,0.74) {$8.0$};
   \node[anchor=west, black!65] at (4.35,2.42) {centre};
 
   \draw[-{Stealth[length=2mm]}, thick] (1.68,0.15) -- (1.68,-0.6)
     node[midway, right, xshift=1.5mm, align=left] {divide every cell\\by the centre, $3.1$};
 
-  \foreach \c/\r in {0/0,1/0,2/0,3/0,4/0, 0/1,1/1,2/1,3/1,4/1, 2/2,3/2,4/2, 4/3}
-    \fill[cInput!28, draw=black!35] (\c*0.84,{-1.5-\r*0.84}) rectangle ++(0.8,0.8);
-  \foreach \c/\r in {0/2,1/2, 0/3,1/3,2/3,3/3, 0/4,1/4,2/4,3/4,4/4}
+  \foreach \c in {0,1,2} \foreach \r in {0,1,2,3,4}
     \fill[black!10, draw=black!35] (\c*0.84,{-1.5-\r*0.84}) rectangle ++(0.8,0.8);
-  \draw[black!60, thick] (0,{-1.5+0.8-2.05*0.84}) -- (4.2,{-1.5+0.8-0.95*0.84});
+  \foreach \c in {3,4} \foreach \r in {0,1,2,3,4}
+    \fill[cInput!28, draw=black!35] (\c*0.84,{-1.5-\r*0.84}) rectangle ++(0.8,0.8);
+  \draw[black!60, thick] (2.52,{-1.5-4*0.84}) -- (2.52,{-1.5+0.8});
   \draw[cTrain, very thick] (2*0.84,{-1.5-2*0.84}) rectangle ++(0.8,0.8);
-  \node at (0.4,-1.1)  {$2.58$};
-  \node at (3.8,-1.1)  {$2.58$};
+  \node at (0.4,-1.1)  {$0.97$};
+  \node at (3.76,-1.1) {$2.58$};
   \node[cTrain!80!black] at (2.08,-2.78) {$1.00$};
-  \node at (0.4,-3.62) {$0.97$};
+  \node at (0.4,-4.46) {$0.97$};
+  \node at (3.76,-4.46){$2.58$};
   \node[anchor=north, align=center] at (2.1,-5.0)
     {(b) the 25 ratios; the centre is exactly $1$ and the\\
      $2.6\times$ step across the line is the object boundary};
@@ -975,14 +979,17 @@ resolution.
 in \texttt{grid\_sample}'s normalised frame at a step of $2/14$ --- one Depth-Anything-3 patch
 stride, which is $64$\,px at our $896$-px input --- so the 25 locations span a $256{\times}256$-px
 window. The offsets are shared by every point; the \emph{centre} is not, since each of the $N$ points
-is sampled at its own $\mathbf{u}_0$ in each frame. A location falling outside the image is clamped
-to the border rather than returned as $0$, because $0$ would read as a depth discontinuity that is
-not present. (b) The 25 sampled depths are divided by that point's \emph{own} centre sample, per
-point and per frame, never by a clip- or frame-level statistic. What reaches the network is therefore
-local depth \emph{structure}: the ratios do not change if the whole neighbourhood moves nearer or
-further, while the surface boundary survives as a large step. Only five of the 25 cells are labelled,
-to keep the grids readable. An occluded point is zeroed entirely instead, because a centre of $1$ is
-exactly what smooth geometry produces and would be read as an observation.}
+is sampled at its own $\mathbf{u}_0$ in each frame. Here the boundary falls between the third and
+fourth sample columns, so the tracked point and the two columns left of it read the near surface and
+the two right of it read the background; panel (b) shows the same split column for column. A location
+falling outside the image is clamped to the border rather than returned as $0$, because $0$ would
+read as a depth discontinuity that is not present. (b) The 25 sampled depths are divided by that
+point's \emph{own} centre sample, per point and per frame, never by a clip- or frame-level statistic.
+What reaches the network is therefore local depth \emph{structure}: the ratios do not change if the
+whole neighbourhood moves nearer or further, while the boundary survives as a $2.6\times$ step. Only
+the corner and centre cells are labelled, to keep the grids readable. An occluded point is zeroed
+entirely instead, because a centre of $1$ is exactly what smooth geometry produces and would be read
+as an observation.}
 \label{fig:depth-patch-build}
 \end{figure}
 

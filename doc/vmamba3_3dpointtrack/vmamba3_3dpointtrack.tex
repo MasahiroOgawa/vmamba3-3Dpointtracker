@@ -2987,6 +2987,97 @@ Combined with the accuracy advantage on the absolute metric
 see \S\ref{sec:trackcraft3r}),
 our pipeline is competitive on both quality and efficiency axes.
 
+\section{The WAFT-trained arms v57--v60, and why their numbers are not usable}
+\label{sec:waft-trained-arms}
+
+v57--v60 hold the flow front-end fixed at WAFT for \emph{both} training and evaluation, which is the
+only configuration that answers ``how good is this pipeline on WAFT'' and the correction the
+mismatched rows of \S\ref{sec:searaft-trained-waft-eval} called for. All four completed on
+2026-08-21, over all $25814$ minival frames with zero failures.
+
+\begin{center}
+\begin{tabular}{llcccc}
+\toprule
+arm & configuration & drivetrack & pstudio & adt & mean \\
+\midrule
+v57 & DA3-l, 1 pool               & $0.1471$ & $0.2819$ & $\mathbf{0.3223}$ & $0.2504$ \\
+v58 & DA3-l, 2 pool               & $0.1469$ & $\mathbf{0.2938}$ & $0.3115$ & $\mathbf{0.2507}$ \\
+v59 & DA3-g $+$ de-flicker, 1 pool & $\mathbf{0.1558}$ & $0.2130$ & $0.2893$ & $0.2194$ \\
+v60 & DA3-g $+$ de-flicker, 2 pool & $0.1552$ & $0.2182$ & $0.2898$ & $0.2211$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Two things stand out, and the second explains the first. The second pool's advantage
+collapses from $+0.0102$ under the mismatched protocol (v51 against v39) to $+0.0003$ here (v58
+against v57), and the DA3-g arms come out \emph{below} the mismatched v45's $0.2320$ rather than
+above it. Training on the stronger front-end made the pipeline worse, which cannot be right.
+
+\subsection{The cause: the training path slices a full-clip track into a window that does not
+contain its anchor}
+\label{sec:waft-train-anchor-bug}
+
+The two front-ends reach the refiner by different routes in \texttt{\_run\_flow\_batch}, and only
+one of them is anchored correctly.
+
+\begin{itemize}
+  \item \textbf{SEA-RAFT} calls \texttt{track\_clip} on the \emph{window's} frames, with the anchor
+    shifted to window-relative coordinates and clamped into range. Propagation is therefore at most
+    \texttt{window\_size} $=24$ frames.
+  \item \textbf{WAFT} reads a track precomputed over the \emph{whole clip}, anchored at the true
+    query frame, and slices \texttt{[start\,:\,start+F]}. Propagation is
+    $|\text{start}+f-\text{anchor}|$, which is unbounded.
+\end{itemize}
+
+\noindent A WAFT track is exact at its anchor and degrades with distance from it. Measured against
+ground truth on \texttt{adt} and \texttt{pstudio} clips:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+frames from the anchor & \texttt{adt} & \texttt{pstudio} \\
+\midrule
+$0$ (the anchor itself) & $0.0$\,px  & $0.0$\,px \\
+$1$--$8$                & $1.0$\,px  & $1.1$\,px \\
+$9$--$32$               & $2.9$\,px  & $4.0$\,px \\
+$\geq 33$               & $\mathbf{158.2}$\,px & $\mathbf{18.8}$\,px \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The training window is a \emph{random} 24-frame slice: \texttt{start} is drawn uniformly
+from $[0, F_{\text{total}}-24]$. On a 300-frame \texttt{adt} clip almost every draw lands more than
+$33$ frames from the anchor, so the refiner was fed 2-D positions a median $158$\,px from the true
+point while being supervised against the true 3-D target. It was asked to output the correct
+position for a pixel that is not on the object, and the loss penalised it either way; what it could
+learn from that is mostly noise. The SEA-RAFT branch, re-anchoring inside the window, presented the
+same task at $1$--$4$\,px.
+
+The dataset's own fallback makes it worse rather than better: when no query's anchor falls inside the
+window, every anchor is re-cast to the window's first frame. That is harmless for a front-end tracked
+live inside the window and actively wrong for a precomputed full-clip track, which is still anchored
+where it always was.
+
+\paragraph{This is consistent with every number above.} \texttt{adt} carries the largest drift and is
+where v58 loses to v57 ($0.3115$ against $0.3223$); \texttt{pstudio}'s drift is an order of magnitude
+smaller and is where v58 gains ($0.2938$ against $0.2819$). The DA3-g arms fall furthest below their
+mismatched predecessor because the de-flicker stage is fed the same corrupted positions twice, once
+per stage.
+
+\paragraph{What the four numbers do and do not support.} v57--v60 share one protocol, so comparisons
+\emph{among} them remain internally valid --- but all four are trained on badly drifted 2-D input, so
+they measure the refiner under a handicap rather than the pipeline. In particular the $+0.0003$
+two-pool delta is not evidence that the second pool does not help: with the training signal largely
+noise, no mixer difference could express itself. These rows must not replace the paper's numbers, and
+they are recorded here as a diagnosed failure rather than as a result.
+
+\paragraph{The fix.} Restrict window sampling to windows that contain a query anchor whenever a
+precomputed full-clip track is used, so the slice inherits the $1$--$4$\,px regime the SEA-RAFT path
+already enjoys, and drop the anchor re-cast fallback for that case instead of silently relabelling
+frames. Re-running the four arms afterwards is what will finally answer the question the sweep was
+built for.
+
+
 \section{History: the SEA-RAFT-trained, WAFT-evaluated rows}
 \label{sec:searaft-trained-waft-eval}
 

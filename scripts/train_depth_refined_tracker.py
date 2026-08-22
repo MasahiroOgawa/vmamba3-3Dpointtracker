@@ -635,6 +635,7 @@ def main() -> int:
             vmamba3_patch=int(model_cfg.get("vmamba3_patch", 14)),
             vmamba3_grid=int(model_cfg.get("vmamba3_grid", 32)),
             two_pool=bool(model_cfg.get("two_pool", False)),
+            gate_by_vis=bool(model_cfg.get("gate_by_vis", True)),
         ).to(device)
         loss_fn = TrackingLossV35(
             weights=loss_cfg["weights"], image_size=image_size
@@ -657,6 +658,7 @@ def main() -> int:
             dino_image_size=int(model_cfg.get("dino_image_size", 448)),
             image_size=int(model_cfg.get("image_size", 896)),
             two_pool=bool(model_cfg.get("two_pool", False)),
+            gate_by_vis=bool(model_cfg.get("gate_by_vis", True)),
         ).to(device)
         loss_fn = TrackingLossV35(
             weights=loss_cfg["weights"], image_size=image_size
@@ -679,6 +681,7 @@ def main() -> int:
             dino_image_size=int(model_cfg.get("dino_image_size", 448)),
             image_size=int(model_cfg.get("image_size", 896)),
             two_pool=bool(model_cfg.get("two_pool", False)),
+            gate_by_vis=bool(model_cfg.get("gate_by_vis", True)),
             pose_head=True,
         ).to(device)
         loss_fn = TrackingLossV47(

@@ -167,6 +167,7 @@ class Mamba3V35Refiner(nn.Module):
         max_scale_correction: float = 0.5,
         within_frame: bool = False,
         pose_head: bool = False,
+        gate_by_vis: bool = True,
         feat_encoder: str = "dinov3",
         vmamba3_dim: int = 384,
         vmamba3_heads: int = 6,
@@ -180,6 +181,10 @@ class Mamba3V35Refiner(nn.Module):
         self.max_log_correction = float(max_log_correction)
         self.max_delta_uv = float(max_delta_uv)
         self.patch_size = int(patch_size)
+        # Zeroing the patch/appearance inputs of an occluded point is honest, but it also removes
+        # that token from the temporal pool. A more accurate visibility flag therefore feeds the
+        # operator strictly less signal, which is the effect this switch exists to measure.
+        self.gate_by_vis = bool(gate_by_vis)
         self.image_size = float(image_size)
         self.per_frame_scale = bool(per_frame_scale)
         self.max_scale_correction = float(max_scale_correction)
@@ -341,7 +346,7 @@ class Mamba3V35Refiner(nn.Module):
     ) -> TrackerOutputs:
         B, F_, N, _ = ray.shape
 
-        vis_gate = vis.unsqueeze(-1)  # (B,F,N,1)
+        vis_gate = vis.unsqueeze(-1) if self.gate_by_vis else torch.ones_like(vis).unsqueeze(-1)
         depth_patch = self._extract_depth_patch(depth_map, uv) * vis_gate
         dino_feat = self._sample_dino(images, uv) * vis_gate
 
@@ -578,6 +583,7 @@ class Mamba3V45(nn.Module):
         image_size: int = 896,
         pose_head: bool = False,
         two_pool: bool = False,
+        gate_by_vis: bool = True,
     ) -> None:
         super().__init__()
         # two_pool reaches both stages: the de-flicker mixer and the refiner both use the
@@ -589,7 +595,8 @@ class Mamba3V45(nn.Module):
             num_layers=num_layers,
             max_scale_correction=max_scale_correction,
             two_pool=two_pool,
-        )
+        )  # the de-flicker aggregates over visible points per frame; its use of `vis` is a
+           # different mechanism from the refiner's token gate and is left alone by this switch
         self.v35 = Mamba3V35Refiner(
             dim=dim,
             state_dim=state_dim,
@@ -605,6 +612,7 @@ class Mamba3V45(nn.Module):
             per_frame_scale=False,
             pose_head=pose_head,
             two_pool=two_pool,
+            gate_by_vis=gate_by_vis,
         )
 
     def forward(

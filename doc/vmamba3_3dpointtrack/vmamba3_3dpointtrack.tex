@@ -2987,96 +2987,102 @@ Combined with the accuracy advantage on the absolute metric
 see \S\ref{sec:trackcraft3r}),
 our pipeline is competitive on both quality and efficiency axes.
 
-\section{The WAFT-trained arms v57--v60, and why their numbers are not usable}
+\section{The WAFT-trained arms v57--v62, and what the regression turned out to be}
 \label{sec:waft-trained-arms}
 
 v57--v60 hold the flow front-end fixed at WAFT for \emph{both} training and evaluation, which is the
-only configuration that answers ``how good is this pipeline on WAFT'' and the correction the
-mismatched rows of \S\ref{sec:searaft-trained-waft-eval} called for. All four completed on
-2026-08-21, over all $25814$ minival frames with zero failures.
+configuration \S\ref{sec:searaft-trained-waft-eval} called for. All completed 2026-08-21 over all
+$25814$ minival frames with zero failures. v62, added later, is the arm that identified the cause.
 
 \begin{center}
-\begin{tabular}{llcccc}
+\begin{tabular}{llccccc}
 \toprule
-arm & configuration & drivetrack & pstudio & adt & mean \\
+arm & depth backbone & de-flicker & pools & trained on & mean metric-AJ \\
 \midrule
-v57 & DA3-l, 1 pool               & $0.1471$ & $0.2819$ & $\mathbf{0.3223}$ & $0.2504$ \\
-v58 & DA3-l, 2 pool               & $0.1469$ & $\mathbf{0.2938}$ & $0.3115$ & $\mathbf{0.2507}$ \\
-v59 & DA3-g $+$ de-flicker, 1 pool & $\mathbf{0.1558}$ & $0.2130$ & $0.2893$ & $0.2194$ \\
-v60 & DA3-g $+$ de-flicker, 2 pool & $0.1552$ & $0.2182$ & $0.2898$ & $0.2211$ \\
+v39 & DA3-l & --- & 1 & SEA-RAFT & $0.2459$ \\
+v57 & DA3-l & --- & 1 & WAFT     & $\mathbf{0.2504}$ \\
+v58 & DA3-l & --- & 2 & WAFT     & $0.2507$ \\
+\midrule
+v42 & DA3-g & no  & 1 & SEA-RAFT & $0.2246$ \\
+v45 & DA3-g & yes & 1 & SEA-RAFT & $\mathbf{0.2320}$ \\
+v59 & DA3-g & yes & 1 & WAFT     & $0.2194$ \\
+v60 & DA3-g & yes & 2 & WAFT     & $0.2211$ \\
+v62 & DA3-g & \textbf{no} & 2 & WAFT & $0.2228$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent Two things stand out, and the second explains the first. The second pool's advantage
-collapses from $+0.0102$ under the mismatched protocol (v51 against v39) to $+0.0003$ here (v58
-against v57), and the DA3-g arms come out \emph{below} the mismatched v45's $0.2320$ rather than
-above it. Training on the stronger front-end made the pipeline worse, which cannot be right.
+\noindent Every baseline was re-scored on the same evaluation tracks as the arm it is compared
+against, so none of these differences is a track artefact: v45 gave $0.2320$ on both the old and the
+regenerated tracks, and v39 gave $0.2459$ against its published $0.2458$.
 
-\subsection{The cause: the training path slices a full-clip track into a window that does not
-contain its anchor}
-\label{sec:waft-train-anchor-bug}
+\subsection{WAFT training does not hurt the refiner; it costs the de-flicker stage's contribution}
+\label{sec:waft-deflicker-silent}
 
-The two front-ends reach the refiner by different routes in \texttt{\_run\_flow\_batch}, and only
-one of them is anchored correctly.
+The first reading of these numbers was that WAFT training makes the pipeline worse, which cannot be
+right for a stronger front-end. Splitting by backbone shows it is not what happens.
 
 \begin{itemize}
-  \item \textbf{SEA-RAFT} calls \texttt{track\_clip} on the \emph{window's} frames, with the anchor
-    shifted to window-relative coordinates and clamped into range. Propagation is therefore at most
-    \texttt{window\_size} $=24$ frames.
-  \item \textbf{WAFT} reads a track precomputed over the \emph{whole clip}, anchored at the true
-    query frame, and slices \texttt{[start\,:\,start+F]}. Propagation is
-    $|\text{start}+f-\text{anchor}|$, which is unbounded.
+  \item On \textbf{DA3-l}, which has no de-flicker stage, WAFT training \emph{helps}:
+    $0.2459\to0.2504$, $+0.0045$.
+  \item On \textbf{DA3-g without de-flicker}, it is neutral: $0.2246\to0.2228$, $-0.0018$.
+  \item On \textbf{DA3-g with de-flicker}, it appears to hurt: $0.2320\to0.2194$, $-0.0126$.
 \end{itemize}
 
-\noindent A WAFT track is exact at its anchor and degrades with distance from it. Measured against
-ground truth on \texttt{adt} and \texttt{pstudio} clips:
+\noindent The difference is entirely in what the de-flicker stage contributes:
+%
+\[
+  \text{SEA-RAFT-trained: } 0.2246 \to 0.2320 \;(+0.0074), \qquad
+  \text{WAFT-trained: } 0.2228 \to 0.2211 \;(-0.0017).
+\]
+%
+The stage is worth $+0.0074$ when the refiner is trained on SEA-RAFT and nothing at all when it is
+trained on WAFT. It is not harming the pipeline --- removing it entirely (v62) recovers only
+$+0.0017$ --- it has stopped working, and the contribution it used to make is what the $-0.0126$ is
+made of.
+
+A direct measurement of the stage agrees. Run on identical inputs, its per-frame log-scale output is
+$0.0006$ in the WAFT-trained model against $0.0191$ in v45, a thirty-fold reduction: a zero-initialised
+head that has stayed at zero.
+
+\paragraph{A candidate mechanism, not yet established.} The de-flicker estimates one scalar per frame
+by aggregating over the points marked \emph{visible} in that frame. WAFT declares $68.5\%$ of
+point-frames visible against SEA-RAFT's $85.6\%$ --- and is far more accurate in doing so, agreeing
+with ground truth $97.0\%$ of the time against $79.3\%$. The aggregate is therefore built from about
+a fifth fewer points, which is the condition under which a zero-initialised head learns to stay near
+zero. This is consistent with every measurement here but has not been tested.
+
+\subsection{Explanations that were proposed and eliminated}
+\label{sec:waft-eliminated}
+
+Recorded because each cost real time, and because the pattern --- a plausible mechanism supported by
+two measurements, then refuted by a third --- recurred often enough to be worth warning about.
 
 \begin{center}
-\begin{tabular}{lcc}
+\begin{tabular}{lll}
 \toprule
-frames from the anchor & \texttt{adt} & \texttt{pstudio} \\
+proposed cause & test & result \\
 \midrule
-$0$ (the anchor itself) & $0.0$\,px  & $0.0$\,px \\
-$1$--$8$                & $1.0$\,px  & $1.1$\,px \\
-$9$--$32$               & $2.9$\,px  & $4.0$\,px \\
-$\geq 33$               & $\mathbf{158.2}$\,px & $\mathbf{18.8}$\,px \\
+evaluation tracks differ    & v45 re-scored on the new tracks & $0.2320\to0.2320$ \\
+2-D input quality           & both branches, identical batches & WAFT better, $0.69$ vs $0.80$\,px \\
+arms not comparable         & config diff, code equivalences   & no mechanism; $\sim$$5\times10^{-6}$ \\
+visibility gate erases input& GT visibility at inference       & closes part, not the gap \\
+depth distribution differs  & $z$ sampled at each uv           & identical; $z_{\mathrm{ref}}$ ratio $0.9998$ \\
+systematic scale bias       & end-to-end $\log(z/z^{*})$       & both $\approx1.018\times$ \\
+temporal flicker            & error variance across frames     & WAFT smoother, $0.79\times$ \\
+de-flicker actively harmful & v62, stage removed               & $+0.0017$ only \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\noindent The training window is a \emph{random} 24-frame slice: \texttt{start} is drawn uniformly
-from $[0, F_{\text{total}}-24]$. On a 300-frame \texttt{adt} clip almost every draw lands more than
-$33$ frames from the anchor, so the refiner was fed 2-D positions a median $158$\,px from the true
-point while being supervised against the true 3-D target. It was asked to output the correct
-position for a pixel that is not on the object, and the loss penalised it either way; what it could
-learn from that is mostly noise. The SEA-RAFT branch, re-anchoring inside the window, presented the
-same task at $1$--$4$\,px.
-
-The dataset's own fallback makes it worse rather than better: when no query's anchor falls inside the
-window, every anchor is re-cast to the window's first frame. That is harmless for a front-end tracked
-live inside the window and actively wrong for a precomputed full-clip track, which is still anchored
-where it always was.
-
-\paragraph{This is consistent with every number above.} \texttt{adt} carries the largest drift and is
-where v58 loses to v57 ($0.3115$ against $0.3223$); \texttt{pstudio}'s drift is an order of magnitude
-smaller and is where v58 gains ($0.2938$ against $0.2819$). The DA3-g arms fall furthest below their
-mismatched predecessor because the de-flicker stage is fed the same corrupted positions twice, once
-per stage.
-
-\paragraph{What the four numbers do and do not support.} v57--v60 share one protocol, so comparisons
-\emph{among} them remain internally valid --- but all four are trained on badly drifted 2-D input, so
-they measure the refiner under a handicap rather than the pipeline. In particular the $+0.0003$
-two-pool delta is not evidence that the second pool does not help: with the training signal largely
-noise, no mixer difference could express itself. These rows must not replace the paper's numbers, and
-they are recorded here as a diagnosed failure rather than as a result.
-
-\paragraph{The fix.} Restrict window sampling to windows that contain a query anchor whenever a
-precomputed full-clip track is used, so the slice inherits the $1$--$4$\,px regime the SEA-RAFT path
-already enjoys, and drop the anchor re-cast fallback for that case instead of silently relabelling
-frames. Re-running the four arms afterwards is what will finally answer the question the sweep was
-built for.
-
+\noindent The flicker test deserves its own note, since it was the closest structural analogy
+available: if WAFT were better per frame but noisier across frames, a per-track refiner mixing along
+time could not see or repair that, exactly as \S\ref{sec:v44} describes for DA3-g's depth scale.
+Measured on tracks visible through a whole $24$-frame window, WAFT's 2-D error is not only smaller
+but moves less between frames --- flicker $0.79\times$ and frame-to-frame jerk $0.74\times$
+SEA-RAFT's, against a ground-truth motion of $3.21$\,px per frame. The analogy does not hold. One
+gap remains in that test: it uses only never-occluded tracks, so flicker localised at occlusion
+boundaries, where the two front-ends disagree most, would not appear in it.
 
 \section{History: the SEA-RAFT-trained, WAFT-evaluated rows}
 \label{sec:searaft-trained-waft-eval}
@@ -3085,7 +3091,7 @@ Every WAFT row recorded before v57 was \emph{trained} with the SEA-RAFT front-en
 \emph{evaluated} on WAFT. The refiner sees flow during training --- \texttt{track\_clip} runs inside
 the training loop --- so it learns one front-end's error characteristics and is then scored on a
 different one. That is a train/test mismatch, and those numbers are superseded by the WAFT-trained
-arms v57--v60. They are kept here, and only here: the paper carries the corrected numbers alone,
+arms v57--v62. They are kept here, and only here: the paper carries the corrected numbers alone,
 because a manuscript reports what the method does, not the order in which it was measured.
 
 \begin{center}
@@ -3098,7 +3104,7 @@ v39 & SEA-RAFT / WAFT     & $0.2458$ & \emph{mismatched} \\
 v50 & SEA-RAFT / SEA-RAFT & $0.235$ & matched, superseded by v58 \\
 v51 & SEA-RAFT / WAFT     & $0.2560$ & \emph{mismatched} \\
 \midrule
-v45 & SEA-RAFT / WAFT     & $0.2320$ & \emph{mismatched}, superseded by v59 \\
+v45 & SEA-RAFT / WAFT     & $0.2320$ & \emph{mismatched}; see \S\ref{sec:waft-deflicker-silent} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -3108,13 +3114,13 @@ against $0.225$ for one pool, $0.2560$ against $0.235$ for two --- which is why 
 obvious from the numbers. WAFT is the stronger front-end, and swapping it in at evaluation time
 improves the input the refiner is given without the refiner having been trained for it. The gain is
 real but it is not the gain a WAFT pipeline would deliver, and it cannot be attributed to the
-refiner: the arm changed two things at once. v57--v60 hold the front-end fixed at WAFT for both
+refiner: the arm changed two things at once. v57--v62 hold the front-end fixed at WAFT for both
 training and evaluation, which is the only configuration that answers ``how good is this pipeline
 on WAFT''.
 
 \paragraph{Two further defects in the same rows.} They were also produced on the token-level
 attention path (\S\ref{sec:collapse-reeval}), and their evaluation tracks came from a 2026-07-09
-cache built under a different cuDNN configuration. v57--v60 use the collapse path throughout and
+cache built under a different cuDNN configuration. v57--v62 use the collapse path throughout and
 regenerate both the training and the evaluation tracks from one code path.
 
 %% ================================================================

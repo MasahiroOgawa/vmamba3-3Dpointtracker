@@ -43,7 +43,10 @@ flow:
   url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
   cfg: third_party/SEA-RAFT/config/eval/spring-M.json
   iters: 4
-  scale: null
+  # -1 = half-resolution inference, the value SEA-RAFT's spring-M.json sets and therefore the
+  # value WAFT must use too: with WAFT left at its own default of 0 it would see 896x896 against
+  # SEA-RAFT's 448x448, i.e. 4x the pixels, and the arms would differ in more than the front-end.
+  scale: -1
   fb_alpha: 0.05
   fb_beta: 1.0
 

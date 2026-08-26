@@ -155,7 +155,15 @@ def infer_clip(
     return xyz.cpu().numpy().astype(np.float32), vis.numpy().astype(np.float32)
 
 
-def build_flow(cfg_path: Path, ckpt: Path, device: torch.device) -> WAFTFlow:
+def build_flow(cfg_path: Path, ckpt: Path, device: torch.device,
+               scale: int | None = None) -> WAFTFlow:
+    """`scale` is a log2 resolution factor, the same convention SEA-RAFT's wrapper uses.
+
+    It must be passed explicitly for any SEA-RAFT/WAFT comparison. tar-c-t.json sets scale=0,
+    i.e. full input resolution, while SEA-RAFT's spring-M.json sets -1, i.e. half. Left at their
+    defaults the two front-ends run at 448x448 and 896x896 -- 4x the pixels and 4x the ViT
+    tokens -- which is not a comparison of the front-ends but of two operating points.
+    """
     args = json_to_args(str(cfg_path))
     model = fetch_model(args)
     load_ckpt(model, str(ckpt))
@@ -164,7 +172,7 @@ def build_flow(cfg_path: Path, ckpt: Path, device: torch.device) -> WAFTFlow:
         p.requires_grad_(False)
     wrapped = InferenceWrapper(
         model,
-        scale=args.scale,
+        scale=args.scale if scale is None else int(scale),
         train_size=args.image_size,
         pad_to_train_size=False,
         tiling=False,
@@ -182,6 +190,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--subsets", nargs="+", default=["drivetrack", "pstudio", "adt"])
     ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument(
+        "--scale", type=int, default=None,
+        help="log2 resolution factor; pass -1 to match SEA-RAFT's spring-M setting",
+    )
     ap.add_argument(
         "--cfg", type=Path, default=WAFT_ROOT / "config" / "a1" / "tar-c-t.json"
     )
@@ -212,7 +224,7 @@ def main():
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    flow_model = build_flow(args.cfg, args.ckpt, device)
+    flow_model = build_flow(args.cfg, args.ckpt, device, scale=args.scale)
     print(
         f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir_fuse={args.bidir_fuse}"
     )

@@ -15,15 +15,20 @@
 #   v60  WAFT cached,    2 pool, de-flicker    0.2211   <- identical config, cached not live
 #   v62  WAFT cached,    2 pool, no de-flicker 0.2228
 #
-# Cost: WAFT inference is 9.1x heavier per step than SEA-RAFT's (4 vs 40 steps/min, measured), so
-# 20000 steps is about 76 h against v45's 8.3 h.
+# The earlier version of this run had WAFT at its own default scale=0, i.e. 896x896, against
+# SEA-RAFT's spring-M scale=-1, i.e. 448x448 -- 4x the pixels and 4x the ViT tokens. That made
+# WAFT look 9.1x heavier per step and, worse, meant the arms differed in more than the front-end.
+# flow.scale is now -1 for both, so this compares flow networks at one operating point.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=/dev/null
 source "$(dirname "$0")/cudnn_env.sh"
 
 OUT=$(uv run python -c "import yaml;print(yaml.safe_load(open('configs/v63.yaml'))['train']['out_dir'])")
-WAFT_EVAL=$HOME/data/tapvid3d_baseline_preds/waft_minival_cudnn925
+# Evaluation tracks regenerated at scale=-1 to match the training resolution. The scale=0 set
+# (waft_minival_cudnn925) belongs to the earlier full-resolution arms and must not be mixed in:
+# training at half resolution and scoring on full-resolution tracks would be a fresh mismatch.
+WAFT_EVAL=$HOME/data/tapvid3d_baseline_preds/waft_minival_scale-1
 mkdir -p "$OUT"
 
 for _ in $(seq 1 2880); do

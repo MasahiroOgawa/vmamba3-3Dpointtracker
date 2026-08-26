@@ -166,6 +166,14 @@ def _fmt_grad_row(g: dict) -> str:
     return "  ".join(f"{k}={v:.2e}" for k, v in g.items())
 
 
+def _build_waft_flow(device):
+    """WAFT as a drop-in for SEA-RAFT's FlowModel: both are consumed by the same track_clip."""
+    import importlib
+    ew = importlib.import_module("eval_waft")
+    return ew.build_flow(ew.WAFT_ROOT / "config" / "a1" / "tar-c-t.json",
+                         ew.WAFT_ROOT / "ckpts" / "waft_a1_recommended.pth", device)
+
+
 @torch.no_grad()
 def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
                     waft_pred_dir=None):
@@ -491,6 +499,14 @@ def main() -> int:
         "published prediction set covers minival only, which is the evaluation split and must "
         "not be trained on.",
     )
+    ap.add_argument(
+        "--waft-live", action="store_true",
+        help="Run WAFT inside the training loop on the AUGMENTED images, exactly as the SEA-RAFT "
+             "path does, instead of reading a cached full-clip track. The cache was built once "
+             "from CLEAN images, so the colour jitter never reaches it and the model sees "
+             "byte-identical uv on every step; the live path resamples uv every epoch as "
+             "SEA-RAFT does. Measured gap: 0.14 px median per-epoch movement versus exactly 0.",
+    )
     ap.add_argument("--num-workers", dest="num_workers", type=int, default=None)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--subsets", nargs="+", default=None)
@@ -599,17 +615,27 @@ def main() -> int:
         persistent_workers=False,
     )
 
-    flow_model = FlowModel(
-        device,
-        url=flow_cfg.get("url", "MemorySlices/Tartan-C-T-TSKH-spring540x960-M"),
-        iters=flow_cfg.get("iters"),
-        scale=flow_cfg.get("scale"),
-    )
+    if args.waft_live:
+        # Same track_clip, different flow model: this is the only difference between the two arms
+        # once the cached path is out of the picture.
+        flow_model = _build_waft_flow(device)
+        print("[train] WAFT flow model, run LIVE on the augmented images (matches the SEA-RAFT path)")
+    else:
+        flow_model = FlowModel(
+            device,
+            url=flow_cfg.get("url", "MemorySlices/Tartan-C-T-TSKH-spring540x960-M"),
+            iters=flow_cfg.get("iters"),
+            scale=flow_cfg.get("scale"),
+        )
+    if args.waft_live and args.waft_pred_dir:
+        raise SystemExit("--waft-live and --waft-pred-dir are alternatives, not a pair: one "
+                         "runs WAFT on the augmented images, the other reads a clean-image cache.")
     fb_alpha = float(flow_cfg.get("fb_alpha", 0.05))
     fb_beta = float(flow_cfg.get("fb_beta", 1.0))
-    print(
-        f"[train] FlowModel loaded (iters={flow_model.args.iters} scale={flow_model.args.scale})"
-    )
+    if not args.waft_live:
+        print(
+            f"[train] FlowModel loaded (iters={flow_model.args.iters} scale={flow_model.args.scale})"
+        )
 
     if version in ("v35", "v46"):
         model = Mamba3V35Refiner(

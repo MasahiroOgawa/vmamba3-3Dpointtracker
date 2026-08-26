@@ -3052,6 +3052,88 @@ with ground truth $97.0\%$ of the time against $79.3\%$. The aggregate is theref
 a fifth fewer points, which is the condition under which a zero-initialised head learns to stay near
 zero. This is consistent with every measurement here but has not been tested.
 
+\subsection{The cause: the cached-track path silently removes an augmentation the live path applies}
+\label{sec:waft-aug-asymmetry}
+
+The reasoning that found this is worth stating first, because it is what made the search finite.
+\emph{At evaluation both models receive the same WAFT input.} The evaluation front-end, its
+positions and its visibility flags are byte-identical for v45 and v59; only the weights differ. So
+no property of WAFT at inference can explain the gap, and every candidate that lived at evaluation
+time --- the track files, the depth distribution, visibility, flicker --- was eliminated in turn
+(\S\ref{sec:waft-eliminated}). What remains is training. And a model trained on the \emph{matched}
+front-end cannot legitimately lose to one trained on a \emph{mismatched} one; if it does, the
+training procedures were not equivalent.
+
+\paragraph{The models disagree about which data is hard.} Running both checkpoints over
+\emph{training} clips, on identical batches, gives the opposite ranking to minival:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+model & 3-D error on \emph{training} clips & mean metric-AJ on minival \\
+\midrule
+v45 (SEA-RAFT-trained) & $0.8585$\,m & $\mathbf{0.2320}$ \\
+v59 (WAFT-trained)     & $\mathbf{0.7034}$\,m & $0.2194$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent v59 is markedly better on the data it was trained on and worse on data it has not seen.
+That is overfitting, and it points at the training procedure rather than at the front-end.
+
+\paragraph{Where the procedures diverge.} Training runs with \texttt{augment=True}, which applies a
+photometric jitter --- brightness and contrast each drawn from $[0.7,1.3]$ --- to the window's
+images. Both arms receive those recoloured images for the DINOv3 appearance feature. The 2-D track
+is where they part:
+
+\begin{itemize}
+  \item The \textbf{SEA-RAFT} branch runs \texttt{track\_clip} on \texttt{batch.images}, i.e.\ on
+    the \emph{recoloured} frames, at every step. A different colour draw yields a slightly different
+    flow field and therefore a slightly different tracked position.
+  \item The \textbf{WAFT} branch reads a track computed once, offline, from the \emph{original}
+    frames. Recolouring an image today cannot alter a number already written to disk.
+\end{itemize}
+
+\noindent Measured on the same window and the same queries, with only the photometric draw changed:
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+front-end & median $|\Delta \mathbf{u}|$ & mean & p90 & unchanged \\
+\midrule
+SEA-RAFT & $0.1395$\,px & $1.3003$\,px & $4.0565$\,px & $12.5\%$ \\
+WAFT (cached) & $0.0000$ & $0.0000$ & $0.0000$ & $\mathbf{100\%}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The SEA-RAFT arm therefore trains against a 2-D input that is resampled every epoch, and
+the WAFT arm against one that is byte-identical across all $20\,000$ steps. Input noise resampled
+each pass is a regulariser; the cached path removes it.
+
+Nobody wrote that regulariser deliberately. Photometric augmentation exists to vary
+\emph{appearance}; the jitter in the tracked coordinates is a side effect of recomputing flow on
+altered images, and the tell is that the cached path has no equivalent --- had the coordinate jitter
+been a designed part of training, the cached path would have needed its own version of it. The
+consequence is that ``SEA-RAFT-trained'' and ``WAFT-trained'' were never the same experiment with one
+variable changed.
+
+\paragraph{Why not simply add random jitter to the cached tracks.} It would reproduce the
+\emph{symptom} --- input that moves each epoch --- without reproducing its cause, and the two are not
+the same distribution: the flow's response to a colour change is structured, concentrated where the
+image is low-contrast, and correlated along a track, whereas independent Gaussian noise is none of
+those. The comparison being made here is between two front-ends under one protocol, so the protocol
+has to match in mechanism, not merely in variance.
+
+\paragraph{The correction.} \texttt{--waft-live} runs WAFT inside the training loop on the augmented
+images, exactly as the SEA-RAFT path runs SEA-RAFT. It is a model swap rather than a new code path:
+both front-ends are consumed by the same \texttt{track\_clip}, so once the cache is out of the
+picture the flow network is the only difference between the two arms. The cost is severe --- WAFT
+inference is far heavier than SEA-RAFT's, and the measured training rate is $4$ steps per minute
+against the cached path's $67$, i.e.\ about $76$ hours for a $20\,000$-step run --- but it is the
+only configuration in which the front-end is the sole variable.
+
+
 \subsection{Explanations that were proposed and eliminated}
 \label{sec:waft-eliminated}
 

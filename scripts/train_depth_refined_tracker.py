@@ -167,11 +167,20 @@ def _fmt_grad_row(g: dict) -> str:
 
 
 def _build_waft_flow(device):
-    """WAFT as a drop-in for SEA-RAFT's FlowModel: both are consumed by the same track_clip."""
-    import importlib
-    ew = importlib.import_module("eval_waft")
-    return ew.build_flow(ew.WAFT_ROOT / "config" / "a1" / "tar-c-t.json",
-                         ew.WAFT_ROOT / "ckpts" / "waft_a1_recommended.pth", device)
+    """WAFT as a drop-in for SEA-RAFT's FlowModel: both are consumed by the same track_clip.
+
+    eval_waft chdirs to the WAFT checkout at import time, because DepthAnythingFeature loads its
+    weights by a relative path. That would leave this process there and break every relative path
+    the trainer uses -- --out-dir first among them -- so the working directory is restored.
+    """
+    import importlib, os
+    cwd = os.getcwd()
+    try:
+        ew = importlib.import_module("eval_waft")
+        return ew.build_flow(ew.WAFT_ROOT / "config" / "a1" / "tar-c-t.json",
+                             ew.WAFT_ROOT / "ckpts" / "waft_a1_recommended.pth", device)
+    finally:
+        os.chdir(cwd)
 
 
 @torch.no_grad()

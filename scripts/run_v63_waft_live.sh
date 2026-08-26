@@ -22,6 +22,7 @@ cd "$(dirname "$0")/.." || exit 1
 source "$(dirname "$0")/cudnn_env.sh"
 STEPS=${STEPS:-20000}
 OUT=result/v63_waft_live_2pool
+mkdir -p "$OUT"   # train script writes cfg.json into it before creating it
 WAFT_EVAL=$HOME/data/tapvid3d_baseline_preds/waft_minival_cudnn925
 
 for _ in $(seq 1 2880); do

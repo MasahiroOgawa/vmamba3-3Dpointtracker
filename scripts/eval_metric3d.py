@@ -227,6 +227,12 @@ def main() -> int:
     )
     ap.add_argument("--iters", type=int, default=None)
     ap.add_argument("--scale", type=int, default=None)
+    ap.add_argument(
+        "--run-cfg", type=Path, default=None,
+        help="cfg.json written beside the checkpoint. The flow front-end and its scale are read "
+             "from it so evaluation cannot diverge from the training it is scoring; if omitted, "
+             "the cfg.json next to --ckpt is used when present.",
+    )
     ap.add_argument("--fb-alpha", type=float, default=0.05)
     ap.add_argument("--fb-beta", type=float, default=1.0)
     ap.add_argument(
@@ -256,6 +262,22 @@ def main() -> int:
     args.data_root = args.data_root.expanduser()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # The front-end must match the run being scored. Reading it from the run's own cfg.json makes
+    # that automatic: a WAFT-trained checkpoint is scored with WAFT at the same resolution, and no
+    # precomputed track can silently disagree with what training saw.
+    run_cfg_path = args.run_cfg
+    if run_cfg_path is None and args.ckpt is not None:
+        cand = Path(args.ckpt).parent / "cfg.json"
+        run_cfg_path = cand if cand.exists() else None
+    flow_source, flow_scale = "searaft", args.scale
+    if run_cfg_path is not None and Path(run_cfg_path).exists():
+        with open(run_cfg_path) as fh:
+            rc = json.load(fh).get("flow", {})
+        flow_source = str(rc.get("source", "searaft"))
+        if args.scale is None and rc.get("scale") is not None:
+            flow_scale = int(rc["scale"])
+        print(f"[metric3d] front-end from {run_cfg_path}: source={flow_source} scale={flow_scale}")
+
     flow_model = None
     model = None
     if args.method == "external":
@@ -265,8 +287,21 @@ def main() -> int:
     elif args.waft_pred_dir is not None:
         # 2D track comes from WAFT preds; no SEA-RAFT flow model needed (saves VRAM).
         print(f"[metric3d] WAFT 2D front-end from {args.waft_pred_dir}")
+    elif flow_source == "waft_live":
+        # Same track_clip as SEA-RAFT, only the flow network differs -- and run live, so there is no
+        # cache that could have been built at another resolution or from other images.
+        import importlib, os as _os
+        _cwd = _os.getcwd()
+        try:
+            ew = importlib.import_module("eval_waft")
+            flow_model = ew.build_flow(ew.WAFT_ROOT / "config" / "a1" / "tar-c-t.json",
+                                       ew.WAFT_ROOT / "ckpts" / "waft_a1_recommended.pth",
+                                       device, scale=flow_scale)
+        finally:
+            _os.chdir(_cwd)
+        print(f"[metric3d] WAFT flow model, run LIVE at scale={flow_scale}")
     else:
-        flow_model = FlowModel(device, url=args.url, iters=args.iters, scale=args.scale)
+        flow_model = FlowModel(device, url=args.url, iters=args.iters, scale=flow_scale)
     if args.method == "v33":
         if args.ckpt is None:
             ap.error("--method v33 requires --ckpt")
@@ -394,7 +429,7 @@ def main() -> int:
         print(
             f"[metric3d] {args.method} ckpt {args.ckpt} (step={state.get('step', '?')})"
         )
-    if flow_model is not None:
+    if flow_model is not None and hasattr(flow_model, "args"):
         print(
             f"[metric3d] method={args.method}  SEA-RAFT iters={flow_model.args.iters} scale={flow_model.args.scale}"
         )

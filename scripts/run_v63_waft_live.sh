@@ -19,16 +19,16 @@
 # SEA-RAFT's spring-M scale=-1, i.e. 448x448 -- 4x the pixels and 4x the ViT tokens. That made
 # WAFT look 9.1x heavier per step and, worse, meant the arms differed in more than the front-end.
 # flow.scale is now -1 for both, so this compares flow networks at one operating point.
+#
+# Nothing is precomputed. Training runs WAFT on each augmented window as SEA-RAFT is run, and the
+# evaluation runs it live too, reading flow.source and flow.scale from this run's own cfg.json --
+# so a cache cannot silently disagree with what training saw, at any resolution.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=/dev/null
 source "$(dirname "$0")/cudnn_env.sh"
 
 OUT=$(uv run python -c "import yaml;print(yaml.safe_load(open('configs/v63.yaml'))['train']['out_dir'])")
-# Evaluation tracks regenerated at scale=-1 to match the training resolution. The scale=0 set
-# (waft_minival_cudnn925) belongs to the earlier full-resolution arms and must not be mixed in:
-# training at half resolution and scoring on full-resolution tracks would be a fresh mismatch.
-WAFT_EVAL=$HOME/data/tapvid3d_baseline_preds/waft_minival_scale-1
 mkdir -p "$OUT"
 
 for _ in $(seq 1 2880); do
@@ -46,7 +46,7 @@ echo "[v63] trained $(basename "$CK") at $(date -Is)"
 
 uv run python scripts/eval_metric3d.py --method v45 --ckpt "$CK" \
     --da3-depth-root "$HOME/data/tapvid3d_da3nested" --split minival \
-    --waft-pred-dir "$WAFT_EVAL" --out-dir "$OUT/eval" \
+    --run-cfg "$OUT/cfg.json" --out-dir "$OUT/eval" \
   || { echo "[v63] EVAL FAILED"; exit 1; }
 python3 -c "
 import json; d=json.load(open('$OUT/eval/metrics.json')); ps=d['per_subset']; ov=d['overall']

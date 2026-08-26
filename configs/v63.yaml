@@ -1,4 +1,7 @@
-# v55 — DA3-g + de-flicker, VSSD-gamma (one pool), TRAINED on WAFT flow.
+# v63 = v60 (WAFT + DA3-g + de-flicker + VSSD-2pool) with the flow front-end run LIVE.
+# Identical to configs/v60.yaml except flow.source, so v63 against v60 isolates the
+# augmentation asymmetry and nothing else.
+# v56 — DA3-g + de-flicker, VSSD-beta,gamma (two pool), TRAINED on WAFT flow.
 #
 # Base v45. The four v53-56 configs form a 2x2: depth backbone x mixer, with the
 # front-end held fixed at WAFT for BOTH training and evaluation. Every previously reported
@@ -16,7 +19,7 @@ version: v45
 # + v42 v35 refiner) via --init-ckpt; both stages zero-init so it starts at v40.
 
 model:
-  two_pool: false
+  two_pool: true
   dim: 128
   state_dim: 64
   num_heads: 4
@@ -31,12 +34,12 @@ model:
   image_size: 896
 
 flow:
-  # What this arm actually trained on: a full_eval track precomputed once from CLEAN images.
-  # Recorded here so cfg.json describes the run. A cached track is NOT the same protocol as
-  # the live SEA-RAFT path, which re-tracks on the augmented images every step; see the doc's
-  # sec:waft-aug-asymmetry.
-  source: waft_cached
-  waft_pred_dir: ~/data/tapvid3d_baseline_preds/waft_full_eval
+  # WAFT run live on the augmented images, exactly as the SEA-RAFT path runs SEA-RAFT. The cached
+  # alternative (source: waft_cached) reads a track computed once from CLEAN images, so the colour
+  # jitter never reaches it and the model sees byte-identical uv on every step -- measured at 0.14 px
+  # median of per-epoch movement for SEA-RAFT against exactly 0 for the cache. That asymmetry is what
+  # this run exists to remove.
+  source: waft_live
   url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
   cfg: third_party/SEA-RAFT/config/eval/spring-M.json
   iters: 4
@@ -56,6 +59,9 @@ data:
     seed: 42
 
 train:
+  # The run is defined entirely here: no experimental setting is passed on the command line,
+  # so cfg.json records what actually produced the numbers.
+  out_dir: result/v63_waft_live_2pool
   steps: 20000
   warmup: 500
   decay: 2000

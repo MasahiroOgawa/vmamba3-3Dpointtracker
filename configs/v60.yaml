@@ -31,6 +31,12 @@ model:
   image_size: 896
 
 flow:
+  # What this arm actually trained on: a full_eval track precomputed once from CLEAN images.
+  # Recorded here so cfg.json describes the run. A cached track is NOT the same protocol as
+  # the live SEA-RAFT path, which re-tracks on the augmented images every step; see the doc's
+  # sec:waft-aug-asymmetry.
+  source: waft_cached
+  waft_pred_dir: ~/data/tapvid3d_baseline_preds/waft_full_eval
   url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
   cfg: third_party/SEA-RAFT/config/eval/spring-M.json
   iters: 4

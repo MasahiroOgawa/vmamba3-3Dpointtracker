@@ -483,7 +483,9 @@ def main() -> int:
     survive_cudnn_mismatch()
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, required=True)
-    ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="Debug override. Experiments set train.out_dir in the config; "
+                         "cfg.json is then a complete record of the run.")
     ap.add_argument("--data-root", type=Path, default=Path("~/data"))
     ap.add_argument("--init-ckpt", type=Path, default=None)
     ap.add_argument("--steps", type=int, default=None)
@@ -498,24 +500,6 @@ def main() -> int:
     ap.add_argument("--batch", type=int, default=None)
     ap.add_argument("--window", type=int, default=None)
     ap.add_argument("--amp", choices=["bf16", "fp16", "fp32"], default=None)
-    ap.add_argument(
-        "--waft-pred-dir",
-        dest="waft_pred_dir",
-        type=Path,
-        default=None,
-        help="Train on precomputed WAFT 2-D tracks instead of running SEA-RAFT each step. "
-        "Requires tracks for the FULL_EVAL clips (scripts/eval_waft.py --split full_eval); the "
-        "published prediction set covers minival only, which is the evaluation split and must "
-        "not be trained on.",
-    )
-    ap.add_argument(
-        "--waft-live", action="store_true",
-        help="Run WAFT inside the training loop on the AUGMENTED images, exactly as the SEA-RAFT "
-             "path does, instead of reading a cached full-clip track. The cache was built once "
-             "from CLEAN images, so the colour jitter never reaches it and the model sees "
-             "byte-identical uv on every step; the live path resamples uv every epoch as "
-             "SEA-RAFT does. Measured gap: 0.14 px median per-epoch movement versus exactly 0.",
-    )
     ap.add_argument("--num-workers", dest="num_workers", type=int, default=None)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--subsets", nargs="+", default=None)
@@ -523,7 +507,6 @@ def main() -> int:
     ap.add_argument("--num-tracks", dest="num_tracks", type=int, default=None)
     args = ap.parse_args()
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
     args.data_root = args.data_root.expanduser()
 
     cfg = load_config(args.config, overrides=_build_overrides(args))
@@ -534,6 +517,15 @@ def main() -> int:
         cfg["loss"],
     )
     flow_cfg = cfg.get("flow", {})
+    # Every experimental setting comes from the config, so the run is reproducible from it alone
+    # and cfg.json below is a complete record of what produced the numbers.
+    if args.out_dir is None:
+        od = train_cfg.get("out_dir")
+        if not od:
+            raise SystemExit("set train.out_dir in the config (or pass --out-dir for a debug run)")
+        args.out_dir = Path(str(od)).expanduser()
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+
     print(f"[train] config {args.config}  version={cfg['version']}")
     print(f"[train] loss weights (norm): {loss_cfg['weights']}")
 
@@ -624,7 +616,20 @@ def main() -> int:
         persistent_workers=False,
     )
 
-    if args.waft_live:
+    # The front-end lives in the config, never on the command line: cfg.json is the record of what
+    # a run actually did, and a setting passed as a flag leaves no trace in it.
+    #   flow.source: searaft (default) | waft_live | waft_cached
+    #   flow.waft_pred_dir: required by waft_cached, the full_eval track directory
+    flow_source = str(flow_cfg.get("source", "searaft"))
+    if flow_source not in ("searaft", "waft_live", "waft_cached"):
+        raise SystemExit(f"flow.source must be searaft, waft_live or waft_cached; got {flow_source!r}")
+    waft_pred_dir = None
+    if flow_source == "waft_cached":
+        wp = flow_cfg.get("waft_pred_dir")
+        if not wp:
+            raise SystemExit("flow.source: waft_cached requires flow.waft_pred_dir in the config")
+        waft_pred_dir = Path(str(wp)).expanduser()
+    if flow_source == "waft_live":
         # Same track_clip, different flow model: this is the only difference between the two arms
         # once the cached path is out of the picture.
         flow_model = _build_waft_flow(device)
@@ -636,12 +641,9 @@ def main() -> int:
             iters=flow_cfg.get("iters"),
             scale=flow_cfg.get("scale"),
         )
-    if args.waft_live and args.waft_pred_dir:
-        raise SystemExit("--waft-live and --waft-pred-dir are alternatives, not a pair: one "
-                         "runs WAFT on the augmented images, the other reads a clean-image cache.")
     fb_alpha = float(flow_cfg.get("fb_alpha", 0.05))
     fb_beta = float(flow_cfg.get("fb_beta", 1.0))
-    if not args.waft_live:
+    if flow_source != "waft_live":
         print(
             f"[train] FlowModel loaded (iters={flow_model.args.iters} scale={flow_model.args.scale})"
         )
@@ -831,7 +833,7 @@ def main() -> int:
         depth_d = batch.depth.to(device, non_blocking=True)
         ray, z_raw, vis, uv, images, K_d = _run_flow_batch(
             flow_model, batch, device, image_size, fb_alpha, fb_beta,
-            waft_pred_dir=args.waft_pred_dir,
+            waft_pred_dir=waft_pred_dir,
         )
 
         pred = _model_forward(
@@ -897,7 +899,7 @@ def main() -> int:
                 image_size,
                 fb_alpha,
                 fb_beta,
-                waft_pred_dir=args.waft_pred_dir,
+                waft_pred_dir=waft_pred_dir,
             )
             print(f"[train] step {step:6d}  VAL     {_fmt_loss_row(v)}", flush=True)
             history.append({"step": step, "val": v})

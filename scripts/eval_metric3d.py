@@ -292,7 +292,8 @@ def main() -> int:
     elif flow_source == "waft_live":
         # Same track_clip as SEA-RAFT, only the flow network differs -- and run live, so there is no
         # cache that could have been built at another resolution or from other images.
-        import importlib, os as _os
+        import importlib
+        import os as _os
         _cwd = _os.getcwd()
         try:
             ew = importlib.import_module("eval_waft")

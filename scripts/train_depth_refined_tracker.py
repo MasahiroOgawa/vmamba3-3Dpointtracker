@@ -173,7 +173,8 @@ def _build_waft_flow(device, scale=None, iters=None):
     weights by a relative path. That would leave this process there and break every relative path
     the trainer uses -- --out-dir first among them -- so the working directory is restored.
     """
-    import importlib, os
+    import importlib
+    import os
     cwd = os.getcwd()
     try:
         ew = importlib.import_module("eval_waft")

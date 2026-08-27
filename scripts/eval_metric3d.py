@@ -269,13 +269,15 @@ def main() -> int:
     if run_cfg_path is None and args.ckpt is not None:
         cand = Path(args.ckpt).parent / "cfg.json"
         run_cfg_path = cand if cand.exists() else None
-    flow_source, flow_scale = "searaft", args.scale
+    flow_source, flow_scale, flow_iters = "searaft", args.scale, args.iters
     if run_cfg_path is not None and Path(run_cfg_path).exists():
         with open(run_cfg_path) as fh:
             rc = json.load(fh).get("flow", {})
         flow_source = str(rc.get("source", "searaft"))
         if args.scale is None and rc.get("scale") is not None:
             flow_scale = int(rc["scale"])
+        if args.iters is None and rc.get("iters") is not None:
+            flow_iters = int(rc["iters"])
         print(f"[metric3d] front-end from {run_cfg_path}: source={flow_source} scale={flow_scale}")
 
     flow_model = None
@@ -296,12 +298,12 @@ def main() -> int:
             ew = importlib.import_module("eval_waft")
             flow_model = ew.build_flow(ew.WAFT_ROOT / "config" / "a1" / "tar-c-t.json",
                                        ew.WAFT_ROOT / "ckpts" / "waft_a1_recommended.pth",
-                                       device, scale=flow_scale)
+                                       device, scale=flow_scale, iters=flow_iters)
         finally:
             _os.chdir(_cwd)
         print(f"[metric3d] WAFT flow model, run LIVE at scale={flow_scale}")
     else:
-        flow_model = FlowModel(device, url=args.url, iters=args.iters, scale=flow_scale)
+        flow_model = FlowModel(device, url=args.url, iters=flow_iters, scale=flow_scale)
     if args.method == "v33":
         if args.ckpt is None:
             ap.error("--method v33 requires --ckpt")

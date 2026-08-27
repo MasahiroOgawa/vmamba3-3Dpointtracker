@@ -156,7 +156,7 @@ def infer_clip(
 
 
 def build_flow(cfg_path: Path, ckpt: Path, device: torch.device,
-               scale: int | None = None) -> WAFTFlow:
+               scale: int | None = None, iters: int | None = None) -> WAFTFlow:
     """`scale` is a log2 resolution factor, the same convention SEA-RAFT's wrapper uses.
 
     It must be passed explicitly for any SEA-RAFT/WAFT comparison. tar-c-t.json sets scale=0,
@@ -165,6 +165,11 @@ def build_flow(cfg_path: Path, ckpt: Path, device: torch.device,
     tokens -- which is not a comparison of the front-ends but of two operating points.
     """
     args = json_to_args(str(cfg_path))
+    # Refinement steps are a protocol setting, not a per-method default: tar-c-t.json asks for 5
+    # while our runs give SEA-RAFT 4, and an unmatched count gives one arm more refinement than
+    # the other.
+    if iters is not None:
+        args.iters = int(iters)
     model = fetch_model(args)
     load_ckpt(model, str(ckpt))
     model = model.to(device).eval()

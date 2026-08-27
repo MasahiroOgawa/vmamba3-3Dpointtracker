@@ -166,7 +166,7 @@ def _fmt_grad_row(g: dict) -> str:
     return "  ".join(f"{k}={v:.2e}" for k, v in g.items())
 
 
-def _build_waft_flow(device, scale=None):
+def _build_waft_flow(device, scale=None, iters=None):
     """WAFT as a drop-in for SEA-RAFT's FlowModel: both are consumed by the same track_clip.
 
     eval_waft chdirs to the WAFT checkout at import time, because DepthAnythingFeature loads its
@@ -179,7 +179,7 @@ def _build_waft_flow(device, scale=None):
         ew = importlib.import_module("eval_waft")
         return ew.build_flow(ew.WAFT_ROOT / "config" / "a1" / "tar-c-t.json",
                              ew.WAFT_ROOT / "ckpts" / "waft_a1_recommended.pth", device,
-                             scale=scale)
+                             scale=scale, iters=iters)
     finally:
         os.chdir(cwd)
 
@@ -635,7 +635,8 @@ def main() -> int:
         # once the cached path is out of the picture.
         # Same log2 scale SEA-RAFT is given, so the two front-ends run at one resolution and the
         # comparison is of the flow network rather than of two operating points.
-        flow_model = _build_waft_flow(device, scale=flow_cfg.get("scale"))
+        flow_model = _build_waft_flow(device, scale=flow_cfg.get("scale"),
+                                      iters=flow_cfg.get("iters"))
         print("[train] WAFT flow model, run LIVE on the augmented images (matches the SEA-RAFT path)")
     else:
         flow_model = FlowModel(

@@ -3016,6 +3016,14 @@ v62 & DA3-g & \textbf{no} & 2 & WAFT & $0.2228$ \\
 against, so none of these differences is a track artefact: v45 gave $0.2320$ on both the old and the
 regenerated tracks, and v39 gave $0.2459$ against its published $0.2458$.
 
+\noindent\emph{Superseded as a front-end comparison.} Every row above scores a WAFT-cached
+evaluation, and the SEA-RAFT rows were trained with SEA-RAFT and then scored that way, so those
+comparisons mix front-ends across training and evaluation. The table remains an accurate record of
+what was measured, and the reasoning that follows from it is what located the cause, but the
+front-end question it appears to answer is settled only under the protocol of
+\S\ref{sec:waft-matched-protocol}, where both arms run live at one resolution and one iteration
+count.
+
 \subsection{WAFT training does not hurt the refiner; it costs the de-flicker stage's contribution}
 \label{sec:waft-deflicker-silent}
 
@@ -3125,14 +3133,105 @@ image is low-contrast, and correlated along a track, whereas independent Gaussia
 those. The comparison being made here is between two front-ends under one protocol, so the protocol
 has to match in mechanism, not merely in variance.
 
-\paragraph{The correction.} \texttt{--waft-live} runs WAFT inside the training loop on the augmented
-images, exactly as the SEA-RAFT path runs SEA-RAFT. It is a model swap rather than a new code path:
-both front-ends are consumed by the same \texttt{track\_clip}, so once the cache is out of the
-picture the flow network is the only difference between the two arms. The cost is severe --- WAFT
-inference is far heavier than SEA-RAFT's, and the measured training rate is $4$ steps per minute
-against the cached path's $67$, i.e.\ about $76$ hours for a $20\,000$-step run --- but it is the
-only configuration in which the front-end is the sole variable.
+\paragraph{The correction.} Setting \texttt{flow.source: waft\_live} runs WAFT inside the training
+loop on the augmented images, exactly as the SEA-RAFT path runs SEA-RAFT. It is a model swap rather
+than a new code path: both front-ends are consumed by the same \texttt{track\_clip}, so once the
+cache is out of the picture the flow network is the only difference between the two arms.
 
+The first version of this correction was itself misconfigured, in a way that took a reader's
+scepticism to expose, and \S\ref{sec:waft-matched-protocol} records what was wrong and what the arm
+measures once it is fixed.
+
+
+\subsection{Removing the cache exposed two further asymmetries, and only then does the arm measure the front-end}
+\label{sec:waft-matched-protocol}
+
+Running WAFT live removed the augmentation asymmetry of \S\ref{sec:waft-aug-asymmetry}, and in doing
+so made two others visible. Both had been present all along, hidden behind the cache; both made the
+two arms differ in something other than the flow network, which is the one thing the comparison is
+supposed to isolate.
+
+\paragraph{Resolution: each front-end was running at its own config's default.} Both wrappers take a
+base-2 exponent \texttt{scale} and apply it to the input images, \texttt{scale\_factor} $= 2^{\text{scale}}$,
+undoing it afterwards on both the flow field and the flow vectors. SEA-RAFT's
+\texttt{spring-M.json} sets $-1$; WAFT's \texttt{tar-c-t.json} sets $0$. Neither was ever passed
+explicitly; on a $896 \times 896$ input SEA-RAFT therefore ran at $448 \times 448$ and WAFT at the
+full $896 \times 896$:
+
+\begin{center}\small
+\begin{tabular}{lrrr}
+\toprule
+front-end & \texttt{scale} & runs at & ViT tokens \\
+\midrule
+SEA-RAFT (\texttt{spring-M})  & $-1$ & $448\times448$ & $1\,024$ \\
+WAFT (\texttt{tar-c-t})       & $0$  & $896\times896$ & $4\,096$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Four times the pixels and four times the tokens, into a backbone that is itself two Vision
+Transformers, and $1.9\times$ even WAFT's own $432 \times 960$ training resolution. This is what
+produced the claim, recorded here because it was wrong and was repeated more than once, that WAFT is
+roughly ten times heavier per step than SEA-RAFT. It is not a property of WAFT; it is a measurement
+of two different operating points. WAFT's own paper reports SEA-RAFT~(L) at $108$\,ms against
+WAFT-DAv2-a2 at $240$\,ms at matched iterations, and its headline ``up to $4.1\times$ faster'' is an
+accuracy-matched claim against other methods, not a latency claim against SEA-RAFT. With
+\texttt{flow.scale} set to $-1$ for both, the training rate rose from $3.9$ to $12.5$ steps per
+minute on the DA3-g arm, and on the lighter DA3-l arm WAFT runs at $40$ steps per minute, which is
+SEA-RAFT's own rate. Even the residual $3.2\times$ is therefore specific to the DA3-g
+configuration and does not generalise.
+
+\paragraph{Refinement steps: the config's value reached only one of the two.} The configs set
+\texttt{iters: 4}, which was passed to SEA-RAFT and not to WAFT, leaving WAFT on
+\texttt{tar-c-t.json}'s default of $5$. The WAFT arm was therefore given $25\%$ more refinement than
+the baseline it was being measured against. \texttt{flow.iters} now reaches whichever front-end
+\texttt{flow.source} selects.
+
+\paragraph{The evaluator could not run WAFT at all, which is why a cache existed anywhere.} Caching
+was never a protocol decision; \texttt{eval\_metric3d} had no WAFT path, and the cache was the way
+around that. Regenerating it at the corrected resolution would only have relocated the defect, since
+nothing checks a cache against what training saw. The evaluator now builds WAFT through the same
+\texttt{build\_flow} and consumes it through the same \texttt{track\_clip} as SEA-RAFT, running it
+live on the evaluation frames, and reads \texttt{flow.source}, \texttt{flow.scale} and
+\texttt{flow.iters} from the \texttt{cfg.json} written beside the checkpoint. A run is therefore
+scored with the front-end it was trained with, at the same resolution and iteration count, without
+anyone having to remember to say so.
+
+\paragraph{A protocol defect introduced by editing the code mid-run.} The \texttt{flow.iters}
+plumbing landed while the DA3-g arm was training. Training had started before it and therefore used $5$;
+the evaluation at the end of the same job started afterwards, read the config, and used $4$. The
+run's \texttt{cfg.json} recorded $4$ --- the intention, not the run. It has been corrected to $5$
+with a note, and the arm re-evaluated consistently. The difference turned out to be immaterial,
+which is worth recording alongside the defect: \texttt{drivetrack} $0.1628 \to 0.1631$,
+\texttt{pstudio} $0.2032 \to 0.2027$, \texttt{adt} $0.3053 \to 0.3056$, and the mean unchanged at
+$0.2238$. The mismatched run is kept rather than deleted.
+
+\paragraph{What the corrected arm measures.} With WAFT live on both sides at
+\texttt{scale}~$=-1$, over all $25\,814$ frames with no failures:
+
+\begin{center}\small
+\begin{tabular}{lccc}
+\toprule
+DA3-g $+$ de-flicker $+$ VSSD-2pool & flow at train & flow at eval & mean metric-AJ \\
+\midrule
+v60 & WAFT cached, full-res & WAFT cached, full-res & $0.2211$ \\
+v63 & WAFT live, half-res   & WAFT live, half-res   & $\mathbf{0.2238}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Removing the cache is worth $+0.0027$ on this arm. That is a small gain, and smaller than the
+$-0.0126$ the cached WAFT arms had fallen behind by; the augmentation asymmetry of
+\S\ref{sec:waft-aug-asymmetry} therefore accounts for part of that gap but not all of it.
+
+\paragraph{What is still open.} The DA3-g arm has no SEA-RAFT counterpart under the corrected
+protocol and is not getting one, that configuration being of no interest on its own. The comparison
+that remains is on DA3-l, where both arms are live on both sides, at \texttt{scale}~$=-1$ and
+\texttt{iters}~$=4$, differing only in the flow network: v50 (SEA-RAFT) measured $0.2350$, and the
+WAFT arm v64 is training. Until it lands, no claim about which front-end is better survives its own
+protocol --- every earlier comparison mixed a SEA-RAFT-trained model with a WAFT-cached evaluation,
+and those numbers (v39 $0.2458$, v45 $0.2320$, v51 $0.2560$) are discarded rather than reported. The
+SEA-RAFT arms evaluated \emph{with} SEA-RAFT, v50 among them, are self-consistent and stand.
 
 \subsection{Explanations that were proposed and eliminated}
 \label{sec:waft-eliminated}

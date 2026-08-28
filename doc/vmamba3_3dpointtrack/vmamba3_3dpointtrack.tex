@@ -3224,52 +3224,118 @@ Removing the cache is worth $+0.0027$ on this arm. That is a small gain, and sma
 $-0.0126$ the cached WAFT arms had fallen behind by; the augmentation asymmetry of
 \S\ref{sec:waft-aug-asymmetry} therefore accounts for part of that gap but not all of it.
 
-\paragraph{The matched comparison: WAFT wins.} v64 completed. On DA3-l with two pools, both arms
-live on both sides at \texttt{scale}~$=-1$ and \texttt{iters}~$=4$, differing only in the flow
-network:
+\paragraph{Every arm, with the resolution each front-end actually ran at.} Resolution is the column
+that reconciles the results, and it was absent from every earlier version of this comparison. A
+\texttt{scale} of $0$ means the flow network saw the full $896 \times 896$ input; $-1$ means it saw
+$448 \times 448$, a quarter of the pixels. At evaluation time there is no augmentation; a cached
+track and a live run at the same scale and iteration count are therefore the same thing --- ``cached'' matters
+only on the training side, where the images are augmented and the cache is not recomputed.
 
 \begin{center}\small
-\begin{tabular}{llcc}
+\begin{tabular}{llccll r}
 \toprule
-arm & front-end (train and eval) & mean metric-AJ & $\Delta$ \\
+& & & & \multicolumn{1}{c}{train flow} & \multicolumn{1}{c}{eval flow} & \\
+arm & depth & pools & de-fl. & \multicolumn{1}{c}{net / res / iters} & \multicolumn{1}{c}{net / res / iters} & mean \\
 \midrule
-v50 & SEA-RAFT, live & $0.2350$ & --- \\
-v64 & WAFT, live     & $\mathbf{0.2547}$ & $+0.0197$ \\
+v39 & DA3-l & 1 & ---  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $0.2458$ \\
+v57 & DA3-l & 1 & ---  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2504$ \\
+v58 & DA3-l & 2 & ---  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2507$ \\
+v51 & DA3-l & 2 & ---  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $\mathbf{0.2560}$ \\
+v50 & DA3-l & 2 & ---  & SEA-RAFT $\;448\;$ i4 live   & SEA-RAFT $\;448\;$ i4 & $0.2350$ \\
+v64 & DA3-l & 2 & ---  & WAFT $\;448\;$ i4 live       & WAFT $\;448\;$ i4 & $0.2547$ \\
+\midrule
+v42 & DA3-g & 1 & no   & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $0.2246$ \\
+v45 & DA3-g & 1 & yes  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $\mathbf{0.2320}$ \\
+v59 & DA3-g & 1 & yes  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2194$ \\
+v60 & DA3-g & 2 & yes  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2211$ \\
+v62 & DA3-g & 2 & no   & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2228$ \\
+v63 & DA3-g & 2 & yes  & WAFT $\;448\;$ i5 live       & WAFT $\;448\;$ i5 & $0.2238$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-This is the only pair in the whole investigation in which the flow network is the sole difference,
-and under it WAFT is clearly the better front-end. Every earlier comparison that appeared to say
-otherwise mixed a SEA-RAFT-trained model with a WAFT-cached evaluation; those numbers (v39 $0.2458$,
-v45 $0.2320$, v51 $0.2560$) are discarded rather than reported. The SEA-RAFT arms evaluated
-\emph{with} SEA-RAFT, v50 among them, are self-consistent and stand.
+\paragraph{What the table shows once resolution is visible.} Three separate effects had been
+running together, and each is isolated by holding the other columns fixed.
 
-\paragraph{Live training is worth $+0.003$ to $+0.004$, and that is the augmentation asymmetry.}
-Holding everything else fixed and changing only whether the training track is cached or recomputed
-each step:
+\emph{Cached versus live training, at one resolution and one network.} This is the augmentation
+asymmetry of \S\ref{sec:waft-aug-asymmetry}, and it is worth a few thousandths:
 
 \begin{center}\small
-\begin{tabular}{llcc}
+\begin{tabular}{lccc}
 \toprule
-configuration & cached training & live training & $\Delta$ \\
+& cached training & live training & $\Delta$ \\
 \midrule
-DA3-l, 2 pools              & v58 $0.2507$ & v64 $\mathbf{0.2547}$ & $+0.0040$ \\
-DA3-g, 2 pools, de-flicker  & v60 $0.2211$ & v63 $\mathbf{0.2238}$ & $+0.0027$ \\
+DA3-l, 2 pools, eval $448$              & v58$^{\dagger}$ $0.2507$ & v64 $0.2547$ & $+0.0040$ \\
+DA3-g, 2 pools, de-flicker, eval $448$  & v60$^{\dagger}$ $0.2211$ & v63 $0.2238$ & $+0.0027$ \\
+\bottomrule
+\end{tabular}
+\\[2pt]
+{\footnotesize $^{\dagger}$Evaluated at $896$ rather than $448$. These two rows are therefore not a clean
+isolation either; they bound the effect rather than measure it exactly.}
+\end{center}
+
+\emph{Evaluation resolution.} Every arm scored at $896$ sits above the comparable arm scored at
+$448$, and this is the comparison that had been hidden. v64 reaches $0.2547$ against v51's
+$0.2560$. However, v64 is scored from a $448$ front-end and v51 from an $896$ one, which means
+v64 is not merely behind: it is behind while being handicapped in a way the earlier tables did not
+show.
+
+\emph{The evaluation front-end is not a free choice.} v50 and v51 are the \emph{same trained model},
+differing only in what scored it: SEA-RAFT at $448$ gives $0.2350$, WAFT at $896$ gives $0.2560$.
+That $+0.0210$ is the evaluation front-end alone, with training held fixed --- larger than any
+training-side effect measured anywhere in this investigation.
+
+\paragraph{A comparison I drew and had to withdraw.} v64 was reported here as beating v50 and hence
+as showing WAFT the better front-end. That is wrong, and the table above is what makes it obvious:
+v50 is scored with SEA-RAFT at $448$, the weakest evaluation in the table; beating it therefore
+says nothing. The standing best is v51 at $0.2560$, and v64 is below it. The pairing was chosen because
+both arms were live at one resolution, which made it look like the controlled comparison; the
+control it lacked was the evaluation front-end, which the previous version of this table did not
+have a column for.
+
+\paragraph{What is actually being asked, and the arms that answer it.} The best configuration known
+is SEA-RAFT-trained at $448$ and evaluated with WAFT at $896$. To displace it, a fully-WAFT arm has
+to be evaluated at $896$ too --- otherwise it is competing from a weaker front-end. v65 and v66
+therefore run WAFT live at $896$ on both sides, everything else held to v64 and v63 respectively:
+
+\begin{center}\small
+\begin{tabular}{lllc}
+\toprule
+arm & configuration & train/eval flow & target \\
+\midrule
+v65 & DA3-l, 2 pools               & WAFT $896$ i4 live, both sides & v51 $0.2560$ \\
+v66 & DA3-g, 2 pools, de-flicker   & WAFT $896$ i4 live, both sides & v45 $0.2320$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Both move in the direction \S\ref{sec:waft-aug-asymmetry} predicts, and by a similar amount, which is
-what a single shared cause should look like.
+\noindent These cost four times the pixels of the $448$ arms, whose measured training rates were
+$40$ steps per minute on DA3-l and $12.5$ on DA3-g. Until they land, the honest statement is that no
+fully-WAFT arm has yet been evaluated at the resolution the best result uses, and therefore that
+nothing here shows WAFT beating SEA-RAFT as a front-end.
 
-\paragraph{What the residual against the cached-eval arms does not yet establish.} v64 sits
-$0.0013$ below v51 and v63 sits $0.0082$ below v45. Those pairs do not share an evaluation: the live
-arms are scored with WAFT at half resolution and the cached arms at full resolution. Whether that
-handicaps the live arms is a question about the front-end alone, and is being measured directly as
-2-D pixel error against ground truth at both resolutions rather than inferred from the metric-AJ
-gap. Until that lands the residual is unattributed, and it is small enough on DA3-l that it may not
-survive it.
+\paragraph{The refiner must be VSSD-2pool on both sides of any comparison.} Two pools is the better
+refiner and is what the pipeline uses. A comparison against a one-pool arm therefore understates
+the baseline rather than testing the front-end. This is satisfied on DA3-l and is not on DA3-g:
+
+\begin{center}\small
+\begin{tabular}{llcccl}
+\toprule
+comparison & configuration & pools match & res.\ match & baseline & status \\
+\midrule
+v65 vs.\ v51 & DA3-l                      & yes ($2$ vs.\ $2$) & yes ($896$) & $0.2560$ & valid \\
+v66 vs.\ v45 & DA3-g $+$ de-flicker       & \textbf{no} ($2$ vs.\ $1$) & yes ($896$) & $0.2320$ & not pool-matched \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent v45 is a one-pool arm, and no SEA-RAFT-trained DA3-g arm was ever built with two pools ---
+that configuration was deliberately not run, being of no interest on its own. \textbf{v65 against
+v51 is therefore the only comparison in this investigation that is matched on all four axes} --- flow network
+aside: same depth backbone, same pool count, same evaluation resolution, same iteration count, live
+on both sides. It is the one that decides the question. v66 measures whether full-resolution WAFT
+lifts the DA3-g arm above $0.2320$, which is worth knowing, though a win there would be confounded by
+the extra pool and could not be attributed to the front-end.
 
 \subsection{Explanations that were proposed and eliminated}
 \label{sec:waft-eliminated}

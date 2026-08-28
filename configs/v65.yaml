@@ -1,0 +1,105 @@
+# v65 = DA3-l + VSSD-2pool, WAFT run LIVE at FULL resolution (scale 0) for BOTH training and
+# evaluation.
+#
+# Why full resolution. The standing best configuration is v51: SEA-RAFT-trained (half-res
+# live) and evaluated with WAFT at full resolution, 0.2560. The half-resolution WAFT arms
+# (v63 0.2238, v64 0.2547) are evaluated from a weaker front-end than that, so they do not
+# test whether WAFT beats it. This arm runs WAFT at the resolution the best result uses, on
+# both sides, so train and eval stay consistent and the eval matches v51's.
+#
+# Cost: 4x the pixels of the half-res arms. Measured rates there were 40 steps/min on DA3-l
+# and 12.5 on DA3-g; expect roughly a quarter of each.
+# v64 = v50 (DA3-l + VSSD-2pool) with WAFT swapped in for SEA-RAFT, live on both sides.
+#
+# The comparison this exists for:
+#   v50  SEA-RAFT train + SEA-RAFT eval, scale -1, iters 4   0.2350
+#   v64  WAFT     train + WAFT     eval, scale -1, iters 4   <- this
+#
+# Both live, no cache anywhere, one resolution and one iteration count. The only difference
+# between the two runs is the flow network.
+# v50 — v35 with the refiner's mixer swapped to VSSD-beta,gamma (two-pool).
+#
+# One variable against v35 (DA3-l, 0.246): Mamba3CrossAttention gains a second, independently-read
+# pool -- its own query projection C^(2) and its own per-token vector m^(2) -- which is the
+# construction of the paper's VSSD-beta,gamma. Variant B's mask is rank-1 across the query axis,
+# so one pool applies the same weighting over the sequence to every query; two pools read by
+# different query projections lift that restriction.
+#
+# pool2_gate starts at zero, so this model is numerically identical to the v35 checkpoint it
+# warm-starts from and can only move away from it by training.
+#
+# NOT applied: 2-D RoPE. Its angle is theta_row*r + theta_col*c, a function of a patch's row and
+# column on an image grid. This mixer runs over a track's TIME axis, which has neither, so 2-D
+# RoPE has nothing to encode here. The 1-D analogue (a temporal rotary) is a separate change and
+# is deliberately not bundled into this comparison.
+version: v35
+
+# v35 — Image-conditioned VMamba3 tracker with joint 2D+depth correction.
+#
+# Extends v33 by adding frozen DINOv3 appearance features and a local depth patch
+# as per-track context. The SSM now emits both Δlog_z (depth refinement) and
+# bounded Δuv (2D correction). Depth is re-sampled at the corrected uv before
+# unprojection, so gradients flow into uv via F.grid_sample.
+#
+# Zero-init on dz_head and duv_head → starts at SEA-RAFT+DA3 baseline.
+# Loss: vis-masked L1 3D + λ_uv * vis * |Δuv|² regularization.
+
+model:
+  two_pool: true            # VSSD-beta,gamma second pool
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0    # depth: [e^-2, e^2] ≈ [0.13x, 7.4x]
+  max_delta_uv: 2.0          # 2D correction bounded to ±2 px
+  patch_size: 5              # 5×5 depth patch
+  d_proj: 64                 # DINOv3 384-dim projected to 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+
+flow:
+  # WAFT swapped in for SEA-RAFT and nothing else. scale -1 is spring-M's value, which SEA-RAFT
+  # takes from its own config and WAFT would otherwise ignore (its tar-c-t.json says 0, i.e. full
+  # 896x896 against SEA-RAFT's 448x448). iters 4 is likewise the value v50 gave SEA-RAFT; WAFT's
+  # own default is 5, which would hand this arm 25% more refinement than the baseline it is
+  # compared against.
+  source: waft_live
+  scale: 0
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  fb_alpha: 0.05
+  fb_beta: 1.0
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  out_dir: result/v65_waft_fullres_da3l
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 3.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1    # λ_uv: calibrate so mean|Δuv| ≈ 1px at convergence

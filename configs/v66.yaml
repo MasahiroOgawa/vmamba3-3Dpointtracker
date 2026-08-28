@@ -1,0 +1,97 @@
+# v66 = DA3-g + de-flicker + VSSD-2pool, WAFT run LIVE at FULL resolution (scale 0) for BOTH training and
+# evaluation.
+#
+# Why full resolution. The standing best configuration is v51: SEA-RAFT-trained (half-res
+# live) and evaluated with WAFT at full resolution, 0.2560. The half-resolution WAFT arms
+# (v63 0.2238, v64 0.2547) are evaluated from a weaker front-end than that, so they do not
+# test whether WAFT beats it. This arm runs WAFT at the resolution the best result uses, on
+# both sides, so train and eval stay consistent and the eval matches v51's.
+#
+# Cost: 4x the pixels of the half-res arms. Measured rates there were 40 steps/min on DA3-l
+# and 12.5 on DA3-g; expect roughly a quarter of each.
+# v63 = v60 (WAFT + DA3-g + de-flicker + VSSD-2pool) with the flow front-end run LIVE.
+# Identical to configs/v60.yaml except flow.source, so v63 against v60 isolates the
+# augmentation asymmetry and nothing else.
+# v56 — DA3-g + de-flicker, VSSD-beta,gamma (two pool), TRAINED on WAFT flow.
+#
+# Base v45. The four v53-56 configs form a 2x2: depth backbone x mixer, with the
+# front-end held fixed at WAFT for BOTH training and evaluation. Every previously reported
+# WAFT row was trained on SEA-RAFT and only evaluated on WAFT, so the refiner had learned a
+# different front-end's error characteristics than the one it was scored with.
+#
+# Requires WAFT tracks for the full_eval training clips; see scripts/eval_waft.py
+# --split full_eval. Pass --waft-pred-dir at BOTH train and eval time.
+version: v45
+
+# v45 — two-stage 'de-flicker then refine': v44 de-flicker (stage 1) feeds a
+# stabilised depth into the standard v35 refiner (stage 2). Removes DA3-g's
+# per-frame scale drift *before* the refiner, so the along-ray Δlog z and Δu act on
+# temporally consistent depth. Warm-started from a combined checkpoint (v44 deflicker
+# + v42 v35 refiner) via --init-ckpt; both stages zero-init so it starts at v40.
+
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 0.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+
+flow:
+  # WAFT run live on the augmented images, exactly as the SEA-RAFT path runs SEA-RAFT. The cached
+  # alternative (source: waft_cached) reads a track computed once from CLEAN images, so the colour
+  # jitter never reaches it and the model sees byte-identical uv on every step -- measured at 0.14 px
+  # median of per-epoch movement for SEA-RAFT against exactly 0 for the cache. That asymmetry is what
+  # this run exists to remove.
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  # -1 = half-resolution inference, the value SEA-RAFT's spring-M.json sets and therefore the
+  # value WAFT must use too: with WAFT left at its own default of 0 it would see 896x896 against
+  # SEA-RAFT's 448x448, i.e. 4x the pixels, and the arms would differ in more than the front-end.
+  scale: 0
+  fb_alpha: 0.05
+  fb_beta: 1.0
+
+data:
+  subsets: [pstudio, drivetrack, adt]
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample: {pstudio: 20}
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+
+train:
+  # The run is defined entirely here: no experimental setting is passed on the command line,
+  # so cfg.json records what actually produced the numbers.
+  out_dir: result/v66_waft_fullres_da3g
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 3.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1

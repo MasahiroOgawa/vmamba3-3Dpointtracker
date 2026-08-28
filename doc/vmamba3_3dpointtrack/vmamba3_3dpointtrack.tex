@@ -3224,14 +3224,52 @@ Removing the cache is worth $+0.0027$ on this arm. That is a small gain, and sma
 $-0.0126$ the cached WAFT arms had fallen behind by; the augmentation asymmetry of
 \S\ref{sec:waft-aug-asymmetry} therefore accounts for part of that gap but not all of it.
 
-\paragraph{What is still open.} The DA3-g arm has no SEA-RAFT counterpart under the corrected
-protocol and is not getting one, that configuration being of no interest on its own. The comparison
-that remains is on DA3-l, where both arms are live on both sides, at \texttt{scale}~$=-1$ and
-\texttt{iters}~$=4$, differing only in the flow network: v50 (SEA-RAFT) measured $0.2350$, and the
-WAFT arm v64 is training. Until it lands, no claim about which front-end is better survives its own
-protocol --- every earlier comparison mixed a SEA-RAFT-trained model with a WAFT-cached evaluation,
-and those numbers (v39 $0.2458$, v45 $0.2320$, v51 $0.2560$) are discarded rather than reported. The
-SEA-RAFT arms evaluated \emph{with} SEA-RAFT, v50 among them, are self-consistent and stand.
+\paragraph{The matched comparison: WAFT wins.} v64 completed. On DA3-l with two pools, both arms
+live on both sides at \texttt{scale}~$=-1$ and \texttt{iters}~$=4$, differing only in the flow
+network:
+
+\begin{center}\small
+\begin{tabular}{llcc}
+\toprule
+arm & front-end (train and eval) & mean metric-AJ & $\Delta$ \\
+\midrule
+v50 & SEA-RAFT, live & $0.2350$ & --- \\
+v64 & WAFT, live     & $\mathbf{0.2547}$ & $+0.0197$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This is the only pair in the whole investigation in which the flow network is the sole difference,
+and under it WAFT is clearly the better front-end. Every earlier comparison that appeared to say
+otherwise mixed a SEA-RAFT-trained model with a WAFT-cached evaluation; those numbers (v39 $0.2458$,
+v45 $0.2320$, v51 $0.2560$) are discarded rather than reported. The SEA-RAFT arms evaluated
+\emph{with} SEA-RAFT, v50 among them, are self-consistent and stand.
+
+\paragraph{Live training is worth $+0.003$ to $+0.004$, and that is the augmentation asymmetry.}
+Holding everything else fixed and changing only whether the training track is cached or recomputed
+each step:
+
+\begin{center}\small
+\begin{tabular}{llcc}
+\toprule
+configuration & cached training & live training & $\Delta$ \\
+\midrule
+DA3-l, 2 pools              & v58 $0.2507$ & v64 $\mathbf{0.2547}$ & $+0.0040$ \\
+DA3-g, 2 pools, de-flicker  & v60 $0.2211$ & v63 $\mathbf{0.2238}$ & $+0.0027$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both move in the direction \S\ref{sec:waft-aug-asymmetry} predicts, and by a similar amount, which is
+what a single shared cause should look like.
+
+\paragraph{What the residual against the cached-eval arms does not yet establish.} v64 sits
+$0.0013$ below v51 and v63 sits $0.0082$ below v45. Those pairs do not share an evaluation: the live
+arms are scored with WAFT at half resolution and the cached arms at full resolution. Whether that
+handicaps the live arms is a question about the front-end alone, and is being measured directly as
+2-D pixel error against ground truth at both resolutions rather than inferred from the metric-AJ
+gap. Until that lands the residual is unattributed, and it is small enough on DA3-l that it may not
+survive it.
 
 \subsection{Explanations that were proposed and eliminated}
 \label{sec:waft-eliminated}

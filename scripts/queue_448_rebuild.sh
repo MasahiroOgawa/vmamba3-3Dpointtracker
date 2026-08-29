@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=/dev/null
 source "$(dirname "$0")/cudnn_env.sh"
 
-CACHE=$HOME/data/tapvid3d_baseline_preds/waft_minival_448_s-1_i4
+CACHE=$HOME/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
 until [ "$(find "$CACHE" -name '*.npz' 2>/dev/null | wc -l)" -ge 150 ]; do
   pgrep -f "eval_waft.py --split minival" >/dev/null || { echo "[448] cache generation died"; exit 1; }
   sleep 120

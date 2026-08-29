@@ -295,14 +295,20 @@ def main() -> int:
         _man = Path(args.waft_pred_dir).expanduser() / "manifest.json"
         if _man.exists() and flow_scale is not None:
             _m = json.loads(_man.read_text())
-            _want = (int(flow_scale), int(flow_iters) if flow_iters is not None else None)
-            _got = (int(_m["scale"]), int(_m["iters"]))
-            if _got[0] != _want[0] or (_want[1] is not None and _got[1] != _want[1]):
+            # image_size is the tracking resolution and is NOT the same knob as scale, which is
+            # the flow network's internal downscale. A set generated at the default 512 while the
+            # run tracks at 896 differs by -0.0110, which is the size of a real modelling effect.
+            _checks = [("scale", flow_scale), ("iters", flow_iters),
+                       ("image_size", args.image_size)]
+            _bad = [(k, _m.get(k), w) for k, w in _checks
+                    if w is not None and k in _m and int(_m[k]) != int(w)]
+            if _bad:
                 raise SystemExit(
-                    f"[metric3d] track set at {args.waft_pred_dir} was generated with "
-                    f"scale={_got[0]} iters={_got[1]}, but this run needs scale={_want[0]} "
-                    f"iters={_want[1]}. Regenerate it with those settings, or evaluate live.")
-            print(f"[metric3d] track manifest matches: scale={_got[0]} iters={_got[1]}")
+                    f"[metric3d] track set at {args.waft_pred_dir} does not match this run: "
+                    + "; ".join(f"{k} is {g} but the run needs {w}" for k, g, w in _bad)
+                    + ". Regenerate it with those settings, or evaluate live.")
+            print(f"[metric3d] track manifest matches: "
+                  + " ".join(f"{k}={_m[k]}" for k in ("scale", "iters", "image_size") if k in _m))
         elif not _man.exists():
             print(f"[metric3d] WARNING: {args.waft_pred_dir} has no manifest.json; "
                   f"its scale and iters cannot be verified against this run")

@@ -243,8 +243,11 @@ def main():
     _eff_scale = args.scale if args.scale is not None else 0
     _eff_iters = args.iters if args.iters is not None else 5
     (args.out_dir / "manifest.json").write_text(_json.dumps(
-        {"scale": _eff_scale, "iters": _eff_iters, "split": args.split}, indent=2))
-    print(f"[waft] manifest: scale={_eff_scale} iters={_eff_iters}")
+        {"scale": _eff_scale, "iters": _eff_iters, "image_size": args.image_size,
+         "fb_alpha": args.fb_alpha, "fb_beta": args.fb_beta,
+         "bidir": bool(args.bidir_fuse), "split": args.split}, indent=2))
+    print(f"[waft] manifest: scale={_eff_scale} iters={_eff_iters} "
+          f"image_size={args.image_size} fb=({args.fb_alpha},{args.fb_beta})")
     print(
         f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir_fuse={args.bidir_fuse}"
     )

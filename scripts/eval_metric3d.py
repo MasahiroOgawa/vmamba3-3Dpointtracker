@@ -289,6 +289,23 @@ def main() -> int:
     elif args.waft_pred_dir is not None:
         # 2D track comes from WAFT preds; no SEA-RAFT flow model needed (saves VRAM).
         print(f"[metric3d] WAFT 2D front-end from {args.waft_pred_dir}")
+        # A precomputed track set is equivalent to running live ONLY at the same scale and iteration
+        # count -- there is no augmentation at evaluation, so nothing else differs. Silently mixing
+        # settings produced a 0.0113 swing that read as a modelling result, so it is checked.
+        _man = Path(args.waft_pred_dir).expanduser() / "manifest.json"
+        if _man.exists() and flow_scale is not None:
+            _m = json.loads(_man.read_text())
+            _want = (int(flow_scale), int(flow_iters) if flow_iters is not None else None)
+            _got = (int(_m["scale"]), int(_m["iters"]))
+            if _got[0] != _want[0] or (_want[1] is not None and _got[1] != _want[1]):
+                raise SystemExit(
+                    f"[metric3d] track set at {args.waft_pred_dir} was generated with "
+                    f"scale={_got[0]} iters={_got[1]}, but this run needs scale={_want[0]} "
+                    f"iters={_want[1]}. Regenerate it with those settings, or evaluate live.")
+            print(f"[metric3d] track manifest matches: scale={_got[0]} iters={_got[1]}")
+        elif not _man.exists():
+            print(f"[metric3d] WARNING: {args.waft_pred_dir} has no manifest.json; "
+                  f"its scale and iters cannot be verified against this run")
     elif flow_source == "waft_live":
         # Same track_clip as SEA-RAFT, only the flow network differs -- and run live, so there is no
         # cache that could have been built at another resolution or from other images.

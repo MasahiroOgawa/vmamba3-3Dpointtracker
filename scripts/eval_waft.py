@@ -200,6 +200,11 @@ def main():
         help="log2 resolution factor; pass -1 to match SEA-RAFT's spring-M setting",
     )
     ap.add_argument(
+        "--iters", type=int, default=None,
+        help="refinement steps; must match the run this track set will be evaluated against, "
+             "which is what the manifest records",
+    )
+    ap.add_argument(
         "--cfg", type=Path, default=WAFT_ROOT / "config" / "a1" / "tar-c-t.json"
     )
     ap.add_argument(
@@ -229,7 +234,17 @@ def main():
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    flow_model = build_flow(args.cfg, args.ckpt, device, scale=args.scale)
+    flow_model = build_flow(args.cfg, args.ckpt, device, scale=args.scale, iters=args.iters)
+    # A track set is only usable by a run whose flow settings match it, and a directory name is not
+    # a record -- this one was generated at iters 5 while its name said 4, and the resulting 0.0113
+    # discrepancy looked like a modelling result. The manifest is what eval_metric3d checks.
+    import json as _json
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    _eff_scale = args.scale if args.scale is not None else 0
+    _eff_iters = args.iters if args.iters is not None else 5
+    (args.out_dir / "manifest.json").write_text(_json.dumps(
+        {"scale": _eff_scale, "iters": _eff_iters, "split": args.split}, indent=2))
+    print(f"[waft] manifest: scale={_eff_scale} iters={_eff_iters}")
     print(
         f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir_fuse={args.bidir_fuse}"
     )

@@ -3314,6 +3314,34 @@ $40$ steps per minute on DA3-l and $12.5$ on DA3-g. Until they land, the honest 
 fully-WAFT arm has yet been evaluated at the resolution the best result uses, and therefore that
 nothing here shows WAFT beating SEA-RAFT as a front-end.
 
+\paragraph{Half-resolution WAFT really is the weaker front-end, measured directly.} The claim that
+the $448$ arms are handicapped should not rest on the metric-AJ gap it is meant to explain, and was
+therefore measured on the front-end alone: WAFT's 2-D track error against ground truth, no refiner and no
+depth involved, on a balanced sample of twelve minival clips. Ground truth comes from projecting
+each clip's \texttt{tracks\_XYZ} with its own intrinsics, and only points the dataset marks visible
+at that frame are scored.
+
+\begin{center}\small
+\begin{tabular}{lrrr}
+\toprule
+& \multicolumn{1}{c}{$896$ (scale $0$)} & \multicolumn{1}{c}{$448$ (scale $-1$)} & \multicolumn{1}{c}{$\Delta$} \\
+\midrule
+median 2-D error over clips & $3.12$\,px & $3.60$\,px & $+0.49$\,px \\
+relative degradation        & ---        & $+15.7\%$  & \\
+clips where $448$ is worse  & ---        & $12/12$    & \\
+worst single clip           & $39.55$\,px & $57.97$\,px & $+18.42$\,px \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Every clip degrades, which makes this a property of the resolution rather than a few unlucky
+sequences,
+and the degradation is worst exactly where tracking is already hardest: the two \texttt{drivetrack}
+clips with errors in the tens of pixels lose $5.60$ and $18.42$\,px, against roughly a pixel on the
+well-behaved clips. An arm evaluated at $448$ is therefore fed a measurably worse 2-D track than one
+evaluated at $896$, before its refiner sees anything. This is what disqualifies the v64-versus-v51
+comparison, and it is independent of anything about training.
+
 \paragraph{The refiner must be VSSD-2pool on both sides of any comparison.} Two pools is the better
 refiner and is what the pipeline uses. A comparison against a one-pool arm therefore understates
 the baseline rather than testing the front-end. This is satisfied on DA3-l and is not on DA3-g:

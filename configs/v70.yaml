@@ -1,0 +1,65 @@
+# v70: DA3-g + vmamba3-2pool + in-model per-frame scale head, WAFT run LIVE at half
+# resolution (scale -1, iters 4) for BOTH training and evaluation.
+#
+# Derived from configs/v43.yaml, which produced the paper's 0.229 row. Two changes beyond the
+# front-end: two_pool is on, matching v68 and v63 so the whole DA3-g table sits at the better
+# refiner rather than mixing pool counts; and the flow settings are pinned rather than left to
+# each config's own default.
+version: v35
+model:
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  per_frame_scale: true
+  max_scale_correction: 0.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  two_pool: true
+flow:
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  source: waft_live
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 0.0003
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+  out_dir: result/v70_waft448_da3g_scalehead
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1

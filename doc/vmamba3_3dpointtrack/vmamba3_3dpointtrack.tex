@@ -3365,6 +3365,67 @@ on both sides. It is the one that decides the question. v66 measures whether ful
 lifts the DA3-g arm above $0.2320$, which is worth knowing, though a win there would be confounded by
 the extra pool and could not be attributed to the front-end.
 
+\subsection{The rebuilt table: every row self-consistent}
+\label{sec:waft-rebuilt}
+
+Every arm below trains and evaluates with the same front-end, WAFT run live at
+\texttt{image\_size}~$896$, \texttt{scale}~$=-1$ and \texttt{iters}~$=4$, and every one uses
+VSSD-2pool where a refiner is present. The rows they replace were trained on SEA-RAFT tracks and
+scored on WAFT tracks.
+
+\begin{center}\small
+\begin{tabular}{lllrrr}
+\toprule
+arm & depth & configuration & paper & rebuilt & $\Delta$ \\
+\midrule
+v67 & DA3-l & vmamba3, one pool            & $0.246$ & $0.2485$ & $+0.0025$ \\
+v64 & DA3-l & vmamba3-2pool                & $0.256$ & $\mathbf{0.2547}$ & $-0.0013$ \\
+\midrule
+v68 & DA3-g & vmamba3-2pool                & $0.216$ & $0.2218$ & $+0.0058$ \\
+v70 & DA3-g & \quad $+$ per-frame scale head & $0.229$ & $0.2212$ & $-0.0078$ \\
+v69 & DA3-g & de-flicker, standalone       & $0.203$ & $0.1998$ & $-0.0032$ \\
+v63 & DA3-g & de-flicker $+$ vmamba3-2pool & $0.232$ & $0.2238$ & $-0.0082$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The correction was worth making and changed little.} Every row moves by less than
+$0.009$, and no ordering changes within either backbone: DA3-l with two pools remains the best
+configuration, and de-flicker alone remains harmful. The train/eval mismatch was therefore a real
+defect in how the numbers were produced rather than a distortion of what they say --- which is the
+outcome one hopes for but cannot assume, and is only knowable by rebuilding.
+
+\paragraph{VSSD-2pool, measured with one variable changed.} v67 and v64 differ in
+\texttt{two\_pool} and nothing else --- same depth backbone, same front-end, same resolution,
+same iteration count, live on both sides:
+
+\begin{center}\small
+\begin{tabular}{lc}
+\toprule
+DA3-l refiner & mean metric-AJ \\
+\midrule
+one pool               & $0.2485$ \\
+VSSD-2pool             & $\mathbf{0.2547}$ \\
+\midrule
+gain from the second pool & $+0.0062$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The per-frame scale head does nothing at two pools.} Against v68, which differs only in
+that head, the mean moves $0.2218 \to 0.2212$, i.e.\ $-0.0007$. On a single seed that is not a
+demonstrated regression; the honest reading is no measurable effect. It is consistent with the
+de-flicker stage being what addresses DA3-g's per-frame scale drift, and it means the scale head
+should be reported for completeness rather than as a contribution. Note that the paper's $0.229$ for
+this row was a one-pool arm, so the $-0.0078$ against it is confounded by the pool change; the v68
+comparison is the clean one.
+
+\paragraph{One conclusion did change, and it is in the paper's DA3-g table.} With the DA3-g rows
+rebuilt, the best DA3-g configuration ($0.2238$) now sits \emph{below} DELTA$+$DA3-g ($0.227$),
+where the previous $0.232$ sat above it. The paper's claim that our DA3-g pipeline leads the
+external DA3-g methods does not survive, and has been withdrawn. The claim the DA3-g table exists to
+support --- that no DA3-g configuration reaches the DA3-l ceiling --- is unaffected.
+
 \subsection{Explanations that were proposed and eliminated}
 \label{sec:waft-eliminated}
 

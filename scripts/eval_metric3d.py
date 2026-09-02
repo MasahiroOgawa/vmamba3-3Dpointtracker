@@ -307,7 +307,7 @@ def main() -> int:
                     f"[metric3d] track set at {args.waft_pred_dir} does not match this run: "
                     + "; ".join(f"{k} is {g} but the run needs {w}" for k, g, w in _bad)
                     + ". Regenerate it with those settings, or evaluate live.")
-            print(f"[metric3d] track manifest matches: "
+            print("[metric3d] track manifest matches: "
                   + " ".join(f"{k}={_m[k]}" for k in ("scale", "iters", "image_size") if k in _m))
         elif not _man.exists():
             print(f"[metric3d] WARNING: {args.waft_pred_dir} has no manifest.json; "

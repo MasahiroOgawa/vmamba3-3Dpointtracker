@@ -1,0 +1,80 @@
+# v71: DA3-g + de-flicker + VSSD-2pool, WAFT live at 448/iters-4, with positional noise added
+# to the TRAINING track only.
+#
+# Why. The de-flicker stage contributes +0.0074 to a SEA-RAFT-trained DA3-g arm and only +0.0020 to
+# a WAFT-trained one, and that difference is most of the 0.0082 gap between them. Two other
+# explanations were measured and eliminated: the two arms' evaluation inputs are equivalent
+# (-0.0014 on the same ground truth), and the WAFT-trained de-flicker's weights are larger, not
+# smaller. What remains is that WAFT's track is cleaner -- median 4.10 px against SEA-RAFT's 5.20 px
+# over 36 minival clips -- so the stage trains against a weaker instability signal than the one it
+# faces at evaluation, and learns too weak a correction.
+#
+# The noise level is derived, not chosen: sqrt(5.20^2 - 4.10^2) = 3.20 px of displacement to add,
+# which for an isotropic 2-D Gaussian is a per-component sigma of 3.20/sqrt(2 ln 2) = 2.72 px.
+# Measured back at 3.25 px median. AR(1) with rho 0.9 along time, because flow error drifts along a
+# track rather than resampling every frame.
+#
+# Applied to training only. Validation and evaluation are untouched, so this stays comparable to
+# every other rebuilt arm.
+#
+# Target: v45's 0.2320, the SEA-RAFT-trained row this replaces. v63, the same arm without noise,
+# reached 0.2238.
+version: v45
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 0.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+  track_noise_px: 2.72
+  track_noise_rho: 0.9
+train:
+  out_dir: result/v71_waft448_da3g_tracknoise
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 0.0003
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1

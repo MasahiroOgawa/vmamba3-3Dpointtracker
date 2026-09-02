@@ -186,8 +186,33 @@ def _build_waft_flow(device, scale=None, iters=None):
 
 
 @torch.no_grad()
+def _perturb_uv(uv, sigma_px, rho, generator=None):
+    """Add temporally-correlated positional noise to a 2-D track, in pixels.
+
+    Purpose: WAFT's track is measurably cleaner than SEA-RAFT's (median 4.10 px against 5.20 px over
+    36 minival clips), and the DA3-g de-flicker stage trains better on the noisier one -- it exists
+    to correct instability, so a harder training signal teaches a stronger correction, which still
+    helps when applied to the cleaner track at evaluation. This hardens WAFT's training track to
+    match, so the arm stays self-consistent while facing the same difficulty.
+
+    The noise is AR(1) along time rather than independent per frame, because flow error drifts along
+    a track rather than resampling itself each frame; independent noise would be a different
+    distribution with the same variance, and the point is to reproduce the mechanism.
+    """
+    if sigma_px <= 0:
+        return uv
+    eps = torch.randn(uv.shape, device=uv.device, dtype=uv.dtype, generator=generator)
+    # AR(1) with unit stationary variance, walked along the frame axis (dim -3 of (...,F,N,2))
+    out = torch.empty_like(eps)
+    out[..., 0, :, :] = eps[..., 0, :, :]
+    scale = (1.0 - rho * rho) ** 0.5
+    for t in range(1, uv.shape[-3]):
+        out[..., t, :, :] = rho * out[..., t - 1, :, :] + scale * eps[..., t, :, :]
+    return uv + sigma_px * out
+
+
 def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
-                    waft_pred_dir=None):
+                    waft_pred_dir=None, noise_px=0.0, noise_rho=0.9):
     """Return (ray, z_raw, vis, uv, images, K) — all on device.
 
     images: (B,F,3,H,W) in [0,1] (needed by v35 DINOv3 encoder)
@@ -250,6 +275,9 @@ def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
             all_vis.append(vis)
     uv = torch.stack(all_uv).to(device)  # (B,F,N,2)
     vis = torch.stack(all_vis).to(device)  # (B,F,N)
+    # Applied before ray and depth are derived, so the perturbation reaches the depth patch and the
+    # de-flicker stage exactly as a real tracking error would, not just the coordinates.
+    uv = _perturb_uv(uv, noise_px, noise_rho)
     K = batch.K.to(device)
     ray = _ray_from_uv(uv, K)
     z_raw = _sample_depth(batch.depth.to(device), uv, float(image_size))
@@ -527,6 +555,13 @@ def main() -> int:
             raise SystemExit("set train.out_dir in the config (or pass --out-dir for a debug run)")
         args.out_dir = Path(str(od)).expanduser()
     args.out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Positional noise added to the training track only, never to validation or evaluation.
+    track_noise_px = float(data_cfg.get("track_noise_px", 0.0) or 0.0)
+    track_noise_rho = float(data_cfg.get("track_noise_rho", 0.9))
+    if track_noise_px > 0:
+        print(f"[train] track noise: sigma={track_noise_px:.2f}px AR(1) rho={track_noise_rho:.2f} "
+              f"(training only)")
 
     print(f"[train] config {args.config}  version={cfg['version']}")
     print(f"[train] loss weights (norm): {loss_cfg['weights']}")
@@ -839,6 +874,7 @@ def main() -> int:
         ray, z_raw, vis, uv, images, K_d = _run_flow_batch(
             flow_model, batch, device, image_size, fb_alpha, fb_beta,
             waft_pred_dir=waft_pred_dir,
+            noise_px=track_noise_px, noise_rho=track_noise_rho,
         )
 
         pred = _model_forward(

@@ -83,7 +83,8 @@ def main() -> int:
 
     print(f"  {'subset':11s} {'n':>4s} {'as-is':>8s} {'linear':>8s} {'gain':>8s}")
     for sub, v in per_sub.items():
-        b = np.mean([x[0] for x in v]); a = np.mean([x[1] for x in v])
+        b = np.mean([x[0] for x in v])
+        a = np.mean([x[1] for x in v])
         print(f"  {sub:11s} {len(v):4d} {b:8.4f} {a:8.4f} {a-b:+8.4f}")
     print(f"  {'ALL':11s} {len(base):4d} {np.mean(base):8.4f} {np.mean(lin):8.4f} "
           f"{np.mean(lin)-np.mean(base):+8.4f}")

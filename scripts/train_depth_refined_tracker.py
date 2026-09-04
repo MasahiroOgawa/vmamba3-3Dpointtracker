@@ -573,6 +573,7 @@ def main() -> int:
     es_patience = int(train_cfg.get("early_stop_patience", 0))
     es_min_delta = float(train_cfg.get("early_stop_min_delta", 0.01))
     es_best, es_since, es_best_step = float("inf"), 0, -1
+    es_raw_best = float("inf")
     lambda_dsr = float(loss_cfg.get("lambda_dsr", 0.0) or 0.0)
     last_dsr = float("nan")
     if lambda_dsr > 0:
@@ -1034,12 +1035,19 @@ def main() -> int:
             print(f"[train] step {step:6d}  VAL     {_fmt_loss_row(v)}", flush=True)
             if es_patience > 0:
                 cur = float(v["total"])
-                if cur < es_best - es_min_delta:
-                    es_best, es_since, es_best_step = cur, 0, step
+                # Two separate decisions, deliberately. The checkpoint follows the RAW best, so a
+                # value better by less than the tolerance is still kept; the patience counter uses
+                # the tolerance, so noise-sized gains do not postpone stopping forever. Conflating
+                # them discards a genuinely better checkpoint for being better by too little.
+                if cur < es_raw_best:
+                    es_raw_best = cur
                     best_dir = args.out_dir / "best"
                     best_dir.mkdir(parents=True, exist_ok=True)
                     _save_ckpt(best_dir, step, model, optim, sched, history, cfg_snapshot)
-                    print(f"[train] early-stop: new best {cur:.4f} at step {step}", flush=True)
+                    print(f"[train] best checkpoint: {cur:.4f} at step {step}", flush=True)
+                if cur < es_best - es_min_delta:
+                    es_best, es_since, es_best_step = cur, 0, step
+                    print(f"[train] early-stop: improved to {cur:.4f} at step {step}", flush=True)
                 else:
                     es_since += 1
                     print(f"[train] early-stop: no improvement ({cur:.4f} vs best "

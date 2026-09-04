@@ -1,0 +1,78 @@
+# v73: WAFT + DA3-g + Mamba-3 depth-scale refiner + vmamba3-2pool. The best-DA3-g candidate.
+#
+# Two stages, same shape as v45: stage 1 estimates a per-frame log-scale from the DEPTH MAP and
+# rescales both the sampled depth and the map; stage 2 is the unchanged appearance-conditioned
+# vmamba3-2pool refiner, which therefore starts from depth whose scale is already corrected.
+#
+# v72 was the stage ALONE (0.574M), the analogue of v69 rather than of v63, and cannot produce a
+# best-DA3-g number. This is the composite: 1.186M against v63's 1.180M.
+#
+# Stage 1 differs from v45's de-flicker in four measured ways: it reads the depth map instead of
+# points the tracker chose; its bound is 2.5 rather than 0.5, which clipped 17.4% of frames; its
+# emitted scale is supervised directly by L_dsr rather than only through per-point 3-D error; and it
+# targets the per-frame scale as a whole, which is dominated by a per-clip constant (p50 0.294)
+# rather than the wobble around it (p50 0.027).
+#
+# Targets: v63 0.2238 (same shape, old stage), v45 0.2320 (the mismatched row), v68 0.2218 (no
+# stage). Oracle ceiling for a per-frame scale is 0.5033 against 0.2484 as-is.
+version: v73
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 2.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  out_dir: result/v73_dsr_plus_vmamba3_2pool
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 0.0003
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+  lambda_dsr: 1.0

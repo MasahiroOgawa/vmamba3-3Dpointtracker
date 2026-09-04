@@ -45,6 +45,7 @@ from mamba3_tracker.data.dataset import (
 from mamba3_tracker.data.tapvid3d import load_clip
 from mamba3_tracker.model.depth_refined_tracker import (
     Mamba3DepthScaleRefiner,
+    Mamba3V73,
     Mamba3DeflickerRefiner,
     Mamba3DepthRefiner,
     Mamba3V35Refiner,
@@ -295,7 +296,7 @@ def _model_forward(
 ):
     """Dispatch model forward for v33 vs v35."""
     with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-        if version in ("v35", "v45", "v46", "v47"):
+        if version in ("v35", "v45", "v46", "v47", "v73"):
             return model(ray, z_raw, vis, uv, depth, images, K)
         if version == "v72":
             return model(ray, z_raw, vis, depth)
@@ -778,6 +779,24 @@ def main() -> int:
         print(
             "[train] Mamba3V45+pose_head (v47 shared ego-motion)  loss: TrackingLossV47"
         )
+    elif version == "v73":
+        model = Mamba3V73(
+            dim=int(model_cfg["dim"]),
+            state_dim=int(model_cfg["state_dim"]),
+            num_heads=int(model_cfg["num_heads"]),
+            num_layers=int(model_cfg["num_layers"]),
+            max_scale_correction=float(model_cfg.get("max_scale_correction", 2.5)),
+            two_pool=bool(model_cfg.get("two_pool", False)),
+            grid=int(model_cfg.get("grid", 64)),
+            log_ref=float(model_cfg.get("log_ref", 2.0)),
+            log_std=float(model_cfg.get("log_std", 1.5)),
+            max_log_correction=float(model_cfg["max_log_correction"]),
+            max_delta_uv=float(model_cfg["max_delta_uv"]),
+            patch_size=int(model_cfg["patch_size"]),
+            d_proj=int(model_cfg["d_proj"]),
+        ).to(device)
+        loss_fn = TrackingLossV35(loss_cfg["weights"]).to(device)
+        print("[train] Mamba3V73 (depth-scale refiner + v35 refiner)  loss: TrackingLossV35 + L_dsr")
     elif version == "v72":
         model = Mamba3DepthScaleRefiner(
             dim=int(model_cfg["dim"]),

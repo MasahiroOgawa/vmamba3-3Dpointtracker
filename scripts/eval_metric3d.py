@@ -144,7 +144,7 @@ def _infer(
 
     if method == "searaft":
         xyz = _unproject_with_depth(uv_d, depth_t, K_t, float(image_size))[0]  # (F,N,3)
-    elif method in ("v35", "v45", "v46", "v47"):
+    elif method in ("v35", "v45", "v46", "v47", "v73"):
         ray = _ray_from_uv(uv_d, K_t)
         grid = (2.0 * uv_d / image_size - 1.0).view(F_, 1, -1, 2)
         z_raw = F.grid_sample(
@@ -200,7 +200,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--method",
-        choices=["searaft", "v33", "v35", "v44", "v45", "v46", "v47", "v72", "external"],
+        choices=["searaft", "v33", "v35", "v44", "v45", "v46", "v47", "v72", "v73", "external"],
         required=True,
     )
     ap.add_argument(
@@ -368,6 +368,31 @@ def main() -> int:
         model.load_state_dict(state["model"])
         model.eval()
         print(f"[metric3d] v44 ckpt {args.ckpt} (step={state.get('step', '?')})")
+    if args.method == "v73":
+        if args.ckpt is None:
+            ap.error("--method v73 requires --ckpt")
+        from mamba3_tracker.model.depth_refined_tracker import Mamba3V73
+
+        state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+        mc = state.get("cfg", {}).get("model", {})
+        model = Mamba3V73(
+            dim=int(mc.get("dim", 128)),
+            state_dim=int(mc.get("state_dim", 64)),
+            num_heads=int(mc.get("num_heads", 4)),
+            num_layers=int(mc.get("num_layers", 2)),
+            max_scale_correction=float(mc.get("max_scale_correction", 2.5)),
+            two_pool=bool(mc.get("two_pool", False)),
+            grid=int(mc.get("grid", 64)),
+            log_ref=float(mc.get("log_ref", 2.0)),
+            log_std=float(mc.get("log_std", 1.5)),
+            max_log_correction=float(mc.get("max_log_correction", 2.0)),
+            max_delta_uv=float(mc.get("max_delta_uv", 2.0)),
+            patch_size=int(mc.get("patch_size", 5)),
+            d_proj=int(mc.get("d_proj", 64)),
+        ).to(device)
+        model.load_state_dict(state["model"])
+        model.eval()
+        print(f"[metric3d] v73 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v72":
         if args.ckpt is None:
             ap.error("--method v72 requires --ckpt")

@@ -645,6 +645,63 @@ class Mamba3DeflickerRefiner(nn.Module):
         )
 
 
+class Mamba3V73(nn.Module):
+    """Mamba3DepthScaleRefiner (stage 1) then the v35 refiner (stage 2), same shape as Mamba3V45.
+
+    Stage 1 estimates a per-frame log-scale from the DEPTH MAP and rescales both the sampled depth
+    and the map handed to stage 2, so the appearance-conditioned refiner starts from depth whose
+    frame-to-frame scale has already been corrected. Stage 2 is unchanged.
+
+    The difference from Mamba3V45 is entirely stage 1: it reads the depth map rather than points the
+    tracker chose, its output bound is wide enough not to clip, and its emitted scale is returned so
+    the loss can supervise it directly.
+
+    Forward signature matches v35: model(ray, z_raw, vis, uv, depth_map, images, K).
+    """
+
+    def __init__(
+        self,
+        dim: int = 128,
+        state_dim: int = 64,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        max_scale_correction: float = 2.5,
+        two_pool: bool = False,
+        grid: int = 64,
+        log_ref: float = 2.0,
+        log_std: float = 1.5,
+        **v35_kwargs,
+    ) -> None:
+        super().__init__()
+        self.scale_refiner = Mamba3DepthScaleRefiner(
+            dim=dim, state_dim=state_dim, num_heads=num_heads, num_layers=num_layers,
+            max_scale_correction=max_scale_correction, two_pool=two_pool,
+            grid=grid, log_ref=log_ref, log_std=log_std,
+        )
+        self.v35 = Mamba3V35Refiner(
+            dim=dim, state_dim=state_dim, num_heads=num_heads, num_layers=num_layers,
+            two_pool=two_pool, **v35_kwargs,
+        )
+
+    def forward(
+        self,
+        ray: Tensor,
+        z_raw: Tensor,
+        vis: Tensor,
+        uv: Tensor,
+        depth_map: Tensor,
+        images: Tensor,
+        K: Tensor,
+    ) -> TrackerOutputs:
+        ds = self.scale_refiner.per_frame_logscale(depth_map)      # (B,F,1), from the map
+        scale = torch.exp(ds)
+        out = self.v35(ray, z_raw * scale, vis, uv,
+                       depth_map * scale.unsqueeze(-1), images, K)
+        # carried through so L_dsr can supervise stage 1 even though stage 2 produced the xyz
+        out.log_scale = ds
+        return out
+
+
 class Mamba3V45(nn.Module):
     """v45: two-stage 'de-flicker then refine'.
 

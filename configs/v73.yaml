@@ -15,6 +15,12 @@
 #
 # Targets: v63 0.2238 (same shape, old stage), v45 0.2320 (the mismatched row), v68 0.2218 (no
 # stage). Oracle ceiling for a per-frame scale is 0.5033 against 0.2484 as-is.
+#
+# Step count reduced from 20000 to 14000 to land both arms by 2026-09-05 11:00.
+# The LR schedule scales with train.steps, so this is a complete shorter run rather
+# than a truncated one -- but it is NOT step-matched to the arms it is compared with,
+# which all ran 20000. A WIN is therefore safe to read (it won on less training); a
+# LOSS is ambiguous between the architecture and the shorter schedule.
 version: v73
 model:
   two_pool: true
@@ -57,7 +63,7 @@ data:
     seed: 42
 train:
   out_dir: result/v73_dsr_plus_vmamba3_2pool
-  steps: 20000
+  steps: 14000
   warmup: 500
   decay: 2000
   ckpt_every: 500

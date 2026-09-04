@@ -16,16 +16,20 @@ source "$(dirname "$0")/cudnn_env.sh"
 CACHE=$HOME/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
 
 run_arm () {
-  local cfg=$1 method=$2 label=$3 out
+  local cfg=$1 method=$2 label=$3 out steps ckpt
   out=$(uv run python -c "import yaml;print(yaml.safe_load(open('$cfg'))['train']['out_dir'])")
+  # Read the step count from the config rather than assuming 20000: the arms were shortened to meet
+  # a deadline, and a hardcoded ckpt_20000.pt made v72's evaluation fail after it had trained.
+  steps=$(uv run python -c "import yaml;print(yaml.safe_load(open('$cfg'))['train']['steps'])")
+  ckpt="$out/ckpt_${steps}.pt"
   mkdir -p "$out"
-  if [ ! -f "$out/ckpt_20000.pt" ]; then
+  if [ ! -f "$ckpt" ]; then
     echo "[$label] training $(date -Is)"
     uv run python scripts/train_depth_refined_tracker.py --config "$cfg" \
       || { echo "[$label] TRAIN FAILED"; return 1; }
   fi
   if [ ! -f "$out/eval/metrics.json" ]; then
-    uv run python scripts/eval_metric3d.py --method "$method" --ckpt "$out/ckpt_20000.pt" \
+    uv run python scripts/eval_metric3d.py --method "$method" --ckpt "$ckpt" \
         --da3-depth-root "$HOME/data/tapvid3d_da3nested" --split minival \
         --waft-pred-dir "$CACHE" --out-dir "$out/eval" \
       || { echo "[$label] EVAL FAILED"; return 1; }

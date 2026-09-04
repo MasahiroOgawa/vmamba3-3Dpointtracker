@@ -30,7 +30,11 @@ echo "[queue] GPU idle at $(date -Is)"
 # ---- v72 ----------------------------------------------------------------------------------------
 V72OUT=$(uv run python -c "import yaml;print(yaml.safe_load(open('configs/v72.yaml'))['train']['out_dir'])")
 mkdir -p "$V72OUT"
-if [ -z "$(ls "$V72OUT"/ckpt_*.pt 2>/dev/null)" ]; then
+V72STEPS=$(uv run python -c "import yaml;print(yaml.safe_load(open('configs/v72.yaml'))['train']['steps'])")
+# Keyed on the config, not on "any checkpoint exists": a stale checkpoint from a previous
+# architecture satisfied the old test, so v72 was skipped and v73 then failed loading it. Early
+# stopping means the final step may be below the ceiling, so a best/ checkpoint also counts.
+if [ -z "$(ls "$V72OUT"/best/ckpt_*.pt 2>/dev/null)" ] && [ ! -f "$V72OUT/ckpt_${V72STEPS}.pt" ]; then
   echo "[v72] training $(date -Is)"
   uv run python scripts/train_depth_refined_tracker.py --config configs/v72.yaml \
     || { echo "[v72] TRAIN FAILED"; exit 1; }

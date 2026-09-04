@@ -893,9 +893,19 @@ def main() -> int:
         # success. Remap when the shapes line up under the prefix.
         sd = st["model"]
         own = model.state_dict()
-        if not (set(sd) & set(own)) and all(f"scale_refiner.{k}" in own for k in sd):
+        remap_ok = all(f"scale_refiner.{k}" in own and own[f"scale_refiner.{k}"].shape == v.shape
+                       for k, v in sd.items())
+        if not (set(sd) & set(own)) and remap_ok:
             sd = {f"scale_refiner.{k}": v for k, v in sd.items()}
             print(f"[train] warm start: remapped {len(sd)} keys under 'scale_refiner.'", flush=True)
+        bad = [k for k, v in sd.items() if k in own and own[k].shape != v.shape]
+        if bad:
+            raise SystemExit(
+                f"[train] warm start from {args.init_ckpt} is a DIFFERENT architecture: "
+                f"{len(bad)} tensors differ in shape, first {bad[0]} "
+                f"{tuple(sd[bad[0]].shape)} vs {tuple(own[bad[0]].shape)}. "
+                f"Delete the stale output directory or point init_ckpt at a matching run."
+            )
         missing, unexpected = model.load_state_dict(sd, strict=False)
         n_loaded = len(own) - len(missing)
         if n_loaded == 0:

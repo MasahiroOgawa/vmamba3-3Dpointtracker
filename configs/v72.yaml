@@ -1,30 +1,21 @@
-# v72: Mamba3DepthScaleRefiner on DA3-g -- per-frame depth scale read from the DEPTH MAP, with
-# its own loss.
+# v72: WAFT + DA3-g + Mamba-3 depth-scale refiner. Standalone, to establish the stage's own
+# ability before it is composed with the appearance refiner in v73.
 #
-# Replaces the de-flicker stage, which had four measured defects:
-#   1. No supervision of its own. Trained only through per-point 3-D error, where the single scalar
-#      it emits accounts for a few percent; ~99.5% of its gradient was error it cannot act on. It
-#      delivered +0.0020 against a +0.0707 flicker ceiling. Fixed by lambda_dsr * L_dsr.
-#   2. Every input arrived through the optical flow -- ray, sampled depth, visibility, normaliser --
-#      so a property of the depth model was observed through a biased ~900-point sample chosen by
-#      the tracker. That is what tied it to the front-end. Fixed by reading the depth map.
-#   3. max_scale_correction 0.5 clipped 17.4% of frames; the needed |ds| reaches 2.44. Now 2.5,
-#      which clips 0.0%.
-#   4. Misnamed: the correction is dominated by a per-clip CONSTANT (|median| p50 0.294) rather than
-#      frame-to-frame wobble (p50 0.027), so "de-flicker" named a tenth of the job.
+# Three changes from the first attempt, each from a measurement:
+#   linear_init  -- a least-squares map from log-depth quantiles to the per-frame scale, fitted on
+#                   minival-DISJOINT training clips. Held out, that map alone is worth +0.0734 of
+#                   metric-AJ (0.2484 -> 0.3217), which is more than the first version learned from
+#                   scratch. The module now starts there and learns a residual.
+#   quantiles    -- supplied directly to the token. The encoder ends in a global average, so it saw
+#                   essentially the MEAN of log-depth, which predicts the target at R^2 0.37 against
+#                   0.51 for the quantile vector. Averaging discarded the useful half.
+#   early stop   -- val_every 2000 with patience 3 on the BEST value and a 0.01 tolerance, not a
+#                   flatness test between neighbours: at the old val_clips=5 the median change
+#                   between consecutive checks was 0.103 against a whole-run spread of 0.096, so two
+#                   numbers carried no information. val_clips is now 25, cutting that noise ~2.2x.
 #
-# log_ref/log_std are FIXED constants, never per-clip: normalising by a per-clip statistic would
-# erase the absolute-scale cue that predicting the constant offset depends on.
-#
-# Oracle ceilings on this arm, from ground truth: +0.1842 for a per-clip constant, +0.0707 more for
-# frame-to-frame wobble, +0.2549 together (0.2484 -> 0.5033).
-# Compare against: v68 0.2218 (no stage), v63 0.2238 (old stage), v45 0.2320 (the mismatched row).
-#
-# Step count reduced from 20000 to 3000 to land both arms by 2026-09-05 11:00.
-# The LR schedule scales with train.steps, so this is a complete shorter run rather
-# than a truncated one -- but it is NOT step-matched to the arms it is compared with,
-# which all ran 20000. A WIN is therefore safe to read (it won on less training); a
-# LOSS is ambiguous between the architecture and the shorter schedule.
+# steps: 20000 is a ceiling, not a target -- early stopping decides the length.
+# Compare against v69 0.1998 (the old stage, standalone) and the linear map's own 0.3217.
 version: v72
 model:
   two_pool: true
@@ -36,6 +27,7 @@ model:
   grid: 64
   log_ref: 2.0
   log_std: 1.5
+  linear_init: result/scale_linear_init.npz
 flow:
   source: waft_live
   url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
@@ -60,11 +52,11 @@ data:
     seed: 42
 train:
   out_dir: result/v72_depth_scale_refiner
-  steps: 3000
+  steps: 20000
   warmup: 500
   decay: 2000
   ckpt_every: 500
-  val_every: 500
+  val_every: 2000
   log_every: 50
   lr: 0.0003
   weight_decay: 0.05
@@ -74,6 +66,9 @@ train:
   amp: bf16
   num_workers: 0
   seed: 0
+  val_clips: 25
+  early_stop_patience: 3
+  early_stop_min_delta: 0.01
 loss:
   weights:
     pos_3D: 1.0

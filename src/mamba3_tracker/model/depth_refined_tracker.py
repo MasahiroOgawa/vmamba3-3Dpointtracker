@@ -465,6 +465,9 @@ class Mamba3V35Refiner(nn.Module):
         )
 
 
+QUANTILES = (5, 15, 25, 35, 45, 55, 65, 75, 85, 95)
+
+
 class Mamba3DepthScaleRefiner(nn.Module):
     """Per-frame log-scale correction for DA3 depth, read from the depth map itself.
 
@@ -512,7 +515,18 @@ class Mamba3DepthScaleRefiner(nn.Module):
             nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.GELU(),     # 16 -> 8
             nn.AdaptiveAvgPool2d(1),
         )
-        self.to_token = nn.Linear(64, dim)
+        # The encoder ends in a global average, so what reaches the token is essentially a MEAN of
+        # conv features -- and the mean of log-depth alone predicts the target at R^2 0.37, while the
+        # quantile vector reaches 0.51. The extra 0.14 is in the shape of the depth distribution,
+        # which averaging discards, so the quantiles are supplied directly alongside.
+        self.n_quantiles = len(QUANTILES)
+        self.to_token = nn.Linear(64 + self.n_quantiles, dim)
+        # Closed-form starting point: a least-squares map from the same quantiles, fitted on TRAINING
+        # clips, is worth +0.0734 of metric-AJ on its own. Starting there and learning a residual
+        # beats starting at zero, which is what the first version did.
+        self.linear_bypass = nn.Linear(self.n_quantiles, 1)
+        nn.init.zeros_(self.linear_bypass.weight)
+        nn.init.zeros_(self.linear_bypass.bias)
         self.layers = nn.ModuleList(
             [
                 Mamba3CrossAttention(
@@ -529,18 +543,43 @@ class Mamba3DepthScaleRefiner(nn.Module):
         nn.init.zeros_(self.scale_head.weight)
         nn.init.zeros_(self.scale_head.bias)
 
+    def load_linear_init(self, path) -> int:
+        """Seed the bypass from a least-squares fit. Returns the number of tensors set."""
+        import numpy as _np
+        d = _np.load(path)
+        w = torch.as_tensor(d["weight"], dtype=torch.float32).view(1, -1)
+        if w.shape[1] != self.n_quantiles:
+            raise ValueError(f"fit has {w.shape[1]} coefficients, module expects {self.n_quantiles}")
+        with torch.no_grad():
+            self.linear_bypass.weight.copy_(w)
+            self.linear_bypass.bias.copy_(torch.as_tensor([float(d["bias"])]))
+        return 2
+
     def per_frame_logscale(self, depth: Tensor) -> Tensor:
-        """(B,F,H,W) depth map -> (B,F,1) bounded log-scale. Zero at init."""
+        """(B,F,H,W) depth map -> (B,F,1) bounded log-scale.
+
+        At initialisation the learned branch contributes nothing (zero-init head) and the output is
+        exactly the linear fit, so the module starts from a known-good solution instead of identity.
+        """
         B, F_, H, W = depth.shape
-        x = torch.log(depth.clamp_min(1e-6)).reshape(B * F_, 1, H, W)
-        x = F.adaptive_avg_pool2d(x, self.grid)
+        logd = torch.log(depth.clamp_min(1e-6))
+        q = torch.quantile(
+            logd.reshape(B * F_, -1).float(),
+            torch.tensor(QUANTILES, device=depth.device, dtype=torch.float32) / 100.0,
+            dim=1,
+        ).transpose(0, 1)                                              # (B*F, n_q)
+        x = F.adaptive_avg_pool2d(logd.reshape(B * F_, 1, H, W), self.grid)
         x = (x - self.log_ref) / self.log_std
-        g = self.to_token(self.encoder(x).flatten(1)).reshape(B, F_, -1)
+        feat = torch.cat([self.encoder(x).flatten(1), (q - self.log_ref) / self.log_std], dim=-1)
+        g = self.to_token(feat).reshape(B, F_, -1)
         for pre_n, layer, post_n in zip(self.pre_norms, self.layers, self.post_norms):
             gn = pre_n(g)
             g = post_n(g + layer(gn, gn))
         g = self.out_norm(g)
-        return self.max_scale_correction * torch.tanh(self.scale_head(g))
+        base = self.linear_bypass(q).reshape(B, F_, 1)
+        return self.max_scale_correction * torch.tanh(
+            base / self.max_scale_correction + self.scale_head(g)
+        )
 
     def forward(self, ray: Tensor, z_raw: Tensor, vis: Tensor, depth: Tensor) -> TrackerOutputs:
         B, F_, N, _ = ray.shape

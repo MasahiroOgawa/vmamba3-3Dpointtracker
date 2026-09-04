@@ -1,26 +1,14 @@
 # v73: WAFT + DA3-g + Mamba-3 depth-scale refiner + vmamba3-2pool. The best-DA3-g candidate.
 #
-# Two stages, same shape as v45: stage 1 estimates a per-frame log-scale from the DEPTH MAP and
-# rescales both the sampled depth and the map; stage 2 is the unchanged appearance-conditioned
-# vmamba3-2pool refiner, which therefore starts from depth whose scale is already corrected.
+# 20000 steps, step-matched to v63 (0.2238) and v45 (0.2320), the arms it must beat.
 #
-# v72 was the stage ALONE (0.574M), the analogue of v69 rather than of v63, and cannot produce a
-# best-DA3-g number. This is the composite: 1.186M against v63's 1.180M.
+# Stage 1 is warm-started from v72's trained weights via train.init_ckpt, so its total exposure is
+# v72's steps plus these 20000 -- more than v63's 20000 joint, not less. init_ckpt is a weights-only
+# load with strict=False, which silently matches ZERO keys if the prefixes differ, so the launcher
+# verifies the loaded count rather than trusting the log line.
 #
-# Stage 1 differs from v45's de-flicker in four measured ways: it reads the depth map instead of
-# points the tracker chose; its bound is 2.5 rather than 0.5, which clipped 17.4% of frames; its
-# emitted scale is supervised directly by L_dsr rather than only through per-point 3-D error; and it
-# targets the per-frame scale as a whole, which is dominated by a per-clip constant (p50 0.294)
-# rather than the wobble around it (p50 0.027).
-#
-# Targets: v63 0.2238 (same shape, old stage), v45 0.2320 (the mismatched row), v68 0.2218 (no
-# stage). Oracle ceiling for a per-frame scale is 0.5033 against 0.2484 as-is.
-#
-# Step count reduced from 20000 to 14000 to land both arms by 2026-09-05 11:00.
-# The LR schedule scales with train.steps, so this is a complete shorter run rather
-# than a truncated one -- but it is NOT step-matched to the arms it is compared with,
-# which all ran 20000. A WIN is therefore safe to read (it won on less training); a
-# LOSS is ambiguous between the architecture and the shorter schedule.
+# linear_init is kept as a fallback: if the warm start is skipped the bypass still starts at the
+# least-squares solution rather than at zero.
 version: v73
 model:
   two_pool: true
@@ -39,6 +27,7 @@ model:
   grid: 64
   log_ref: 2.0
   log_std: 1.5
+  linear_init: result/scale_linear_init.npz
 flow:
   source: waft_live
   url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
@@ -63,11 +52,11 @@ data:
     seed: 42
 train:
   out_dir: result/v73_dsr_plus_vmamba3_2pool
-  steps: 14000
+  steps: 20000
   warmup: 500
   decay: 2000
   ckpt_every: 500
-  val_every: 500
+  val_every: 2000
   log_every: 50
   lr: 0.0003
   weight_decay: 0.05
@@ -77,6 +66,8 @@ train:
   amp: bf16
   num_workers: 0
   seed: 0
+  val_clips: 25
+  init_ckpt: result/v72_depth_scale_refiner/best/LATEST
 loss:
   weights:
     pos_3D: 1.0

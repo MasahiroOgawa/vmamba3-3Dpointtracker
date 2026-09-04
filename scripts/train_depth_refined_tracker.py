@@ -565,6 +565,14 @@ def main() -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     # Positional noise added to the training track only, never to validation or evaluation.
+    # Validation noise scales as 1/sqrt(clips); at the old default of 5 the median change between
+    # consecutive checks was 0.103 against a whole-run spread of 0.096, so two numbers said nothing.
+    val_clips_n = int(train_cfg.get("val_clips", 5))
+    # Early stopping: patience on the BEST value, not flatness between neighbours, with a tolerance
+    # above the noise floor. Keeps the best checkpoint rather than the last.
+    es_patience = int(train_cfg.get("early_stop_patience", 0))
+    es_min_delta = float(train_cfg.get("early_stop_min_delta", 0.01))
+    es_best, es_since, es_best_step = float("inf"), 0, -1
     lambda_dsr = float(loss_cfg.get("lambda_dsr", 0.0) or 0.0)
     last_dsr = float("nan")
     if lambda_dsr > 0:
@@ -796,6 +804,10 @@ def main() -> int:
             d_proj=int(model_cfg["d_proj"]),
         ).to(device)
         loss_fn = TrackingLossV35(loss_cfg["weights"]).to(device)
+        init_path = model_cfg.get("linear_init")
+        if init_path:
+            n_set = model.scale_refiner.load_linear_init(Path(str(init_path)).expanduser())
+            print(f"[train] scale bypass seeded from {init_path} ({n_set} tensors)")
         print("[train] Mamba3V73 (depth-scale refiner + v35 refiner)  loss: TrackingLossV35 + L_dsr")
     elif version == "v72":
         model = Mamba3DepthScaleRefiner(
@@ -810,6 +822,10 @@ def main() -> int:
             log_std=float(model_cfg.get("log_std", 1.5)),
         ).to(device)
         loss_fn = TrackingLossV33(loss_cfg["weights"]).to(device)
+        init_path = model_cfg.get("linear_init")
+        if init_path:
+            n_set = model.load_linear_init(Path(str(init_path)).expanduser())
+            print(f"[train] scale bypass seeded from {init_path} ({n_set} tensors)")
         print("[train] Mamba3DepthScaleRefiner (v72)  loss: TrackingLossV33 + L_dsr")
     elif version == "v44":
         model = Mamba3DeflickerRefiner(
@@ -871,7 +887,23 @@ def main() -> int:
         st = torch.load(
             Path(args.init_ckpt).expanduser(), map_location=device, weights_only=False
         )
-        missing, unexpected = model.load_state_dict(st["model"], strict=False)
+        # v72's checkpoint stores stage-1 keys at top level while v73 nests them under
+        # scale_refiner., so a direct load matches ZERO keys -- and strict=False reports that as
+        # success. Remap when the shapes line up under the prefix.
+        sd = st["model"]
+        own = model.state_dict()
+        if not (set(sd) & set(own)) and all(f"scale_refiner.{k}" in own for k in sd):
+            sd = {f"scale_refiner.{k}": v for k, v in sd.items()}
+            print(f"[train] warm start: remapped {len(sd)} keys under 'scale_refiner.'", flush=True)
+        missing, unexpected = model.load_state_dict(sd, strict=False)
+        n_loaded = len(own) - len(missing)
+        if n_loaded == 0:
+            raise SystemExit(
+                f"[train] warm start from {args.init_ckpt} loaded NOTHING: "
+                f"{len(sd)} checkpoint keys matched none of {len(own)} model keys. "
+                f"Refusing to train from a silently-ignored initialisation."
+            )
+        print(f"[train] warm start loaded {n_loaded}/{len(own)} tensors", flush=True)
         print(
             f"[train] warm-started from {args.init_ckpt} "
             f"(missing={len(missing)} unexpected={len(unexpected)})",
@@ -996,9 +1028,28 @@ def main() -> int:
                 image_size,
                 fb_alpha,
                 fb_beta,
+                n_clips=val_clips_n,
                 waft_pred_dir=waft_pred_dir,
             )
             print(f"[train] step {step:6d}  VAL     {_fmt_loss_row(v)}", flush=True)
+            if es_patience > 0:
+                cur = float(v["total"])
+                if cur < es_best - es_min_delta:
+                    es_best, es_since, es_best_step = cur, 0, step
+                    best_dir = args.out_dir / "best"
+                    best_dir.mkdir(parents=True, exist_ok=True)
+                    _save_ckpt(best_dir, step, model, optim, sched, history, cfg_snapshot)
+                    print(f"[train] early-stop: new best {cur:.4f} at step {step}", flush=True)
+                else:
+                    es_since += 1
+                    print(f"[train] early-stop: no improvement ({cur:.4f} vs best "
+                          f"{es_best:.4f} @ {es_best_step}), {es_since}/{es_patience}", flush=True)
+                    if es_since >= es_patience:
+                        print(f"[train] EARLY STOP at step {step}: best {es_best:.4f} was at step "
+                              f"{es_best_step}, not beaten by {es_min_delta} in "
+                              f"{es_patience} checks", flush=True)
+                        _save_ckpt(args.out_dir, step, model, optim, sched, history, cfg_snapshot)
+                        break
             history.append({"step": step, "val": v})
             m = _motion_check(
                 model,

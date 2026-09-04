@@ -23,9 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--clips", type=int, default=12)
-    args = ap.parse_args()
+    argparse.ArgumentParser(description=__doc__).parse_args()
 
     ckpts = {
         "SEA-RAFT-trained (v45)": "result/v45_scale/ckpt_20000.pt",

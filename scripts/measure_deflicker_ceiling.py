@@ -96,9 +96,9 @@ def main() -> int:
     if n:
         B, C, A = sum(tb) / n, sum(tc) / n, sum(ta) / n
         print(f"  {'ALL':11s} {n:4d} {B:8.4f} {C:9.4f} {A:10.4f} {A-C:+13.4f}")
-        print(f"\n  per-clip  = one constant scale for the whole clip (a CALIBRATION fix)")
-        print(f"  per-frame = the full oracle, constant plus frame-to-frame wobble")
-        print(f"  flicker only = per-frame minus per-clip: what a DE-FLICKER can add on top")
+        print("\n  per-clip  = one constant scale for the whole clip (a CALIBRATION fix)")
+        print("  per-frame = the full oracle, constant plus frame-to-frame wobble")
+        print("  flicker only = per-frame minus per-clip: what a DE-FLICKER can add on top")
         print("\n  'oracle' applies the ground-truth per-frame scale -- a de-flicker that is exactly")
         print("  right on every frame. The gain is therefore the CEILING for the stage.")
         print("  For scale: de-flicker as trained contributes +0.0020 (v68 0.2218 -> v63 0.2238).")

@@ -3525,13 +3525,94 @@ it to the front-end at all.
 
 \input{figs/fig_deflicker_coupling}
 
-\paragraph{Two changes follow, and the second matters more.} Reading the depth map directly
-(Fig.~\ref{fig:deflicker-coupling}b) removes the flow-dependence by construction. Supervising the
-stage on what it can do --- $\Delta s^{*}_f = \mathrm{median}_n[\log z_{\text{gt}} - \log
-z_{\text{raw}}]$ with $L_{\text{dsr}} = |\Delta s_f - \Delta s^{*}_f|$ added to the tracking loss ---
-removes the gradient dilution, and would work even with the present input. Neither is worth building
-before the ceiling is known: the oracle correction, taking the per-frame scale from ground truth,
-bounds every possible de-flicker design.
+\paragraph{The ceiling, and a correction to what the variance figure means.} The
+$0.3$--$0.6\%$ above is a share of log-error \emph{variance}, and it was briefly read here as
+meaning the stage had nothing to gain. Against the metric actually reported it means no such thing.
+Taking the per-frame scale from ground truth --- an oracle correction, the bound on every possible
+design of this stage --- gives:
+
+\begin{center}\small
+\begin{tabular}{lcccc}
+\toprule
+& as-is & $+$ per-clip constant & $+$ per-frame (full oracle) & flicker alone \\
+\midrule
+drivetrack & $0.0078$ & $0.2455$ & $0.3492$ & $+0.1037$ \\
+pstudio    & $0.2706$ & $0.5402$ & $0.5925$ & $+0.0522$ \\
+adt        & $0.4667$ & $0.5121$ & $0.5683$ & $+0.0561$ \\
+\midrule
+ALL        & $0.2484$ & $0.4326$ & $\mathbf{0.5033}$ & $\mathbf{+0.0707}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Variance-explained and a threshold-based metric are not interchangeable: a small systematic scale
+error moves points across fixed-metre thresholds while contributing little variance. The headroom is
+large, $+0.2549$ in total, and the stage delivers $+0.0020$ --- about $3\%$ of the flicker component
+alone. The gradient dilution is therefore a real loss rather than a reason to abandon the stage.
+
+\paragraph{The split says which problem is which.} Of that $+0.2549$, only $+0.0707$ is
+frame-to-frame wobble; $+0.1842$ is a per-clip \emph{constant} offset, which is a calibration
+problem and not flicker at all. The correction needed is dominated by that constant ($|$median$|$
+p50 $0.294$) rather than the wobble around it (p50 $0.027$), and the old stage's output bound of
+$0.5$ clipped $17.4\%$ of frames outright. The stage was therefore misnamed, under-ranged,
+unsupervised and fed through the tracker --- four separate defects, and \S\ref{sec:depth-scale-refiner} is what
+replaces it.
+
+\subsection{Mamba-3 depth scale refiner}
+\label{sec:depth-scale-refiner}
+
+\texttt{Mamba3DepthScaleRefiner} replaces the de-flicker stage. The temporal model, the bounded
+output and the zero-initialised head are unchanged; it remains an exact identity at
+initialisation and a strict add-on to the no-refiner baseline. Four things differ, one per defect:
+
+\begin{center}\small
+\begin{tabular}{p{4.2cm}p{4.6cm}p{4.6cm}}
+\toprule
+defect & evidence & change \\
+\midrule
+Trained only through per-point 3-D error; the one scalar it emits is a few percent of that &
+Delivers $+0.0020$ against a $+0.0707$ ceiling &
+$L_{\text{dsr}}$, a direct target from ground-truth depth \\
+Every input arrives through the flow &
+Couples it to the front-end; biased ${\sim}900$-point sample &
+Reads the depth map \\
+\texttt{max\_scale\_correction} $=0.5$ &
+Clips $17.4\%$ of frames; needed $|\Delta s|$ reaches $2.44$ &
+$2.5$, which clips none \\
+Named for frame-to-frame wobble &
+The constant term is $10\times$ larger at the median &
+Renamed; the per-frame scale is unconstrained \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Algorithm.} Per frame the depth map is taken in log space, pooled to $64\times64$,
+normalised by \emph{fixed} dataset constants and encoded by a small convolutional stack into one
+token. The token sequence goes through the same time-axis Mamba-3 as before, and a zero-initialised
+head emits $\Delta s_f = 2.5\tanh(\cdot)$, applied as $z = z_{\text{raw}}\exp(\Delta s_f)$ along the
+frozen ray.
+
+The normalisation constants are fixed rather than per-clip deliberately: subtracting a per-clip
+median would remove exactly the absolute-scale cue that predicting the constant offset depends on,
+and that offset is ten elevenths of the available gain.
+
+\paragraph{Loss.}
+\[
+  \Delta s^{*}_f = \mathrm{median}_{n \in \text{visible}}\!\left[\log z_{\text{gt}}(f,n) - \log
+  z_{\text{raw}}(f,n)\right], \qquad
+  L_{\text{dsr}} = \frac{\sum_f w_f\,|\Delta s_f - \Delta s^{*}_f|}{\sum_f w_f},
+\]
+added to the tracking loss as $\lambda_{\text{dsr}} L_{\text{dsr}}$. The median resists the handful
+of badly tracked points whose log-ratios are orders of magnitude out. The weight $w_f =
+\sqrt{n_{\text{visible}}(f)}$ follows the standard error of a median; an earlier version required
+eight visible points per frame and silently discarded every clip with fewer than eight
+\emph{tracks} in total, which was a third of batches and the small clips rather than the occluded
+ones.
+
+$\lambda_{\text{dsr}} = 1$ is a starting value, not a derived one: $L_{\text{dsr}}$ runs $0.05$ to
+$0.24$ on typical batches against a tracking loss of $0.01$ to $0.66$, which puts the two at the
+same order.
+It is the first thing to sweep if the arm disappoints.
 
 \subsection{Explanations that were proposed and eliminated}
 \label{sec:waft-eliminated}

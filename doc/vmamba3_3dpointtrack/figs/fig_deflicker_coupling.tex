@@ -1,0 +1,82 @@
+\begin{figure*}[!tb]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  box/.style={draw, rounded corners=2pt, minimum height=7mm, inner xsep=4pt, align=center},
+  data/.style={box, fill=cInput!18, draw=cInput!70!black},
+  learn/.style={box, fill=cTrain!18, draw=cTrain!70!black},
+  flowb/.style={box, fill=black!8, draw=black!55},
+  ar/.style={-{Latex[length=2mm]}, draw=black!70},
+]
+
+% ---------------- (a) as built ----------------
+\node[data]  (aimg)  at (0,0)      {video\\frames};
+\node[flowb] (aflow) at (2.3,0)    {optical\\flow};
+\node[data]  (adep)  at (0,-1.5)   {DA3-g\\depth map};
+\node[box, fill=black!4, draw=black!45] (apts) at (4.9,0)
+      {$\sim\!900$ tracked points\\$uv$, $vis$};
+\node[box, fill=black!4, draw=black!45] (asamp) at (4.9,-1.5)
+      {depth sampled\\\emph{at those} $uv$};
+\node[learn] (atok) at (7.9,-0.75) {mean over\\visible points\\$\rightarrow$ 1 token/frame};
+\node[learn] (amam) at (10.6,-0.75) {time-axis\\Mamba-3};
+\node[learn] (aout) at (13.0,-0.75) {$\Delta s_f$\\(one scalar)};
+
+\draw[ar] (aimg) -- (aflow);
+\draw[ar] (aflow) -- (apts);
+\draw[ar] (apts) -- (asamp);
+\draw[ar] (adep) -- (asamp);
+\draw[ar] (apts.east) -- ++(0.5,0) |- (atok.west);
+\draw[ar] (asamp.east) -- ++(0.5,0) |- (atok.west);
+\draw[ar] (atok) -- (amam);
+\draw[ar] (amam) -- (aout);
+
+\node[anchor=west, text=black] at (0,-2.6)
+  {\textbf{(a) As built.} Every input reaches the stage \emph{through} the flow: the depth map is
+   only ever read at flow-chosen positions, gated by a flow-derived visibility mask.};
+
+% ---------------- (b) proposed ----------------
+\begin{scope}[yshift=-4.6cm]
+\node[data]  (bdep)  at (0,-0.75)   {DA3-g\\depth map};
+\node[box, fill=black!4, draw=black!45] (bds) at (3.0,-0.75)
+      {$\log$ depth,\\downsampled};
+\node[learn] (bcnn) at (5.9,-0.75)  {small CNN\\$\rightarrow$ 1 token/frame};
+\node[learn] (bmam) at (8.9,-0.75)  {time-axis\\Mamba-3};
+\node[learn] (bout) at (11.6,-0.75) {$\Delta s_f$\\(one scalar)};
+
+\draw[ar] (bdep) -- (bds);
+\draw[ar] (bds) -- (bcnn);
+\draw[ar] (bcnn) -- (bmam);
+\draw[ar] (bmam) -- (bout);
+
+\node[anchor=west] at (0,-2.6)
+  {\textbf{(b) Proposed.} The stage reads the depth map itself. No flow appears in the path, so
+   which front-end trained it cannot change what it learns.};
+\end{scope}
+
+% ---------------- (c) the supervision ----------------
+\begin{scope}[yshift=-9.0cm]
+\node[anchor=west] at (0,0.35)
+  {\textbf{(c) What trains it.} As built there is no de-flicker loss; the stage learns only through
+   the tracking loss:};
+\node[anchor=west] at (0.4,-0.55)
+  {$L=\underbrace{vis\cdot|xyz_{\text{pred}}-xyz_{\text{gt}}|_1/\text{scale}_{\text{gt}}}
+      _{\text{per-point; the stage cannot change this}}
+    +\ \lambda_{uv}\,vis\,|\Delta uv|^2$};
+\node[anchor=west, text width=15.5cm] at (0,-1.6)
+  {The stage emits one scalar per frame, but the loss sums over ${\sim}900$ points $\times$ $F$
+   frames, and a single per-frame scalar accounts for only $0.3$--$0.6\%$ of that error
+   (\S\ref{sec:deflicker-signal}). Roughly $99.5\%$ of its gradient is therefore noise from its
+   point of view. A direct target, $\Delta s^{*}_f=\mathrm{median}_n[\log z_{\text{gt}}-\log
+   z_{\text{raw}}]$ with $L_{\text{dsr}}=|\Delta s_f-\Delta s^{*}_f|$, supervises exactly what it
+   can do.};
+\end{scope}
+
+\end{tikzpicture}
+\caption{Why the de-flicker stage depends on the optical-flow front-end, and why its training signal
+  is weak. Orange is data, blue is trainable, grey is a frozen component or an intermediate. The
+  stage's job is to undo DA3-g's per-frame global scale drift, which is a property of the depth
+  model alone --- yet as built (a) it observes that drift only through points the tracker selected,
+  which is what couples it to the front-end and makes a SEA-RAFT-trained stage behave differently
+  from a WAFT-trained one on identical depth.}
+\label{fig:deflicker-coupling}
+\end{figure*}

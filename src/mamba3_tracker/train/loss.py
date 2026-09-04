@@ -1047,3 +1047,42 @@ class TrackingLossV47(TrackingLossV35):
         return TrackingLossOutput(
             total=total, pos_3D=base.pos_3D, pos_2D=base.pos_2D, vis=cons.detach()
         )
+
+
+def depth_scale_refiner_loss(
+    log_scale: Tensor,      # (B, F, 1) — what the refiner emitted
+    z_raw: Tensor,          # (B, F, N) — DA3 depth before correction
+    gt_xyz: Tensor,         # (B, F, N, 3)
+    vis: Tensor,            # (B, F, N)
+) -> Tensor:
+    """L_dsr: supervise the emitted per-frame log-scale against the true one.
+
+    Without this the refiner is trained only through per-point 3-D error, where the single scalar it
+    emits accounts for a few percent of the total -- so almost all of its gradient is error it
+    cannot act on, and what it converges to is dominated by variance. The target is the per-frame
+    scale that would be correct:
+
+        ds*_f = median_n [ log z_gt(f,n) - log z_raw(f,n) ]   over visible n
+
+    Median rather than mean because a handful of badly tracked points produce log-ratios orders of
+    magnitude out, and the quantity being estimated is a global offset.
+    """
+    z_gt = gt_xyz[..., 2]
+    m = (vis > 0.5) & torch.isfinite(z_gt) & torch.isfinite(z_raw) & (z_gt > 1e-6) & (z_raw > 1e-6)
+    r = torch.log(z_gt.clamp_min(1e-6)) - torch.log(z_raw.clamp_min(1e-6))
+    B, F_, _ = r.shape
+    target = r.new_zeros(B, F_)
+    valid = r.new_zeros(B, F_)
+    for b in range(B):
+        for t in range(F_):
+            sel = r[b, t][m[b, t]]
+            if sel.numel() >= 1:
+                target[b, t] = sel.median()
+                # A median's standard error scales as 1/sqrt(n), so frames with more visible points
+                # are weighted up rather than a hard cutoff being applied. A threshold of 8 silently
+                # discarded every clip with fewer than 8 tracks in total -- a third of batches --
+                # because those clips are small, not because their points were occluded.
+                valid[b, t] = float(sel.numel()) ** 0.5
+    if valid.sum() <= 0:
+        return log_scale.sum() * 0.0
+    return ((log_scale[..., 0] - target).abs() * valid).sum() / valid.sum()

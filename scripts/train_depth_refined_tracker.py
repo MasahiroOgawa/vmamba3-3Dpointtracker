@@ -44,6 +44,7 @@ from mamba3_tracker.data.dataset import (
 )
 from mamba3_tracker.data.tapvid3d import load_clip
 from mamba3_tracker.model.depth_refined_tracker import (
+    Mamba3DepthScaleRefiner,
     Mamba3DeflickerRefiner,
     Mamba3DepthRefiner,
     Mamba3V35Refiner,
@@ -53,6 +54,7 @@ from mamba3_tracker.train.config import dump_resolved, load_config
 from mamba3_tracker.train.loss import (
     TrackingLossOutput,
     TrackingLossV33,
+    depth_scale_refiner_loss,
     TrackingLossV35,
     TrackingLossV47,
 )
@@ -130,11 +132,14 @@ def _loss_to_dict(out: TrackingLossOutput) -> dict[str, float]:
     }
 
 
-def _fmt_loss_row(d: dict) -> str:
-    return (
+def _fmt_loss_row(d: dict, dsr: float = float("nan")) -> str:
+    row = (
         f"loss={d['total']:.4f}  p3D={d['pos_3D']:.4f}  "
         f"p2D={d['pos_2D']:.4f}  vis={d['vis']:.4f}"
     )
+    # L_dsr is the whole point of the v72 arm: watching it fall is how we know the scale head is
+    # learning the correction rather than being drowned by the per-point term.
+    return row if dsr != dsr else f"{row}  Ldsr={dsr:.4f}"
 
 
 def _per_head_grad_norm(model: Mamba3DepthRefiner) -> dict[str, float]:
@@ -292,6 +297,8 @@ def _model_forward(
     with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
         if version in ("v35", "v45", "v46", "v47"):
             return model(ray, z_raw, vis, uv, depth, images, K)
+        if version == "v72":
+            return model(ray, z_raw, vis, depth)
         return model(ray, z_raw, vis)
 
 
@@ -557,6 +564,10 @@ def main() -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     # Positional noise added to the training track only, never to validation or evaluation.
+    lambda_dsr = float(loss_cfg.get("lambda_dsr", 0.0) or 0.0)
+    last_dsr = float("nan")
+    if lambda_dsr > 0:
+        print(f"[train] L_dsr enabled, lambda_dsr={lambda_dsr:.3f}")
     track_noise_px = float(data_cfg.get("track_noise_px", 0.0) or 0.0)
     track_noise_rho = float(data_cfg.get("track_noise_rho", 0.9))
     if track_noise_px > 0:
@@ -767,6 +778,20 @@ def main() -> int:
         print(
             "[train] Mamba3V45+pose_head (v47 shared ego-motion)  loss: TrackingLossV47"
         )
+    elif version == "v72":
+        model = Mamba3DepthScaleRefiner(
+            dim=int(model_cfg["dim"]),
+            state_dim=int(model_cfg["state_dim"]),
+            num_heads=int(model_cfg["num_heads"]),
+            num_layers=int(model_cfg["num_layers"]),
+            max_scale_correction=float(model_cfg.get("max_scale_correction", 2.5)),
+            two_pool=bool(model_cfg.get("two_pool", False)),
+            grid=int(model_cfg.get("grid", 64)),
+            log_ref=float(model_cfg.get("log_ref", 2.0)),
+            log_std=float(model_cfg.get("log_std", 1.5)),
+        ).to(device)
+        loss_fn = TrackingLossV33(loss_cfg["weights"]).to(device)
+        print("[train] Mamba3DepthScaleRefiner (v72)  loss: TrackingLossV33 + L_dsr")
     elif version == "v44":
         model = Mamba3DeflickerRefiner(
             dim=int(model_cfg["dim"]),
@@ -899,12 +924,24 @@ def main() -> int:
             queries[..., 2].long(),
             K_d,
         )
-        loss_out.total.backward()
+        # The depth-scale refiner emits one scalar per frame against ~900*F points of tracking loss,
+        # so without its own term its gradient is dominated by error it cannot act on.
+        total = loss_out.total
+        if lambda_dsr > 0 and pred.log_scale is not None:
+            l_dsr = depth_scale_refiner_loss(
+                pred.log_scale,
+                z_raw,
+                batch.tracks_XYZ.to(device, non_blocking=True),
+                batch.visibility.to(device, non_blocking=True),
+            )
+            total = total + lambda_dsr * l_dsr
+            last_dsr = float(l_dsr.detach())
+        total.backward()
         head_grad = _per_head_grad_norm(model)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_val)
         if not torch.isfinite(grad_norm):
             print(f"[train] step {step:6d}: non-finite grad_norm — skip", flush=True)
-        elif not torch.isfinite(loss_out.total):
+        elif not torch.isfinite(total):
             print(f"[train] step {step:6d}: non-finite loss — skip", flush=True)
         else:
             optim.step()
@@ -920,7 +957,7 @@ def main() -> int:
             if pred.delta_uv is not None:
                 duv_str = f"  |Δuv|={float(pred.delta_uv.abs().mean().item()):.3f}px"
             print(
-                f"[train] step {step:6d}/{n_steps}  {_fmt_loss_row(row)}  lr={lr:.2e}  "
+                f"[train] step {step:6d}/{n_steps}  {_fmt_loss_row(row, last_dsr)}  lr={lr:.2e}  "
                 f"|grad|={gn:.2e}  {_fmt_grad_row(head_grad)}{duv_str}  elapsed={dt:.0f}s",
                 flush=True,
             )

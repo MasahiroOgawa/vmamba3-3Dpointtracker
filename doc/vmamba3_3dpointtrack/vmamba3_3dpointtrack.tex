@@ -3426,6 +3426,113 @@ where the previous $0.232$ sat above it. The paper's claim that our DA3-g pipeli
 external DA3-g methods does not survive, and has been withdrawn. The claim the DA3-g table exists to
 support --- that no DA3-g configuration reaches the DA3-l ceiling --- is unaffected.
 
+\subsection{Four hypotheses for the DA3-g gap, and what killed each}
+\label{sec:deflicker-signal}
+
+Under a self-consistent protocol the DA3-g arm reaches $0.2238$ (v63) against $0.2320$ for v45,
+which was trained on SEA-RAFT tracks and evaluated on WAFT ones. A model evaluated on the front-end
+it trained with should not lose to one that was not, so the gap was treated as a defect and
+searched for. It localises entirely in the de-flicker stage:
+
+\begin{center}\small
+\begin{tabular}{lccc}
+\toprule
+training front-end & no de-flicker & $+$ de-flicker & de-flicker's gain \\
+\midrule
+SEA-RAFT (v42 $\to$ v45)      & $0.2246$ & $0.2320$ & $+0.0074$ \\
+WAFT cached (v62 $\to$ v59)   & $0.2228$ & $0.2194$ & $-0.0034$ \\
+WAFT live (v68 $\to$ v63)     & $0.2218$ & $0.2238$ & $+0.0020$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Everything else in the pipeline matches; only what the de-flicker stage learns differs. Four
+explanations were proposed and each was measured rather than argued:
+
+\begin{center}\small
+\begin{tabular}{p{5.4cm}p{6.4cm}l}
+\toprule
+hypothesis & measurement & verdict \\
+\midrule
+The two arms were scored from different-quality tracks &
+Both cached track sets against ground truth, from disk: $-0.0014$ overall, medians identical at
+$0.743$\,m &
+dead \\
+WAFT training taught a weaker correction &
+The WAFT-trained de-flicker's weights are uniformly \emph{larger} ($\texttt{out.weight}$ $0.035$ vs
+$0.027$) &
+dead \\
+WAFT's track is too clean, so the stage trains on a weaker instability signal &
+Injected $2.72$\,px of AR(1) positional noise, derived to match SEA-RAFT's measured error. Result
+got \emph{worse}: $0.2238 \to 0.2200$ (v71) &
+dead \\
+WAFT's error is less \emph{structured}, so less of it is per-frame-correctable &
+Per-frame scale spread over 16 clips: SEA-RAFT $0.0294$, WAFT $0.0294$, ratio $0.998\times$ &
+dead \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The noise result is worth keeping.} Adding positional noise pushed de-flicker's
+contribution negative again, $+0.0020 \to -0.0018$ against the same no-de-flicker baseline. The
+hypothesis predicted the opposite, so the mechanism is not that the stage needs a harder training
+signal. Recorded because the noise level was derived rather than guessed --- $\sqrt{5.20^2-4.10^2}
+= 3.20$\,px of displacement from the two front-ends' measured 2-D error, a per-component
+$\sigma$ of $2.72$\,px, verified back at $3.25$\,px median with AR(1) correlation $+0.90$ --- and it
+still failed, which makes it evidence rather than a failed guess.
+
+\subsection{What the search actually found: the stage is supervised by almost nothing}
+\label{sec:deflicker-supervision}
+
+The fourth measurement returned a number that reframes the question. Alongside the per-frame scale
+spread it reports the fraction of the depth error that a \emph{single per-frame scalar} can explain
+--- which is precisely and only what the de-flicker can remove, since it emits one scalar per frame
+and applies it to every point:
+
+\begin{center}\small
+\begin{tabular}{lcc}
+\toprule
+over 16 minival clips & SEA-RAFT sampling & WAFT sampling \\
+\midrule
+per-frame scale spread (std of log-scale over frames) & $0.0294$ & $0.0294$ \\
+fraction a per-frame scalar explains                  & $0.0025$ & $0.0055$ \\
+clips where that fraction exceeds $5\%$               & \multicolumn{2}{c}{$4/16$} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Roughly $99.5\%$ of the stage's gradient is noise from its own point of view.} There is
+no de-flicker-specific loss. The stage is trained only through the tracking loss,
+$L = vis\cdot|xyz_{\text{pred}}-xyz_{\text{gt}}|_1/\text{scale}_{\text{gt}} + \lambda_{uv}\,vis\,
+|\Delta uv|^2$, which sums per-point 3-D error over ${\sim}900$ points and $F$ frames. Of that
+error, $0.3$--$0.6\%$ is the per-frame-scalar component the stage can act on; the rest is per-point
+error it is architecturally incapable of changing.
+
+That explains the observations the four hypotheses could not. If the learning signal is
+overwhelmingly irrelevant, what the stage converges to is high-variance: v45's $+0.0074$ against
+v63's $+0.0020$ is then variance rather than mechanism, which is why no mechanism reproduced it;
+perturbing the front-end moves a noise-dominated optimisation unpredictably, in either direction;
+and injecting further noise made it worse because the signal was already noise-dominated.
+
+\paragraph{The stage also cannot see what it is meant to correct.}
+Fig.~\ref{fig:deflicker-coupling} traces its inputs. DA3-g's per-frame global scale drift is a
+property of the depth model --- the nested model re-fits a least-squares scalar independently each
+frame --- but the stage never reads the depth map. Its four inputs are the ray (from the flow's
+$uv$), the depth \emph{sampled at} that $uv$, the visibility from the flow's forward--backward
+check, and a normaliser taken from those same samples. It therefore observes a property of the
+depth model through a biased ${\sim}900$-point sample chosen by the tracker, which is what couples
+it to the front-end at all.
+
+\input{figs/fig_deflicker_coupling}
+
+\paragraph{Two changes follow, and the second matters more.} Reading the depth map directly
+(Fig.~\ref{fig:deflicker-coupling}b) removes the flow-dependence by construction. Supervising the
+stage on what it can do --- $\Delta s^{*}_f = \mathrm{median}_n[\log z_{\text{gt}} - \log
+z_{\text{raw}}]$ with $L_{\text{dsr}} = |\Delta s_f - \Delta s^{*}_f|$ added to the tracking loss ---
+removes the gradient dilution, and would work even with the present input. Neither is worth building
+before the ceiling is known: the oracle correction, taking the per-frame scale from ground truth,
+bounds every possible de-flicker design.
+
 \subsection{Explanations that were proposed and eliminated}
 \label{sec:waft-eliminated}
 

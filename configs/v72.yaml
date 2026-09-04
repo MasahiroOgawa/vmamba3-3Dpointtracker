@@ -1,0 +1,75 @@
+# v72: Mamba3DepthScaleRefiner on DA3-g -- per-frame depth scale read from the DEPTH MAP, with
+# its own loss.
+#
+# Replaces the de-flicker stage, which had four measured defects:
+#   1. No supervision of its own. Trained only through per-point 3-D error, where the single scalar
+#      it emits accounts for a few percent; ~99.5% of its gradient was error it cannot act on. It
+#      delivered +0.0020 against a +0.0707 flicker ceiling. Fixed by lambda_dsr * L_dsr.
+#   2. Every input arrived through the optical flow -- ray, sampled depth, visibility, normaliser --
+#      so a property of the depth model was observed through a biased ~900-point sample chosen by
+#      the tracker. That is what tied it to the front-end. Fixed by reading the depth map.
+#   3. max_scale_correction 0.5 clipped 17.4% of frames; the needed |ds| reaches 2.44. Now 2.5,
+#      which clips 0.0%.
+#   4. Misnamed: the correction is dominated by a per-clip CONSTANT (|median| p50 0.294) rather than
+#      frame-to-frame wobble (p50 0.027), so "de-flicker" named a tenth of the job.
+#
+# log_ref/log_std are FIXED constants, never per-clip: normalising by a per-clip statistic would
+# erase the absolute-scale cue that predicting the constant offset depends on.
+#
+# Oracle ceilings on this arm, from ground truth: +0.1842 for a per-clip constant, +0.0707 more for
+# frame-to-frame wobble, +0.2549 together (0.2484 -> 0.5033).
+# Compare against: v68 0.2218 (no stage), v63 0.2238 (old stage), v45 0.2320 (the mismatched row).
+version: v72
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_scale_correction: 2.5
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  out_dir: result/v72_depth_scale_refiner
+  steps: 20000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 500
+  log_every: 50
+  lr: 0.0003
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+  lambda_dsr: 1.0

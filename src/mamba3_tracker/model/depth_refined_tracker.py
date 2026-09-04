@@ -465,6 +465,96 @@ class Mamba3V35Refiner(nn.Module):
         )
 
 
+class Mamba3DepthScaleRefiner(nn.Module):
+    """Per-frame log-scale correction for DA3 depth, read from the depth map itself.
+
+    Replaces Mamba3DeflickerRefiner, which is kept because published checkpoints carry its
+    state-dict prefix. Four things differ, each from a measurement:
+
+    Name. The correction is dominated by a CONSTANT per-clip offset (|median| p50 0.294) rather than
+    frame-to-frame wobble (p50 0.027), so "de-flicker" named the smaller tenth of the job. Removing
+    the constant is worth +0.1842 of metric-AJ against the oracle and the wobble a further +0.0707.
+
+    Input. The old stage read the depth only at flow-tracked points, through a flow-derived
+    visibility mask, normalised by a statistic of those same samples -- so a property of the depth
+    model was observed through a biased ~900-point sample chosen by the tracker, which is what tied
+    it to the front-end. This reads the depth map.
+
+    Normalisation is by FIXED dataset constants, never a per-clip statistic: subtracting a per-clip
+    median would erase the absolute-scale cue that predicting the per-clip offset depends on, and
+    that offset is ten elevenths of the available gain.
+
+    Range. max_scale_correction 0.5 clipped 17.4% of frames outright; the needed |Δs| reaches 2.44.
+
+    The emitted scale is returned in TrackerOutputs.log_scale so the loss can supervise it directly.
+    """
+
+    def __init__(
+        self,
+        dim: int = 128,
+        state_dim: int = 64,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        max_scale_correction: float = 2.5,
+        two_pool: bool = False,
+        grid: int = 64,
+        log_ref: float = 2.0,
+        log_std: float = 1.5,
+    ) -> None:
+        super().__init__()
+        self.max_scale_correction = float(max_scale_correction)
+        self.grid = int(grid)
+        self.log_ref = float(log_ref)
+        self.log_std = float(log_std)
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, 3, stride=2, padding=1), nn.GELU(),      # 64 -> 32
+            nn.Conv2d(16, 32, 3, stride=2, padding=1), nn.GELU(),     # 32 -> 16
+            nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.GELU(),     # 16 -> 8
+            nn.AdaptiveAvgPool2d(1),
+        )
+        self.to_token = nn.Linear(64, dim)
+        self.layers = nn.ModuleList(
+            [
+                Mamba3CrossAttention(
+                    dim_q=dim, dim_kv=dim, num_heads=num_heads, state_dim=state_dim,
+                    bidirectional_mask=True, two_pool=two_pool,
+                )
+                for _ in range(num_layers)
+            ]
+        )
+        self.pre_norms = nn.ModuleList([nn.LayerNorm(dim) for _ in range(num_layers)])
+        self.post_norms = nn.ModuleList([nn.LayerNorm(dim) for _ in range(num_layers)])
+        self.out_norm = nn.LayerNorm(dim)
+        self.scale_head = nn.Linear(dim, 1)
+        nn.init.zeros_(self.scale_head.weight)
+        nn.init.zeros_(self.scale_head.bias)
+
+    def per_frame_logscale(self, depth: Tensor) -> Tensor:
+        """(B,F,H,W) depth map -> (B,F,1) bounded log-scale. Zero at init."""
+        B, F_, H, W = depth.shape
+        x = torch.log(depth.clamp_min(1e-6)).reshape(B * F_, 1, H, W)
+        x = F.adaptive_avg_pool2d(x, self.grid)
+        x = (x - self.log_ref) / self.log_std
+        g = self.to_token(self.encoder(x).flatten(1)).reshape(B, F_, -1)
+        for pre_n, layer, post_n in zip(self.pre_norms, self.layers, self.post_norms):
+            gn = pre_n(g)
+            g = post_n(g + layer(gn, gn))
+        g = self.out_norm(g)
+        return self.max_scale_correction * torch.tanh(self.scale_head(g))
+
+    def forward(self, ray: Tensor, z_raw: Tensor, vis: Tensor, depth: Tensor) -> TrackerOutputs:
+        B, F_, N, _ = ray.shape
+        ds = self.per_frame_logscale(depth)                       # (B,F,1)
+        z_pred = z_raw * torch.exp(ds)
+        xyz = torch.stack([ray[..., 0] * z_pred, ray[..., 1] * z_pred, z_pred], dim=-1)
+        return TrackerOutputs(
+            xyz=xyz,
+            vis_logits=z_pred.new_zeros(B, F_, N),
+            spawn_logits=z_pred.new_zeros(B, F_, N),
+            log_scale=ds,
+        )
+
+
 class Mamba3DeflickerRefiner(nn.Module):
     """v44: DA3-g per-frame scale de-flicker (standalone, no v35 refiner).
 

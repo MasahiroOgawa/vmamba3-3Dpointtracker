@@ -38,6 +38,12 @@ class TrackerOutputs:
     cam_pose: Tensor | None = (
         None  # (B, F, 3, 4) — v47: per-frame [R|t], T_{w→c}; None otherwise
     )
+    log_scale: Tensor | None = (
+        # (B, F, 1) — the per-frame log-scale the depth refiner emitted. Exposed so the loss can
+        # supervise it directly against the ground-truth scale error; without this the module is
+        # trained only through per-point 3-D error, where its own contribution is a few percent.
+        None
+    )
 
 
 def _mlp(in_dim: int, hidden: int, out_dim: int) -> nn.Sequential:

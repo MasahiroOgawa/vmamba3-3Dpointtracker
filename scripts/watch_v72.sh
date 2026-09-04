@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Watcher for run_v71_tracknoise.sh. Exists because that queue halted at its verification gate and
+# Watcher for run_v72_tracknoise.sh. Exists because that queue halted at its verification gate and
 # the GPU then sat idle for 15 hours with nothing reporting it.
 #
-# Reports every stage transition, and any halt, to result/v71.watch. A queue stopped at stage
+# Reports every stage transition, and any halt, to result/v72.watch. A queue stopped at stage
 # 1 is indistinguishable from a queue working on stage 3 unless something says which.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
-LOG=result/v71.log
-W=result/v71.watch
+LOG=result/v72.log
+W=result/v72.watch
 POLL=${POLL:-300}
 # Passed in rather than hard-coded: deriving this watcher by sed left it looking for a marker the
 # job never prints, so it reported a clean run as HALTED.
-DONE_MARK=${DONE_MARK:-"\[v71\] done at"}
+DONE_MARK=${DONE_MARK:-"\[v72\] done at"}
 CACHE_DIR=${CACHE_DIR:-$HOME/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4}
 say () { echo "[watch $(date -Is)] $*" | tee -a "$W"; }
 
@@ -20,7 +20,7 @@ last=""
 while :; do
   sleep "$POLL"
   # halted?
-  if ! pgrep -f "run_v71_tracknoise.sh" >/dev/null; then
+  if ! pgrep -f "run_v72_tracknoise.sh" >/dev/null; then
     if grep -aqE "$DONE_MARK" "$LOG" 2>/dev/null; then
       say "QUEUE COMPLETE"
       grep -aE "^\[v6[789]\] " "$LOG" | tee -a "$W"

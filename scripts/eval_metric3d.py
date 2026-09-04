@@ -168,7 +168,11 @@ def _infer(
             padding_mode="border",
             align_corners=False,
         ).view(1, F_, -1)
-        xyz = model(ray, z_raw, vis.unsqueeze(0).to(device)).xyz[0]  # (F,N,3)
+        if method == "v72":
+            # reads the depth MAP, not just the sampled points
+            xyz = model(ray, z_raw, vis.unsqueeze(0).to(device), depth_t).xyz[0]
+        else:
+            xyz = model(ray, z_raw, vis.unsqueeze(0).to(device)).xyz[0]  # (F,N,3)
     return xyz.transpose(0, 1).cpu().numpy(), vis.transpose(0, 1).numpy()
 
 
@@ -196,7 +200,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--method",
-        choices=["searaft", "v33", "v35", "v44", "v45", "v46", "v47", "external"],
+        choices=["searaft", "v33", "v35", "v44", "v45", "v46", "v47", "v72", "external"],
         required=True,
     )
     ap.add_argument(
@@ -364,6 +368,27 @@ def main() -> int:
         model.load_state_dict(state["model"])
         model.eval()
         print(f"[metric3d] v44 ckpt {args.ckpt} (step={state.get('step', '?')})")
+    if args.method == "v72":
+        if args.ckpt is None:
+            ap.error("--method v72 requires --ckpt")
+        from mamba3_tracker.model.depth_refined_tracker import Mamba3DepthScaleRefiner
+
+        state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+        mc = state.get("cfg", {}).get("model", {})
+        model = Mamba3DepthScaleRefiner(
+            dim=int(mc.get("dim", 128)),
+            state_dim=int(mc.get("state_dim", 64)),
+            num_heads=int(mc.get("num_heads", 4)),
+            num_layers=int(mc.get("num_layers", 2)),
+            max_scale_correction=float(mc.get("max_scale_correction", 2.5)),
+            two_pool=bool(mc.get("two_pool", False)),
+            grid=int(mc.get("grid", 64)),
+            log_ref=float(mc.get("log_ref", 2.0)),
+            log_std=float(mc.get("log_std", 1.5)),
+        ).to(device)
+        model.load_state_dict(state["model"])
+        model.eval()
+        print(f"[metric3d] v72 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v45":
         if args.ckpt is None:
             ap.error("--method v45 requires --ckpt")

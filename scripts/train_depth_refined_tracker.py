@@ -805,10 +805,27 @@ def main() -> int:
             d_proj=int(model_cfg["d_proj"]),
         ).to(device)
         loss_fn = TrackingLossV35(loss_cfg["weights"]).to(device)
-        init_path = model_cfg.get("linear_init")
+        # The scale stage is trained standalone and loaded here as a fixed depth pre-processor:
+        # composing an UNtrained one with the refiner is what produced v74's 0.1792, because the
+        # stage began as an identity and then had to learn jointly against the refiner correcting
+        # the same error. Frozen, the refiner adapts to depth that is already corrected.
+        init_path = model_cfg.get("scale_init")
         if init_path:
-            n_set = model.scale_refiner.load_linear_init(Path(str(init_path)).expanduser())
-            print(f"[train] scale bypass seeded from {init_path} ({n_set} tensors)")
+            st = torch.load(Path(str(init_path)).expanduser(), map_location="cpu",
+                            weights_only=False)["model"]
+            own = model.scale_refiner.state_dict()
+            bad = [k for k in st if k not in own or own[k].shape != st[k].shape]
+            if bad:
+                raise SystemExit(
+                    f"[train] scale_init {init_path} does not fit scale_refiner: "
+                    f"{len(bad)} mismatched, first {bad[0]}")
+            model.scale_refiner.load_state_dict(st)
+            print(f"[train] scale refiner loaded from {init_path} ({len(st)} tensors)")
+            if bool(model_cfg.get("freeze_scale", True)):
+                for prm in model.scale_refiner.parameters():
+                    prm.requires_grad_(False)
+                model.scale_refiner.eval()
+                print("[train] scale refiner FROZEN; only the vmamba3 refiner trains")
         print("[train] Mamba3V73 (depth-scale refiner + v35 refiner)  loss: TrackingLossV35 + L_dsr")
     elif version == "v72":
         model = Mamba3DepthScaleRefiner(
@@ -1097,8 +1114,11 @@ def main() -> int:
         (args.out_dir / "loss_history.json").write_text(json.dumps(history, indent=2))
         step += 1
 
+    # `step`, not n_steps: with early stopping the loop can exit below the ceiling, and labelling
+    # those weights ckpt_<n_steps> made a stopped-at-8000 model look like a completed 20000-step run
+    # -- which then got evaluated in place of the best checkpoint.
     final = _save_ckpt(
-        args.out_dir, n_steps, model, optim, sched, history, cfg_snapshot
+        args.out_dir, step, model, optim, sched, history, cfg_snapshot
     )
     print(f"[train] DONE — {final}")
     return 0

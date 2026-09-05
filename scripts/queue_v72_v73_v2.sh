@@ -39,7 +39,10 @@ if [ -z "$(ls "$V72OUT"/best/ckpt_*.pt 2>/dev/null)" ] && [ ! -f "$V72OUT/ckpt_$
   uv run python scripts/train_depth_refined_tracker.py --config configs/v72.yaml \
     || { echo "[v72] TRAIN FAILED"; exit 1; }
 fi
-V72CK=$(ls -t "$V72OUT"/best/ckpt_*.pt "$V72OUT"/ckpt_*.pt 2>/dev/null | head -1)
+# best/ first and unconditionally: `ls -t` across both directories picks the NEWEST, which is
+# the last-written checkpoint rather than the one early stopping selected.
+V72CK=$(ls -t "$V72OUT"/best/ckpt_*.pt 2>/dev/null | head -1)
+[ -n "$V72CK" ] || V72CK=$(ls -t "$V72OUT"/ckpt_*.pt 2>/dev/null | head -1)
 [ -n "$V72CK" ] || { echo "[v72] no checkpoint"; exit 1; }
 echo "[v72] using $V72CK"
 if [ ! -f "$V72OUT/eval/metrics.json" ]; then

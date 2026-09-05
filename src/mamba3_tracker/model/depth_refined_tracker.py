@@ -524,9 +524,11 @@ class Mamba3DepthScaleRefiner(nn.Module):
         # Closed-form starting point: a least-squares map from the same quantiles, fitted on TRAINING
         # clips, is worth +0.0734 of metric-AJ on its own. Starting there and learning a residual
         # beats starting at zero, which is what the first version did.
-        self.linear_bypass = nn.Linear(self.n_quantiles, 1)
-        nn.init.zeros_(self.linear_bypass.weight)
-        nn.init.zeros_(self.linear_bypass.bias)
+        # No linear bypass. The previous version added one, seeded from a closed-form fit, and the
+        # learned head then never left zero (|w| 0.0007 after 8000 steps) while the bypass drifted
+        # and made things worse: a shortcut that is easier to optimise than the network leaves the
+        # network with nothing to do. The network is now the only path to the output.
+        self.use_bypass = False
         self.layers = nn.ModuleList(
             [
                 Mamba3CrossAttention(
@@ -543,7 +545,7 @@ class Mamba3DepthScaleRefiner(nn.Module):
         nn.init.zeros_(self.scale_head.weight)
         nn.init.zeros_(self.scale_head.bias)
 
-    def load_linear_init(self, path) -> int:
+    def load_linear_init(self, path) -> int:  # retained so old configs fail loudly, not silently
         """Seed the bypass from a least-squares fit. Returns the number of tensors set."""
         import numpy as _np
         d = _np.load(path)
@@ -576,10 +578,7 @@ class Mamba3DepthScaleRefiner(nn.Module):
             gn = pre_n(g)
             g = post_n(g + layer(gn, gn))
         g = self.out_norm(g)
-        base = self.linear_bypass(q).reshape(B, F_, 1)
-        return self.max_scale_correction * torch.tanh(
-            base / self.max_scale_correction + self.scale_head(g)
-        )
+        return self.max_scale_correction * torch.tanh(self.scale_head(g))
 
     def forward(self, ray: Tensor, z_raw: Tensor, vis: Tensor, depth: Tensor) -> TrackerOutputs:
         B, F_, N, _ = ray.shape

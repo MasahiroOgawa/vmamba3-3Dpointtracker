@@ -1,14 +1,14 @@
-# v73: WAFT + DA3-g + Mamba-3 depth-scale refiner + vmamba3-2pool. The best-DA3-g candidate.
+# v74: v63 with the de-flicker stage replaced by the standalone-trained depth-scale refiner.
 #
-# 20000 steps, step-matched to v63 (0.2238) and v45 (0.2320), the arms it must beat.
+# Warm-started from v63's checkpoint: its v35 refiner weights carry over key-for-key (both models
+# nest it under v35.), so only the first stage is new and 6000 steps is a fine-tune rather than a
+# retrain. The de-flicker weights in that checkpoint are simply unused.
 #
-# Stage 1 is warm-started from v72's trained weights via train.init_ckpt, so its total exposure is
-# v72's steps plus these 20000 -- more than v63's 20000 joint, not less. init_ckpt is a weights-only
-# load with strict=False, which silently matches ZERO keys if the prefixes differ, so the launcher
-# verifies the loaded count rather than trusting the log line.
+# The scale stage is the one trained standalone on L_dsr alone -- 66.6% reduction in scale error on
+# held-out clips, against the linear fit's ~30%. No linear bypass: that shortcut is what stopped the
+# previous version's network from learning at all.
 #
-# linear_init is kept as a fallback: if the warm start is skipped the bypass still starts at the
-# least-squares solution rather than at zero.
+# Targets: v63 0.2238, DELTA 0.2270, oracle per-frame scale 0.3298 (all metric-AJ, DA3-g).
 version: v73
 model:
   two_pool: true
@@ -27,7 +27,6 @@ model:
   grid: 64
   log_ref: 2.0
   log_std: 1.5
-  linear_init: result/scale_linear_init.npz
 flow:
   source: waft_live
   url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
@@ -51,12 +50,12 @@ data:
     n_val_monitor: 15
     seed: 42
 train:
-  out_dir: result/v73_dsr_plus_vmamba3_2pool
-  steps: 20000
+  out_dir: result/v74_newscale_from_v63
+  steps: 6000
   warmup: 500
   decay: 2000
   ckpt_every: 500
-  val_every: 2000
+  val_every: 1000
   log_every: 50
   lr: 0.0003
   weight_decay: 0.05
@@ -67,7 +66,9 @@ train:
   num_workers: 0
   seed: 0
   val_clips: 25
-  init_ckpt: result/v72_depth_scale_refiner/ckpt_20000.pt
+  init_ckpt: result/v63_waft_live_2pool/ckpt_20000.pt
+  early_stop_patience: 3
+  early_stop_min_delta: 0.005
 loss:
   weights:
     pos_3D: 1.0

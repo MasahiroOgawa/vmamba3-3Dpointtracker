@@ -875,6 +875,8 @@ class TrackingLossV33(nn.Module):
         if "pos_3D" not in weights:
             raise ValueError("TrackingLossV33: missing weight for 'pos_3D'")
         self.w_pos_3D = float(weights["pos_3D"])
+        self.metre_space = bool(weights.get("metre_space", False))
+        self.metre_scale = float(weights.get("metre_scale", 1.0))
         self.image_size = float(image_size)
 
     def forward(
@@ -901,7 +903,15 @@ class TrackingLossV33(nn.Module):
         w_pos = vis_f * qm
 
         scale_gt = _per_clip_anchor_depth_scale(init_xyz, gt_query_mask)  # (B,)
-        r_3D = (pred.xyz - gt_tracks_XYZ) / scale_gt.view(B, 1, 1, 1)
+        # metre_space: divide by a FIXED constant instead of the clip's own depth. Dividing by
+        # scale_gt makes the loss the scale-INVARIANT leaderboard objective, while metric-AJ scores
+        # absolute metres against fixed thresholds -- so the same 1 m error counted 20x less on
+        # drivetrack (scale_gt 24 m) than on adt (1.19 m), and drivetrack sat 13.8 m outside every
+        # threshold while the loss ranked it no worse than adt at 0.5 m. The constant only sets the
+        # overall gradient scale; it does not reweight subsets against each other.
+        denom = (self.metre_scale if self.metre_space
+                 else scale_gt.view(B, 1, 1, 1))
+        r_3D = (pred.xyz - gt_tracks_XYZ) / denom
         finite_3D = torch.isfinite(r_3D).all(dim=-1).float()
         w_3D = w_pos * finite_3D
         denom_3D = w_3D.sum().clamp_min(1.0)
@@ -934,6 +944,8 @@ class TrackingLossV35(nn.Module):
         if "pos_3D" not in weights:
             raise ValueError("TrackingLossV35: missing weight for 'pos_3D'")
         self.w_pos_3D = float(weights["pos_3D"])
+        self.metre_space = bool(weights.get("metre_space", False))
+        self.metre_scale = float(weights.get("metre_scale", 1.0))
         self.w_reg_uv = float(weights.get("reg_uv", 0.0))
         self.image_size = float(image_size)
 
@@ -958,7 +970,10 @@ class TrackingLossV35(nn.Module):
         w_pos = vis_f * qm
 
         scale_gt = _per_clip_anchor_depth_scale(init_xyz, gt_query_mask)
-        r_3D = (pred.xyz - gt_tracks_XYZ) / scale_gt.view(B, 1, 1, 1)
+        # See TrackingLossV33: dividing by the clip's own depth makes this the scale-INVARIANT
+        # objective, while metric-AJ scores absolute metres against fixed thresholds.
+        denom = self.metre_scale if self.metre_space else scale_gt.view(B, 1, 1, 1)
+        r_3D = (pred.xyz - gt_tracks_XYZ) / denom
         finite_3D = torch.isfinite(r_3D).all(dim=-1).float()
         w_3D = w_pos * finite_3D
         denom = w_3D.sum().clamp_min(1.0)

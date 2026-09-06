@@ -1,0 +1,83 @@
+# v76: WAFT + (DA3-g + frozen Mamba-3 depth-scale refiner) + vmamba3-2pool, trained FROM SCRATCH.
+#
+# v75 was the same composition warm-started from v63 and scored 0.1904, below the scale refiner
+# alone (0.2385). The hypothesis for that: v63's refiner learned its correction on UNcorrected
+# DA3-g depth, so handed depth that is already fixed it over-shoots. Its validation went 0.1921 at
+# step 3000 then 0.93 and 0.71 -- being pulled apart by the new input rather than converging on it.
+#
+# This removes init_ckpt so the refiner learns on corrected depth from the start. 4000 steps is a
+# probe, not the answer: the question is only whether the refiner can coexist with a corrected depth
+# source at all. A full 20000-step run follows if it can.
+#
+# Reference points, metric-AJ on DA3-g:
+#   scale refiner alone, raw tracks             0.2385   <- the bar to beat
+#   DELTA + DA3-g                               0.2270
+#   v63  de-flicker + vmamba3-2pool             0.2238
+#   v75  same composition, warm-started         0.1904
+#   oracle per-frame scale                      0.3298
+version: v73
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 2.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+  scale_init: result/scale_standalone/best.pt
+  freeze_scale: true
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  out_dir: result/v76_scratch_on_corrected_depth
+  steps: 4000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 1000
+  log_every: 50
+  lr: 0.0003
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+  val_clips: 25
+  early_stop_patience: 0
+  early_stop_min_delta: 0.005
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+  lambda_dsr: 0.0

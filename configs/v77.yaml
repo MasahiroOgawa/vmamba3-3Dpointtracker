@@ -1,0 +1,88 @@
+# v77: v76 with the loss computed in METRES instead of per-clip scale_gt units.
+#
+# The defect this fixes. The loss divided the 3-D error by scale_gt, the clip's median depth, which
+# its own docstring says "matches the official median-scaling evaluator" -- the scale-INVARIANT
+# leaderboard metric. But the paper reports absolute metric-AJ, scored against FIXED metre
+# thresholds (0.01 .. 2.56 m). So the same 1 m error contributed 0.042 on drivetrack (scale_gt 24 m)
+# and 0.840 on adt (1.19 m), a 20x distortion, while the metric treats a metre as a metre. drivetrack
+# sat 13.8 m outside every threshold and the loss ranked it no worse than adt at 0.5 m.
+#
+# Verified before running: a 1 m error now costs 1.0000 on both subsets instead of 0.0417 and 0.8403.
+#
+# Everything else is v76: WAFT + (DA3-g + frozen scale refiner) + vmamba3-2pool, from scratch.
+# 4000 steps is a probe. This is the first change in this line that alters what the model is ASKED
+# to do rather than how it is wired, and it makes every earlier arm non-comparable.
+#
+# Bars, metric-AJ on DA3-g:
+#   scale refiner alone   0.2385   <- the objective
+#   DELTA + DA3-g         0.2270   <- the objective
+#   v63                   0.2238
+#   v76  same arm, old loss 0.2035
+version: v73
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 2.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+  scale_init: result/scale_standalone/best.pt
+  freeze_scale: true
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  out_dir: result/v77_metre_loss
+  steps: 4000
+  warmup: 500
+  decay: 2000
+  ckpt_every: 500
+  val_every: 1000
+  log_every: 50
+  lr: 0.0003
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+  val_clips: 25
+  early_stop_patience: 0
+  early_stop_min_delta: 0.005
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+    metre_space: true
+    metre_scale: 1.0
+  lambda_dsr: 0.0

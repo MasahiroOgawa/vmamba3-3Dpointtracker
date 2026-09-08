@@ -815,3 +815,81 @@ class Mamba3V45(nn.Module):
         z_stab = z_raw * scale  # de-flickered depth at the tracked points
         depth_map_stab = depth_map * scale.unsqueeze(-1)  # (B,F,1,1) over Hd,Wd
         return self.v35(ray, z_stab, vis, uv, depth_map_stab, images, K)
+
+
+class Mamba3V88(nn.Module):
+    """v88: v45 with a depth-map scale stage ADDED in front, behind a zero-initialised gate.
+
+    Motivated by a measurement, not a guess. Substituting the standalone scale refiner for the
+    de-flicker (v87) LOST ground -- pstudio 0.2027 -> 0.0642 and adt 0.3056 -> 0.1322 untrained, and
+    only pstudio came back after 2000 steps of adapting the refiner. The two modules do different
+    jobs and the measurement says so:
+
+      * the standalone scale refiner emits a near-CONSTANT per-subset bias (measured |ds|:
+        drivetrack 0.586 with p50 = p95 = max, pstudio 0.263, adt 0.022) -- a per-clip bias
+        corrector, because it was pre-trained against a median log-depth target;
+      * the v44 de-flicker, trained jointly with the refiner, emits the PER-FRAME term that actually
+        helps downstream, which result/adt_error.log values at +0.104 APD3D on drivetrack and
+        +0.056 on adt beyond any constant.
+
+    So they compose rather than compete: stage 1 removes the global bias from the depth map, stage 2
+    removes the residual per-frame flicker, stage 3 refines each track.
+
+        ds_total = gate * ds_scale(depth_map) + ds_deflicker(ray, z, vis)
+
+    `gate` is nn.Parameter(torch.zeros(1)), so at initialisation ds_total == ds_deflicker EXACTLY and
+    the model is numerically identical to Mamba3V45. Warm-started from v63 it therefore STARTS at
+    0.2238 -- the best clean 2-pool DA3-g result -- and any use the optimiser makes of stage 1 can
+    only add to it. Every composite tried before this started below its own baseline and spent its
+    budget climbing back; this one cannot.
+
+    Forward signature matches v35/v45: model(ray, z_raw, vis, uv, depth_map, images, K).
+    """
+
+    def __init__(
+        self,
+        dim: int = 128,
+        state_dim: int = 64,
+        num_heads: int = 4,
+        num_layers: int = 2,
+        max_scale_correction: float = 0.5,
+        scale_stage_correction: float = 2.5,
+        two_pool: bool = False,
+        grid: int = 64,
+        log_ref: float = 2.0,
+        log_std: float = 1.5,
+        **v45_kwargs,
+    ) -> None:
+        super().__init__()
+        self.scale_refiner = Mamba3DepthScaleRefiner(
+            dim=dim, state_dim=state_dim, num_heads=num_heads, num_layers=num_layers,
+            max_scale_correction=scale_stage_correction, two_pool=two_pool,
+            grid=grid, log_ref=log_ref, log_std=log_std,
+        )
+        self.v45 = Mamba3V45(
+            dim=dim, state_dim=state_dim, num_heads=num_heads, num_layers=num_layers,
+            max_scale_correction=max_scale_correction, two_pool=two_pool, **v45_kwargs,
+        )
+        # Zero-init: stage 1 contributes nothing until the optimiser opens this, so the warm start
+        # from v63 is an exact floor rather than a hopeful one.
+        self.scale_gate = nn.Parameter(torch.zeros(1))
+
+    def forward(
+        self,
+        ray: Tensor,
+        z_raw: Tensor,
+        vis: Tensor,
+        uv: Tensor,
+        depth_map: Tensor,
+        images: Tensor,
+        K: Tensor,
+    ) -> TrackerOutputs:
+        ds_scale = self.scale_refiner.per_frame_logscale(depth_map)          # (B,F,1) from the MAP
+        ds_flick = self.v45.deflicker.per_frame_logscale(ray, z_raw, vis)    # (B,F,1) from the points
+        ds = self.scale_gate * ds_scale + ds_flick
+        scale = torch.exp(ds)
+        out = self.v45.v35(
+            ray, z_raw * scale, vis, uv, depth_map * scale.unsqueeze(-1), images, K
+        )
+        out.log_scale = ds
+        return out

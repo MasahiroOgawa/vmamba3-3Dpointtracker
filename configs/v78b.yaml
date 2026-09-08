@@ -1,0 +1,91 @@
+# v78b: LR probe at 1e-05 for the composite, from the scale-refiner-alone starting point.
+#
+# Why. The v35 refiner is zero-initialised, so an UNTRAINED composite is exactly the scale refiner
+# alone: 0.2385 metric-AJ. Every composite arm so far has ended BELOW that, with validation drifting
+# upward (v75: 0.2573 0.3616 0.1921 0.9298 0.7096). The optimiser is leaving a good solution, which
+# is a training failure rather than evidence that the two stages conflict.
+#
+# Why this lr. All five composite arms inherited lr=3e-4 from v63, where it is right: v63 trains a
+# refiner FROM SCRATCH and must leave zero quickly. Here the model STARTS at the answer. AdamW moves
+# every weight by roughly lr per step whatever the gradient size -- and with |grad| measured at
+# 15-350 against grad_clip=1.0, the clip fires every step, so neither the loss scale nor the
+# gradient magnitude sets the step length. lr alone does. At 3e-4 the zero-init head travels ~0.15
+# from identity during warmup alone. This ladder (3e-5, 1e-5, 3e-6) brackets a rate that lets the
+# composite improve on its initialisation instead of destroying it.
+#
+# Loss space: scale_gt-normalised, matching v63/v75/v76 and the 0.2385 baseline. NOT metre space.
+# The refiner's head emits a LOG-depth correction, and d z / d(log z) = z, so a metre-space loss
+# multiplies that head's gradient by scene depth: drivetrack (24 m) would drive it ~20x harder than
+# adt (1.19 m), an imbalance created by the loss and absent from the metric. Normalising cancels
+# exactly that factor, and the measured per-subset contributions then sit within 1.5x. Metre-space
+# validation numbers are also not comparable to the baseline this arm must beat.
+#
+# The bar is simply whether training beats its own starting point of 0.2385.
+version: v73
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 2.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+  scale_init: result/scale_standalone/best.pt
+  freeze_scale: true
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  out_dir: result/v78b_lr1e-05
+  steps: 1500
+  warmup: 100
+  decay: 1400
+  ckpt_every: 500
+  val_every: 250
+  log_every: 50
+  lr: 1.0e-05
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+  val_clips: 25
+  early_stop_patience: 0
+  early_stop_min_delta: 0.005
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+    metre_space: false
+    metre_scale: 1.0
+  lambda_dsr: 0.0

@@ -50,7 +50,20 @@ from mamba3_tracker.data.tapvid3d_splits import (  # noqa: E402
 )
 
 TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
-DA3_ROOT = Path("/home/mas/data/tapvid3d_da3")
+# Env-overridable so the DA3-g cache can be selected without editing code, the same mechanism
+# doc/plan_da3g_reeval.md documents for the external-baseline scripts. Default stays DA3-l for
+# backward compatibility with every number already published from this script.
+# Depth selection goes through the single registry (src/mamba3_tracker/data/depth_source.py).
+# DA3_ROOT is still honoured so existing callers keep working, but whatever it names is IDENTIFIED
+# against the registry rather than trusted, and every output directory is stamped with the source.
+# Unstamped track sets are exactly how a DA3-l cache silently became the target for a DA3-g model.
+_here = Path(__file__).resolve().parent
+if str(_here.parent / "src") not in sys.path:
+    sys.path.insert(0, str(_here.parent / "src"))
+from mamba3_tracker.data.depth_source import resolve as _resolve_depth  # noqa: E402
+
+DEPTH_SOURCE = _resolve_depth(os.environ.get("DA3_ROOT"), default="da3l")
+DA3_ROOT = DEPTH_SOURCE.root
 
 
 class WAFTFlow:
@@ -68,11 +81,8 @@ class WAFTFlow:
 
 
 def load_da3_depth(subset: str, clip_name: str, F_: int) -> np.ndarray:
-    p = DA3_ROOT / subset / clip_name
-    with np.load(p) as d:
-        q = d["depth_q"].astype(np.float32)[:F_]
-        d_min, d_max = float(d["d_min"]), float(d["d_max"])
-    return d_min + q * ((d_max - d_min) / 65535.0)
+    """Depth for a clip, from the resolved DEPTH_SOURCE. One implementation, not six copies."""
+    return DEPTH_SOURCE.load(subset, clip_name, F_ if F_ else None)
 
 
 def decode_images(jpeg_bytes_arr) -> np.ndarray:
@@ -245,9 +255,16 @@ def main():
     (args.out_dir / "manifest.json").write_text(_json.dumps(
         {"scale": _eff_scale, "iters": _eff_iters, "image_size": args.image_size,
          "fb_alpha": args.fb_alpha, "fb_beta": args.fb_beta,
-         "bidir": bool(args.bidir_fuse), "split": args.split}, indent=2))
+         "bidir": bool(args.bidir_fuse), "split": args.split,
+         "depth_source": DEPTH_SOURCE.name}, indent=2))
+    # The 3-D tracks are unprojected with THIS depth, so the track set inherits the depth choice.
+    # Leaving that unrecorded is how waft_full_eval (DA3-l) became the training target for a DA3-g
+    # model: the input was DA3-g, the target came from these tracks, and nothing could compare them.
+    DEPTH_SOURCE.stamp(args.out_dir, produced_by="eval_waft.py", split=args.split,
+                       image_size=args.image_size, iters=_eff_iters, scale=_eff_scale)
     print(f"[waft] manifest: scale={_eff_scale} iters={_eff_iters} "
           f"image_size={args.image_size} fb=({args.fb_alpha},{args.fb_beta})")
+    print(f"[waft] depth source: {DEPTH_SOURCE}")
     print(
         f"[waft] model from {args.ckpt} (cfg {args.cfg.name}); bidir_fuse={args.bidir_fuse}"
     )

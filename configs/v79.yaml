@@ -1,0 +1,79 @@
+# v79: measure the VALIDATION LOSS of the untrained composite -- the one number this whole line of
+# work has been missing.
+#
+# Why. The composite's metric-AJ at step 0 is known exactly: the v35 refiner's head is zero-init, so
+# an untrained composite IS the scale refiner alone, 0.2385. Its validation LOSS has never been
+# measured. That single value decides which of two different problems we have:
+#   - untrained val BELOW everything v78a reached  -> loss and metric agree; the optimiser is failing.
+#   - untrained val ABOVE v78a's 0.0951            -> training improved the loss while destroying the
+#     metric, so the objective is anti-correlated with what we score and no lr will fix it.
+# Every arm today was tuned without knowing which. steps=1 so it validates at step 0 and exits.
+version: v73
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 2.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+  scale_init: result/scale_standalone/best.pt
+  freeze_scale: true
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  out_dir: result/v79_untrained_val
+  steps: 1
+  warmup: 100
+  decay: 1400
+  ckpt_every: 100000
+  val_every: 1000
+  log_every: 50
+  lr: 3.0e-05
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+  val_clips: 25
+  early_stop_patience: 0
+  early_stop_min_delta: 0.005
+  val_at_step0: true
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+    metre_space: false
+    metre_scale: 1.0
+  lambda_dsr: 0.0

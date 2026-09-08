@@ -1,0 +1,91 @@
+# v86: v45 with two_pool=True, warm-started from v45's own weights. ONE variable changed.
+#
+# Why this is the clean experiment. v45 (result/v45_scale/ckpt_20000.pt) is the best CLEAN DA3-g
+# arm: trained on DA3-g depth with no DA3-l-derived component, 20000 steps, metric-AJ 0.2320 --
+# already above DELTA's DA3-g 0.2274. It is 1-pool. Mamba3V45 passes two_pool to BOTH stages (the
+# de-flicker mixer and the v35 refiner), so flipping it is exactly "swap vmamba3-1pool for 2pool".
+#
+# Why the warm start is exact. pool2_gate is nn.Parameter(torch.zeros(1)) and the second pool enters
+# as `y = y + pool2_gate * (...)` (cross_attention.py:198), so at step 0 the 2-pool model is
+# NUMERICALLY IDENTICAL to v45 -- the randomly-initialised m2/q_proj2 are multiplied by zero. 327 of
+# 371 tensors transfer as-is with ZERO shape mismatches (98.5% of elements); the 44 new ones are the
+# second pool alone. Training therefore STARTS at 0.2320 and can only add the second pool's
+# contribution, which is the guaranteed-floor setup every arm earlier today lacked.
+#
+# Flow stays SEA-RAFT (v45's own setting), NOT WAFT. v45 trained on SEA-RAFT and was evaluated on
+# WAFT tracks; keeping that makes two_pool the only difference from the 0.2320 it must beat. Fixing
+# the train/eval protocol as well would confound the two changes -- that is a separate follow-up.
+#
+# Validation is finally a real signal: monitor clips HELD OUT (holdout_val, 40 clips) and the dataset
+# RNG re-seeded each pass, so early stopping and best-checkpoint selection act on generalisation
+# rather than on which temporal windows were drawn. Both were broken for the whole v73-v85 line.
+#
+# Bar: 0.2284 -- MEASURED, not the 0.2320 quoted elsewhere. The warm start is bit-identical to
+# v45 (verified numerically: max|xyz_1pool - xyz_2pool| = 0.0 at pool2_gate=0), so scoring it IS
+# scoring v45. Under the consistent protocol (waft_minival_is896_s-1_i4 + da3nested, the same as
+# v63 and every v7x arm) that gives 0.2284. The stored 0.2320 came from a run whose WAFT cache
+# and depth root were never recorded -- metrics.json logs neither, and six WAFT caches exist.
+# So 0.2320 is protocol-inflated by 0.0036 and must not be used as the bar.
+# Secondary: DELTA DA3-g 0.2274 (already below the floor), best clean 2-pool v63 0.2238.
+version: v45
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: null
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 40
+    seed: 42
+    holdout_val: true
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  image_size: 896
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 0.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  state_dim: 64
+  two_pool: true
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 200
+  decay: 1150
+  grad_clip: 1.0
+  log_every: 50
+  lr: 0.0001
+  num_workers: 0
+  seed: 0
+  steps: 1200
+  val_every: 200
+  warmup: 50
+  weight_decay: 0.05
+  window: 8
+  out_dir: result/v86_2pool_ft
+  init_ckpt: result/v86_2pool_init/ckpt_0.pt
+  val_clips: 40
+  val_at_step0: true
+  early_stop_patience: 3
+  early_stop_min_delta: 0.005
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1

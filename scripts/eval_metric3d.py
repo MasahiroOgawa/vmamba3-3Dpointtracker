@@ -76,6 +76,7 @@ def _infer(
     bidirectional=False,
     bidir_fuse=False,
     waft_pred_dir=None,
+    z_source="depth_map",
 ):
     """Return (pred_tracks (N,F,3) camera-frame XYZ, pred_vis (N,F))."""
     F_ = (
@@ -84,6 +85,7 @@ def _infer(
         else min(int(clip.images.shape[0]), max_frames)
     )
     images = clip.images[:F_].clone()
+    z_waft = None
     H_orig, W_orig = images.shape[-2], images.shape[-1]
     if (H_orig, W_orig) != (image_size, image_size):
         images = F.interpolate(
@@ -117,6 +119,9 @@ def _infer(
         v = fy * xyz_w[..., 1] / zc + cy
         uv = torch.from_numpy(np.stack([u, v], axis=-1)).float()  # (F,N,2)
         vis = torch.from_numpy(vis_w).float()
+        # ray*z reconstructs xyz exactly, so keeping WAFT's own z lets z_source="waft" reproduce
+        # `tracks_XYZ * exp(ds)` -- the 0.2385 arm -- rather than resampling the DA3 map.
+        z_waft = torch.from_numpy(zc).float()
     elif bidir_fuse:  # forward+backward flow fusion per hop (real bidirectional)
         uv, vis = track_clip_fuse(
             flow_model,
@@ -144,16 +149,21 @@ def _infer(
 
     if method == "searaft":
         xyz = _unproject_with_depth(uv_d, depth_t, K_t, float(image_size))[0]  # (F,N,3)
-    elif method in ("v35", "v45", "v46", "v47", "v73"):
+    elif method in ("v35", "v45", "v46", "v47", "v73", "v88"):
         ray = _ray_from_uv(uv_d, K_t)
-        grid = (2.0 * uv_d / image_size - 1.0).view(F_, 1, -1, 2)
-        z_raw = F.grid_sample(
-            depth_t.squeeze(0).unsqueeze(1),
-            grid,
-            mode="bilinear",
-            padding_mode="border",
-            align_corners=False,
-        ).view(1, F_, -1)
+        if z_source == "waft":
+            if z_waft is None:
+                raise ValueError("z_source='waft' requires --waft-pred-dir (needs tracks_XYZ)")
+            z_raw = z_waft.unsqueeze(0).to(device)
+        else:
+            grid = (2.0 * uv_d / image_size - 1.0).view(F_, 1, -1, 2)
+            z_raw = F.grid_sample(
+                depth_t.squeeze(0).unsqueeze(1),
+                grid,
+                mode="bilinear",
+                padding_mode="border",
+                align_corners=False,
+            ).view(1, F_, -1)
         images_b = images.unsqueeze(0).to(device)  # (1,F,3,H,W) in [0,1]
         xyz = model(
             ray, z_raw, vis.unsqueeze(0).to(device), uv_d, depth_t, images_b, K_t
@@ -200,7 +210,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--method",
-        choices=["searaft", "v33", "v35", "v44", "v45", "v46", "v47", "v72", "v73", "external"],
+        choices=["searaft", "v33", "v35", "v44", "v45", "v46", "v47", "v72", "v73", "v88", "external"],
         required=True,
     )
     ap.add_argument(
@@ -218,7 +228,10 @@ def main() -> int:
     )
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--data-root", type=Path, default=Path("~/data"))
-    ap.add_argument("--da3-depth-root", type=Path, default=Path("~/data/tapvid3d_da3"))
+    ap.add_argument("--da3-depth-root", type=Path, default=Path("~/data/tapvid3d_da3"),
+                    help="path form; identified against the depth registry. Prefer --depth.")
+    ap.add_argument("--depth", default=None,
+                    help="da3l | da3g. Overrides --da3-depth-root and is what the run reports.")
     ap.add_argument("--subsets", nargs="+", default=list(SUBSETS))
     ap.add_argument(
         "--split", choices=["all", "minival", "full_eval"], default="minival"
@@ -252,6 +265,10 @@ def main() -> int:
         help="Real bidirectional 2D track: fuse forward+backward flow per hop "
         "(d=0.5*(d_fwd-d_bwd)) with reject-on-inconsistency. Use for v36/v38-style variants.",
     )
+    ap.add_argument("--z-source", choices=["depth_map", "waft"], default="depth_map",
+                    help="depth_map: sample DA3 depth at the tracked uv (default). "
+                         "waft: use WAFT's own tracks_XYZ z, so a zero-init refiner "
+                         "reproduces tracks_XYZ*exp(ds) exactly.")
     ap.add_argument(
         "--waft-pred-dir",
         type=Path,
@@ -368,6 +385,51 @@ def main() -> int:
         model.load_state_dict(state["model"])
         model.eval()
         print(f"[metric3d] v44 ckpt {args.ckpt} (step={state.get('step', '?')})")
+    import sys as _sys
+    _src_dir = str(Path(__file__).resolve().parent.parent / "src")
+    if _src_dir not in _sys.path:
+        _sys.path.insert(0, _src_dir)
+    from mamba3_tracker.data.depth_source import resolve as _resolve_depth
+    _depth_src = _resolve_depth(args.depth or args.da3_depth_root)
+    args.da3_depth_root = _depth_src.root
+    print(f"[metric3d] depth source: {_depth_src}")
+    if args.waft_pred_dir:
+        # uv only -- the refiner re-samples depth itself, and uv is invariant to scaling
+        # along the ray, so a DA3-l-built track set is a valid uv source for a DA3-g run.
+        print(f"[metric3d] waft tracks: "
+              f"[{_depth_src.verify(Path(args.waft_pred_dir).expanduser(), strict=False)}]"
+              f" -- used for uv only")
+
+    if args.method == "v88":
+        if args.ckpt is None:
+            ap.error("--method v88 requires --ckpt")
+        from mamba3_tracker.model.depth_refined_tracker import Mamba3V88
+
+        state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+        mc = state.get("cfg", {}).get("model", {})
+        model = Mamba3V88(
+            dim=int(mc.get("dim", 128)),
+            state_dim=int(mc.get("state_dim", 64)),
+            num_heads=int(mc.get("num_heads", 4)),
+            num_layers=int(mc.get("num_layers", 2)),
+            max_log_correction=float(mc.get("max_log_correction", 2.0)),
+            max_delta_uv=float(mc.get("max_delta_uv", 2.0)),
+            patch_size=int(mc.get("patch_size", 5)),
+            max_scale_correction=float(mc.get("max_scale_correction", 0.5)),
+            scale_stage_correction=float(mc.get("scale_stage_correction", 2.5)),
+            d_proj=int(mc.get("d_proj", 64)),
+            dino_model=str(mc.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")),
+            dino_image_size=int(mc.get("dino_image_size", 448)),
+            image_size=int(mc.get("image_size", 896)),
+            two_pool=bool(mc.get("two_pool", False)),
+            grid=int(mc.get("grid", 64)),
+            log_ref=float(mc.get("log_ref", 2.0)),
+            log_std=float(mc.get("log_std", 1.5)),
+        ).to(device)
+        model.load_state_dict(state["model"])
+        model.eval()
+        print(f"[metric3d] v88 ckpt {args.ckpt} (step={state.get('step', '?')}, "
+              f"scale_gate={float(model.scale_gate.detach()):.4f})")
     if args.method == "v73":
         if args.ckpt is None:
             ap.error("--method v73 requires --ckpt")
@@ -556,6 +618,7 @@ def main() -> int:
                         bidirectional=args.bidirectional,
                         bidir_fuse=args.bidir_fuse,
                         waft_pred_dir=args.waft_pred_dir,
+                        z_source=args.z_source,
                     )
                 # Align frame/point counts (released preds may truncate frames).
                 Fg = int(clip.tracks_XYZ.shape[0])

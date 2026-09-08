@@ -1,0 +1,87 @@
+# v87a: PHASE 1 -- stage 1 (DA3-g scale refiner) FROZEN, only vmamba3-2pool adapts.
+#
+# Why frozen first. Stage 2's weights come from v63, where they were trained on DE-FLICKER-corrected
+# depth. Here they receive SCALE-REFINER-corrected depth, a different distribution. Letting stage 1
+# drift at the same time means both move while neither has settled; freezing it gives stage 2 a
+# fixed input to adapt to. Phase 2 (v87b) then unfreezes and lets them co-adapt.
+#
+# lambda_dsr is 0 here: with stage 1 frozen, L_dsr has no gradient path and would only burn compute.
+#
+# HOW STAGE 1 IS USED (Mamba3V73.forward):
+#     ds    = scale_refiner.per_frame_logscale(depth_map)   # reads the WHOLE DA3-g depth map
+#     scale = exp(ds)                                       # one log-scale per FRAME
+#     out   = v35(ray, z_raw * scale, vis, uv, depth_map * scale, images, K)
+#     out.log_scale = ds                                    # so L_dsr can supervise stage 1
+# Stage 1 sees the entire depth map (pooled 64x64 in log space plus 10 quantiles) and mixes over
+# frames with Mamba-3. That is strictly more information than the v44 de-flicker, which only sees
+# depth at the tracked points -- and it is why this should claim more of adt's unclaimed per-frame
+# scale headroom (v63 reaches 0.4837 APD3D against an oracle ceiling of 0.5683).
+# Its scale multiplies BOTH the per-track sampled depth and the map handed to stage 2.
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    holdout_val: true
+    n_val_monitor: 40
+    seed: 42
+    source: official
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: -1
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+loss:
+  lambda_dsr: 0.0
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  grid: 64
+  image_size: 896
+  log_ref: 2.0
+  log_std: 1.5
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 2.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  state_dim: 64
+  two_pool: true
+  freeze_scale: true
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 500
+  decay: 1900
+  early_stop_min_delta: 0.001
+  early_stop_patience: 4
+  grad_clip: 1.0
+  init_ckpt: result/v87_warmstart/ckpt_0.pt
+  log_every: 50
+  lr: 0.0001
+  num_workers: 0
+  out_dir: result/v87a_frozen
+  seed: 0
+  steps: 2000
+  val_at_step0: true
+  val_clips: 40
+  val_every: 500
+  warmup: 100
+  weight_decay: 0.05
+  window: 8
+version: v73

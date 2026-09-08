@@ -1,0 +1,163 @@
+# v88a: PHASE 1 -- v63's proven weights FROZEN, only the new scale stage and its gate train.
+#
+# The opposite of v87a, deliberately. v87a froze the NEW module and trained the known-good refiner,
+# so it could only damage what already worked (drivetrack 0.1590 -> 0.1447). Here the known-good part
+# is held fixed and learning is confined to the 0.575M new parameters plus the gate, so v63's
+# behaviour cannot be perturbed at all and the only decision is how much of stage 1 to admit.
+#
+# ARCHITECTURE (Mamba3V88): three stages, stage 1 behind a zero-init gate.
+#     ds_scale = scale_refiner.per_frame_logscale(depth_map)   # reads the WHOLE DA3-g depth map
+#     ds_flick = v45.deflicker.per_frame_logscale(ray, z, vis) # reads the tracked points
+#     ds       = scale_gate * ds_scale + ds_flick              # scale_gate = zeros(1) at init
+#     out      = v45.v35(ray, z*e^ds, vis, uv, depth_map*e^ds, images, K)
+#
+# scale_gate starts at 0, so ds == ds_flick exactly and the model is NUMERICALLY IDENTICAL to
+# Mamba3V45 -- verified: max|xyz_V45 - xyz_V88| = 0.000e+00. Warm-started from v63 it starts AT v63's
+# weights, so scoring the warm start MEASURES the floor instead of assuming it.
+#
+# Why ADD rather than SUBSTITUTE (v87's mistake, measured): swapping the de-flicker for the scale
+# refiner dropped pstudio 0.2027 -> 0.0642 and adt 0.3056 -> 0.1322 untrained, and 2000 steps of
+# adapting the refiner recovered only pstudio. The two modules do different jobs: the standalone
+# scale refiner emits a near-CONSTANT per-subset bias (|ds| p50=p95=max=0.586 drivetrack, 0.022 adt)
+# while the jointly-trained de-flicker supplies the PER-FRAME term, worth +0.104 APD3D on drivetrack
+# and +0.056 on adt by result/adt_error.log. They compose rather than compete.
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    holdout_val: true
+    n_val_monitor: 40
+    seed: 42
+    source: official
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: -1
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+loss:
+  lambda_dsr: 0.0
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  grid: 64
+  image_size: 896
+  log_ref: 2.0
+  log_std: 1.5
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 0.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  scale_stage_correction: 2.5
+  state_dim: 64
+  two_pool: true
+  freeze_modules:
+  - v45
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 250
+  decay: 1900
+  grad_clip: 1.0
+  log_every: 50
+  lr: 0.0003
+  num_workers: 0
+  seed: 0
+  steps: 2000
+  val_every: 250
+  warmup: 100
+  weight_decay: 0.05
+  window: 8
+  out_dir: result/v88a_gateonly
+  init_ckpt: result/v88_warmstart/ckpt_0.pt
+  val_clips: 40
+  val_at_step0: true
+  early_stop_patience: 0
+# BUDGET TRIM (v88a): steps cut to 1500. v87b overran -- bound_v87b.sh never fired
+# (its 'armed' check used pgrep -f on a pattern inside my own command line, so it was
+# meaningless) and part 2's 6h GPU wait expired, so v87b held the card until 04:52.
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    holdout_val: true
+    n_val_monitor: 40
+    seed: 42
+    source: official
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: -1
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+loss:
+  lambda_dsr: 0.0
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  grid: 64
+  image_size: 896
+  log_ref: 2.0
+  log_std: 1.5
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 0.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  scale_stage_correction: 2.5
+  state_dim: 64
+  two_pool: true
+  freeze_modules:
+  - v45
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 250
+  decay: 1400
+  grad_clip: 1.0
+  log_every: 50
+  lr: 0.0003
+  num_workers: 0
+  seed: 0
+  steps: 1500
+  val_every: 250
+  warmup: 100
+  weight_decay: 0.05
+  window: 8
+  out_dir: result/v88a_gateonly
+  init_ckpt: result/v88_warmstart/ckpt_0.pt
+  val_clips: 40
+  val_at_step0: true
+  early_stop_patience: 0
+version: v88

@@ -68,10 +68,30 @@ def build_cache(n_clips: int, cache_path: Path, waft: Path):
             except Exception:
                 continue
             with np.errstate(divide="ignore", invalid="ignore"):
-                r = np.log(np.clip(gt[..., 2], 1e-6, None)) - np.log(np.clip(pr[..., 2], 1e-6, None))
-            m = vis & np.isfinite(r)
+                # TARGET BUG, fixed. This used pr[...,2] -- the WAFT prediction's own z. But the
+                # WAFT prediction set (waft_full_eval, written 2026-08-17) was unprojected with
+                # DA3-l depth, while the model's INPUT here is DA3_ROOT (DA3-g). So the refiner was
+                # trained to read a DA3-g map and emit the DA3-l correction. Measured consequence on
+                # minival: true ds* = -0.927 on drivetrack while it predicted +0.586 -- opposite
+                # sign -- and applying it made metric-AJ 0.1435 against 0.208 for no correction.
+                # The target must be the residual of the depth the model will actually be applied to,
+                # i.e. DA3_ROOT's depth sampled at the WAFT track's uv.
+                fx, fy, cx, cy = (float(v) for v in g["fx_fy_cx_cy"])
+                W_o, H_o = 2.0 * cx, 2.0 * cy          # principal point is image centre here
+                Hd, Wd = depth.shape[1], depth.shape[2]
+                zc_ = np.clip(pr[..., 2], 1e-6, None)
+                u_ = (fx * pr[..., 0] / zc_ + cx) * (Wd / W_o)
+                v_ = (fy * pr[..., 1] / zc_ + cy) * (Hd / H_o)
+                ui_ = np.clip(np.round(u_).astype(np.int64), 0, Wd - 1)
+                vi_ = np.clip(np.round(v_).astype(np.int64), 0, Hd - 1)
+                F_c = min(depth.shape[0], pr.shape[0], gt.shape[0])
+                z_here = np.take_along_axis(
+                    depth[:F_c].reshape(F_c, -1), (vi_[:F_c] * Wd + ui_[:F_c]), axis=1
+                )
+                r = np.log(np.clip(gt[:F_c, ..., 2], 1e-6, None)) - np.log(np.clip(z_here, 1e-6, None))
+            m = vis[: r.shape[0]] & np.isfinite(r)
             tgt = np.array([np.median(r[t][m[t]]) if m[t].sum() >= 1 else np.nan
-                            for t in range(gt.shape[0])], dtype=np.float32)
+                            for t in range(r.shape[0])], dtype=np.float32)
             if np.isnan(tgt).all():
                 continue
             dt = torch.from_numpy(np.log(np.clip(depth, 1e-6, None))).unsqueeze(1)
@@ -98,8 +118,21 @@ def main() -> int:
     args = ap.parse_args()
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    grids, targets = build_cache(args.clips_per_subset,
-                                 Path("result/scale_train_cache.npz"),
+    # Cache path keyed on the depth root. A shared path would hand a DA3-l cache to a DA3-g run
+    # without a word, which is how the v73-v85 arms ended up trained on the wrong depth.
+    TARGET_VERSION = "tgt2"   # tgt2: residual vs DA3_ROOT depth at the WAFT uv (tgt1 used pr z)
+    cache = Path(f"result/scale_train_cache_{DA3_ROOT.name}_{TARGET_VERSION}.npz")
+    from eval_waft import DEPTH_SOURCE as _DS
+    _waft = Path.home() / "data/tapvid3d_baseline_preds/waft_full_eval"
+    # The WAFT track is used for uv ONLY -- the target is now the residual against _DS depth
+    # sampled at that uv. uv is invariant to scaling along the ray, so a DA3-l-built track set
+    # is a legitimate uv source for a DA3-g model. It was taking pr[...,2] as DEPTH that broke
+    # this, so the check is reported rather than enforced -- and the distinction is the point.
+    print(f"  depth source: {_DS}", flush=True)
+    print(f"  waft tracks : {_waft.name} [{_DS.verify(_waft, strict=False)}] -- used for uv only",
+          flush=True)
+    print(f"  cache: {cache}", flush=True)
+    grids, targets = build_cache(args.clips_per_subset, cache,
                                  Path.home() / "data/tapvid3d_baseline_preds/waft_full_eval")
     rng = np.random.default_rng(0)
     idx = rng.permutation(len(grids))

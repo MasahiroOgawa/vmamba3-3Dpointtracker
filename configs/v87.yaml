@@ -1,0 +1,94 @@
+# v87: WAFT + (DA3-g + Mamba-3 depth scale refiner) + vmamba3-2pool. The legitimate version.
+#
+# Goal: beat DELTA on DA3-g. DELTA DA3-g = 0.2274; best clean 2-pool DA3-g = v63 at 0.2238.
+#
+# Where the gap actually is (result/adt_error.log + per-subset v63 vs DELTA):
+#     drivetrack  0.1631 vs 0.1641   -0.0009  tied
+#     pstudio     0.2027 vs 0.1936   +0.0091  we win
+#     adt         0.3056 vs 0.3244   -0.0188  the ENTIRE deficit
+# On adt the oracle per-frame scale ceiling is 0.5683 APD3D and v63 reaches 0.4837, so 0.0846 APD3D
+# of per-frame-scale headroom is unclaimed -- about 0.053 metric-AJ on adt at the ~0.63x conversion,
+# or ~0.018 on the mean. The mean gap to DELTA is 0.0035. Capturing a fifth of what we already leave
+# on adt is enough. That is what stage 1 is for: a scale estimator that reads the DEPTH MAP rather
+# than the tracked points, which is strictly more information than the v44 de-flicker sees.
+#
+# Why this is not v73-v85. Those loaded a scale refiner trained on DA3-l and fed it DA3-g depth --
+# the case doc/plan_da3g_reeval.md had already excluded. Stage 1 here is trained on DA3-g
+# (DA3_ROOT=~/data/tapvid3d_da3nested, cache keyed on the root so no DA3-l cache can be reused).
+#
+# Warm start, both stages: stage 1 from the new DA3-g scale refiner, stage 2 from v63's ALREADY
+# TRAINED v35 tensors. Nothing starts from zero, so 6000 steps is fine-tuning rather than training.
+#
+# Protocol is self-consistent by construction: waft_live at scale -1, iters 4, image_size 896 --
+# identical to waft_minival_is896_s-1_i4's manifest, which is what scores it. v63's own run used
+# iters 5 by accident, so v63 is ALSO being re-scored on this cache for an exact comparison.
+#
+# lambda_dsr 0.1 supervises stage 1 directly (L_dsr on the per-frame log-scale) instead of leaving
+# it to reach the metric only through stage 2.
+version: v73
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: -1
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    source: official
+    n_val_monitor: 40
+    seed: 42
+    holdout_val: true
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  image_size: 896
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 2.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  state_dim: 64
+  two_pool: true
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 500
+  decay: 5800
+  grad_clip: 1.0
+  log_every: 50
+  lr: 0.0001
+  num_workers: 0
+  seed: 0
+  steps: 6000
+  val_every: 500
+  warmup: 200
+  weight_decay: 0.05
+  window: 8
+  out_dir: result/v87_da3g_scale_plus_2pool
+  init_ckpt: result/v87_warmstart/ckpt_0.pt
+  val_clips: 40
+  val_at_step0: true
+  early_stop_patience: 4
+  early_stop_min_delta: 0.001
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+  lambda_dsr: 0.1

@@ -1,0 +1,81 @@
+# v81: lr=1e-05, with pstudio oversampling removed.
+#
+# Two independent suspects, walked down together. (1) Learning rate. At 3e-5 v78a scored 0.1978
+# against the 0.2385 bar and validation still swung 4.9x between checks 250 steps apart. Validation
+# here is deterministic (augment=False, seed=0, fixed clips), so that swing is the model genuinely
+# moving, not measurement noise -- evidence the step is still too large for a module that STARTS at
+# the answer. An earlier claim that this oscillation was normal was wrong: it was benchmarked against
+# v63, which scores 0.2238 and does not clear the bar either.
+# (2) pstudio. 106 unique clips replicated 20x into a third of the training mix; every arm trained
+# that way lands at pstudio 0.19-0.20, while the scale refiner -- whose trainer never oversamples --
+# holds 0.2793. v63 already BEATS the scale refiner on drivetrack (0.1631 vs 0.1399) and adt (0.3056
+# vs 0.2964); pstudio alone is what pulls its mean under.
+#
+# Downside is bounded: the v35 refiner is zero-init and additive, so a rate small enough to barely
+# move it cannot land far below the 0.2385 bar, and a small improvement still counts as clearing it.
+version: v73
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 2.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+  scale_init: result/scale_standalone/best.pt
+  freeze_scale: true
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  split:
+    source: official
+    n_val_monitor: 15
+    seed: 42
+train:
+  out_dir: result/v81_lr1e-05
+  steps: 1500
+  warmup: 100
+  decay: 1400
+  ckpt_every: 500
+  val_every: 250
+  log_every: 50
+  lr: 1.0e-05
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+  val_clips: 25
+  early_stop_patience: 2
+  early_stop_min_delta: 0.005
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+    metre_space: false
+    metre_scale: 1.0
+  lambda_dsr: 0.0

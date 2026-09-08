@@ -22,7 +22,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 _cwd = os.getcwd()
-from eval_waft import MINIVAL_FILES, load_da3_depth  # noqa: E402
+from eval_waft import MINIVAL_FILES, load_da3_depth, DEPTH_SOURCE  # noqa: E402
 os.chdir(_cwd)
 from mamba3_tracker.model.depth_refined_tracker import Mamba3DepthScaleRefiner  # noqa: E402
 
@@ -39,6 +39,12 @@ def main() -> int:
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     st = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+    # This writes tracks_XYZ = pr * exp(ds): pr's Z is used DIRECTLY, so the depth that
+    # built pr must be the depth the refiner was trained on. Unlike a uv-only use, a
+    # mismatch here silently produces a hybrid nobody can interpret.
+    print(f"[apply] depth source: {DEPTH_SOURCE}")
+    print(f"[apply] waft tracks: {DEPTH_SOURCE.verify(args.waft)}")
+
     model = Mamba3DepthScaleRefiner(two_pool=True, max_scale_correction=2.5).to(dev)
     model.load_state_dict(st["model"])
     model.eval()

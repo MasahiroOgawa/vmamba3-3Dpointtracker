@@ -46,6 +46,7 @@ from mamba3_tracker.data.tapvid3d import load_clip
 from mamba3_tracker.model.depth_refined_tracker import (
     Mamba3DepthScaleRefiner,
     Mamba3V73,
+    Mamba3V88,
     Mamba3DeflickerRefiner,
     Mamba3DepthRefiner,
     Mamba3V35Refiner,
@@ -218,7 +219,8 @@ def _perturb_uv(uv, sigma_px, rho, generator=None):
 
 
 def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
-                    waft_pred_dir=None, noise_px=0.0, noise_rho=0.9):
+                    waft_pred_dir=None, noise_px=0.0, noise_rho=0.9,
+                    z_source="depth_map"):
     """Return (ray, z_raw, vis, uv, images, K) — all on device.
 
     images: (B,F,3,H,W) in [0,1] (needed by v35 DINOv3 encoder)
@@ -236,6 +238,7 @@ def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
     """
     B, F_ = batch.images.shape[:2]
     all_uv, all_vis = [], []
+    all_zw: list = []
     if waft_pred_dir is not None:
         root = Path(waft_pred_dir).expanduser()
         K_cpu = batch.K
@@ -269,6 +272,12 @@ def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
                 vis_b = torch.cat([vis_b, vis_b.new_zeros(F_, n_pad)], dim=1)
             all_uv.append(uv_b.to(device))
             all_vis.append(vis_b.to(device))
+            # ray*z reconstructs xyz exactly, so keeping WAFT's own z lets the pipeline reproduce
+            # `tracks_XYZ * exp(ds)` -- the 0.2385 arm -- instead of resampling the DA3-g map.
+            z_b = torch.from_numpy(np.clip(xyz[..., 2], 1e-6, None)).float()
+            if n_pad > 0:
+                z_b = torch.cat([z_b, z_b.new_zeros(F_, n_pad)], dim=1)
+            all_zw.append(z_b.to(device))
     else:
         for b in range(B):
             imgs = batch.images[b].to(device) * 255.0
@@ -286,7 +295,14 @@ def _run_flow_batch(flow_model, batch, device, image_size, fb_alpha, fb_beta,
     uv = _perturb_uv(uv, noise_px, noise_rho)
     K = batch.K.to(device)
     ray = _ray_from_uv(uv, K)
-    z_raw = _sample_depth(batch.depth.to(device), uv, float(image_size))
+    if z_source == "waft":
+        if not all_zw:
+            raise ValueError("z_source='waft' requires flow.source=waft_cached (needs tracks_XYZ)")
+        z_raw = torch.stack(all_zw)
+    elif z_source == "depth_map":
+        z_raw = _sample_depth(batch.depth.to(device), uv, float(image_size))
+    else:
+        raise ValueError(f"unknown z_source {z_source!r}; expected 'waft' or 'depth_map'")
     images = batch.images.to(device)  # (B,F,3,H,W) in [0,1]
     return ray, z_raw, vis, uv, images, K
 
@@ -296,11 +312,14 @@ def _model_forward(
 ):
     """Dispatch model forward for v33 vs v35."""
     with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-        if version in ("v35", "v45", "v46", "v47", "v73"):
+        if version in ("v35", "v45", "v46", "v47", "v73", "v88"):
             return model(ray, z_raw, vis, uv, depth, images, K)
         if version == "v72":
             return model(ray, z_raw, vis, depth)
         return model(ray, z_raw, vis)
+
+
+_VAL_RNG_SEED = 12345
 
 
 @torch.no_grad()
@@ -317,8 +336,18 @@ def _validate(
     fb_beta,
     n_clips=5,
     waft_pred_dir=None,
+    z_source="depth_map",
 ):
     model.eval()
+    # Re-seed the dataset RNG on EVERY call. TAPVid3DDataset draws a random temporal window
+    # (dataset.py:80) and a random query subset (dataset.py:114) on each __getitem__, and
+    # augment=False disables only photometric augmentation -- so without this, consecutive
+    # validations measure DIFFERENT windows and queries. The resulting curve is resampling noise,
+    # not model change: it swung 5x across the v73-v82 arms independently of learning rate, and
+    # step 0 matched to four decimals across runs only because it always drew first from Random(0).
+    # Early stopping and best-checkpoint selection on an unseeded signal select on that noise.
+    if hasattr(val_ds, "_rng"):
+        val_ds._rng = random.Random(_VAL_RNG_SEED)
     totals: dict[str, list[float]] = defaultdict(list)
     for i in range(min(n_clips, len(val_ds))):
         batch = collate_tracking([val_ds[i]])
@@ -326,7 +355,7 @@ def _validate(
         qmask = batch.query_mask.to(device)
         ray, z_raw, vis, uv, images, K = _run_flow_batch(
             flow_model, batch, device, image_size, fb_alpha, fb_beta,
-            waft_pred_dir=waft_pred_dir,
+            waft_pred_dir=waft_pred_dir, z_source=z_source,
         )
         pred = _model_forward(
             model,
@@ -525,7 +554,6 @@ def main() -> int:
                     help="Debug override. Experiments set train.out_dir in the config; "
                          "cfg.json is then a complete record of the run.")
     ap.add_argument("--data-root", type=Path, default=Path("~/data"))
-    ap.add_argument("--init-ckpt", type=Path, default=None)
     ap.add_argument("--steps", type=int, default=None)
     ap.add_argument("--warmup", type=int, default=None)
     ap.add_argument("--decay", type=int, default=None)
@@ -568,6 +596,11 @@ def main() -> int:
     # Validation noise scales as 1/sqrt(clips); at the old default of 5 the median change between
     # consecutive checks was 0.103 against a whole-run spread of 0.096, so two numbers said nothing.
     val_clips_n = int(train_cfg.get("val_clips", 5))
+    # Validate BEFORE training moves anything, so every run records the score of its own
+    # starting point. Without it a warm-started or zero-init-head arm has no baseline in its own
+    # log, and "training made this worse" cannot be distinguished from "this was always bad":
+    # the v78 arms were tuned for a morning against a starting point nobody had measured.
+    val_at_step0 = bool(train_cfg.get("val_at_step0", True))
     # Early stopping: patience on the BEST value, not flatness between neighbours, with a tolerance
     # above the noise floor. Keeps the best checkpoint rather than the last.
     es_patience = int(train_cfg.get("early_stop_patience", 0))
@@ -604,8 +637,18 @@ def main() -> int:
         n_val_monitor = int(split_cfg.get("n_val_monitor", 15))
         rng = random.Random(int(split_cfg.get("seed", 42)))
         val_clips = rng.sample(train_clips, min(n_val_monitor, len(train_clips)))
+        # The monitor clips MUST leave the training set. Without this they are training data, so the
+        # "VAL" loss measures fitting rather than generalisation -- it falls while held-out metric-AJ
+        # falls with it, which reads as an anti-correlated objective but is plain overfitting. Every
+        # lr choice, early stop and "best checkpoint" in the v73-v82 line was selected on that
+        # signal. holdout_val=False reproduces the old behaviour for arms already in flight.
+        holdout = bool(split_cfg.get("holdout_val", True))
+        if holdout:
+            _vs = {str(c) for c in val_clips}
+            train_clips = [c for c in train_clips if str(c) not in _vs]
         print(
-            f"[train] split=official  {len(train_clips)} train / {n_val_monitor} val-monitor / "
+            f"[train] split=official  {len(train_clips)} train / {n_val_monitor} val-monitor "
+            f"({'HELD OUT' if holdout else 'IN TRAIN -- not a generalisation signal'}) / "
             f"{len(test_clips)} test  subsets={data_cfg['subsets']}"
         )
     elif source == "minival":
@@ -625,10 +668,16 @@ def main() -> int:
         print(f"[train] split=legacy  {len(train_clips)} train / {len(val_clips)} val")
 
     version = cfg["version"]
-    da3_depth_root = data_cfg.get("da3_depth_root")
-    if da3_depth_root is None:
-        raise ValueError("data.da3_depth_root is required")
-    print(f"[train] DA3 depth cache: {da3_depth_root}")
+    # data.depth ("da3l"/"da3g") is the preferred spelling; data.da3_depth_root still works and is
+    # IDENTIFIED against the registry rather than trusted, so the log always names which depth this
+    # run actually used. Three separate bugs came from that being implicit.
+    from mamba3_tracker.data.depth_source import resolve as _resolve_depth
+    _spec = data_cfg.get("depth") or data_cfg.get("da3_depth_root")
+    if _spec is None:
+        raise ValueError("data.depth (da3l|da3g) or data.da3_depth_root is required")
+    _depth_src = _resolve_depth(_spec)
+    da3_depth_root = _depth_src.root
+    print(f"[train] depth source: {_depth_src}")
 
     # Oversample under-represented (near-range) subsets by replicating their clips.
     # Each replica draws a different augmented window, so this is effective oversampling,
@@ -679,6 +728,9 @@ def main() -> int:
     #   flow.source: searaft (default) | waft_live | waft_cached
     #   flow.waft_pred_dir: required by waft_cached, the full_eval track directory
     flow_source = str(flow_cfg.get("source", "searaft"))
+    # depth_map (default) samples the DA3 map at the tracked uv. waft uses WAFT's own
+    # tracks_XYZ z, which makes a zero-init refiner reproduce tracks_XYZ*exp(ds) exactly.
+    z_source = str(flow_cfg.get("z_source", "depth_map"))
     if flow_source not in ("searaft", "waft_live", "waft_cached"):
         raise SystemExit(f"flow.source must be searaft, waft_live or waft_cached; got {flow_source!r}")
     waft_pred_dir = None
@@ -762,6 +814,36 @@ def main() -> int:
             weights=loss_cfg["weights"], image_size=image_size
         ).to(device)
         print("[train] Mamba3V45 (v44 deflicker + v35 refiner)  loss: TrackingLossV35")
+    elif version == "v88":
+        model = Mamba3V88(
+            dim=int(model_cfg["dim"]),
+            state_dim=int(model_cfg["state_dim"]),
+            num_heads=int(model_cfg["num_heads"]),
+            num_layers=int(model_cfg["num_layers"]),
+            max_log_correction=float(model_cfg.get("max_log_correction", 2.0)),
+            max_delta_uv=float(model_cfg.get("max_delta_uv", 2.0)),
+            patch_size=int(model_cfg.get("patch_size", 5)),
+            max_scale_correction=float(model_cfg.get("max_scale_correction", 0.5)),
+            scale_stage_correction=float(model_cfg.get("scale_stage_correction", 2.5)),
+            d_proj=int(model_cfg.get("d_proj", 64)),
+            dino_model=str(
+                model_cfg.get("dino_model", "facebook/dinov3-vits16-pretrain-lvd1689m")
+            ),
+            dino_image_size=int(model_cfg.get("dino_image_size", 448)),
+            image_size=int(model_cfg.get("image_size", 896)),
+            two_pool=bool(model_cfg.get("two_pool", False)),
+            gate_by_vis=bool(model_cfg.get("gate_by_vis", True)),
+            grid=int(model_cfg.get("grid", 64)),
+            log_ref=float(model_cfg.get("log_ref", 2.0)),
+            log_std=float(model_cfg.get("log_std", 1.5)),
+        ).to(device)
+        loss_fn = TrackingLossV35(
+            weights=loss_cfg["weights"], image_size=image_size
+        ).to(device)
+        print(
+            "[train] Mamba3V88 (gated depth-map scale stage + v44 deflicker + v35 refiner)  "
+            "loss: TrackingLossV35 + L_dsr"
+        )
     elif version == "v47":
         model = Mamba3V45(
             dim=int(model_cfg["dim"]),
@@ -888,22 +970,27 @@ def main() -> int:
 
     history: list[dict] = []
     motion_history: list[dict] = []
+    # Read from the config, never a CLI flag. v75's YAML set train.init_ckpt, the run ignored it
+    # because only --init-ckpt was consulted, and cfg.json then recorded a warm start that never
+    # happened -- v75 silently duplicated v76.
+    init_ckpt_cfg = train_cfg.get("init_ckpt")
+
     cfg_snapshot = {
         **cfg,
         "_launch": {
             "config_path": str(args.config),
             "out_dir": str(args.out_dir),
             "data_root": str(args.data_root),
-            "init_ckpt": str(args.init_ckpt) if args.init_ckpt else None,
+            "init_ckpt": str(init_ckpt_cfg) if init_ckpt_cfg else None,
         },
     }
     dump_resolved(cfg_snapshot, args.out_dir / "cfg.json")
 
     start_step = 0
-    if args.init_ckpt is not None and _find_latest_ckpt(args.out_dir) is None:
+    if init_ckpt_cfg is not None and _find_latest_ckpt(args.out_dir) is None:
         # weights-only warm-start (no optim/sched/step); a resume ckpt in out_dir overrides.
         st = torch.load(
-            Path(args.init_ckpt).expanduser(), map_location=device, weights_only=False
+            Path(init_ckpt_cfg).expanduser(), map_location=device, weights_only=False
         )
         # v72's checkpoint stores stage-1 keys at top level while v73 nests them under
         # scale_refiner., so a direct load matches ZERO keys -- and strict=False reports that as
@@ -918,7 +1005,7 @@ def main() -> int:
         bad = [k for k, v in sd.items() if k in own and own[k].shape != v.shape]
         if bad:
             raise SystemExit(
-                f"[train] warm start from {args.init_ckpt} is a DIFFERENT architecture: "
+                f"[train] warm start from {init_ckpt_cfg} is a DIFFERENT architecture: "
                 f"{len(bad)} tensors differ in shape, first {bad[0]} "
                 f"{tuple(sd[bad[0]].shape)} vs {tuple(own[bad[0]].shape)}. "
                 f"Delete the stale output directory or point init_ckpt at a matching run."
@@ -927,16 +1014,45 @@ def main() -> int:
         n_loaded = len(own) - len(missing)
         if n_loaded == 0:
             raise SystemExit(
-                f"[train] warm start from {args.init_ckpt} loaded NOTHING: "
+                f"[train] warm start from {init_ckpt_cfg} loaded NOTHING: "
                 f"{len(sd)} checkpoint keys matched none of {len(own)} model keys. "
                 f"Refusing to train from a silently-ignored initialisation."
             )
         print(f"[train] warm start loaded {n_loaded}/{len(own)} tensors", flush=True)
         print(
-            f"[train] warm-started from {args.init_ckpt} "
+            f"[train] warm-started from {init_ckpt_cfg} "
             f"(missing={len(missing)} unexpected={len(unexpected)})",
             flush=True,
         )
+    # freeze_scale applies HOWEVER stage 1's weights arrived. It used to live inside the
+    # model.scale_init branch, so an arm that warm-started the whole composite through
+    # train.init_ckpt got no freeze at all and the flag was a silent no-op -- the same failure as
+    # the dead train.init_ckpt key. Placed after the warm start and after optim construction:
+    # AdamW skips params whose grad is None, so freezing later is safe.
+    # Which submodules to hold fixed, by attribute name. model.freeze_scale stays honoured as a
+    # shorthand for ["scale_refiner"]. Applies HOWEVER the weights arrived (scale_init OR
+    # train.init_ckpt): the freeze used to live inside the scale_init branch, so an arm warm-started
+    # through init_ckpt got no freeze and the flag was a silent no-op.
+    _freeze = list(model_cfg.get("freeze_modules", []) or [])
+    if bool(model_cfg.get("freeze_scale", False)) and "scale_refiner" not in _freeze:
+        _freeze.append("scale_refiner")
+    for _name in _freeze:
+        _mod = getattr(model, _name, None)
+        if _mod is None:
+            raise SystemExit(
+                f"[train] model.freeze_modules names {_name!r}, which this model does not have. "
+                f"Available: {[n for n, _ in model.named_children()]}"
+            )
+        _held = 0
+        for prm in _mod.parameters():
+            prm.requires_grad_(False)
+            _held += prm.numel()
+        _mod.eval()
+        print(f"[train] FROZEN {_name}: {_held/1e6:.3f}M params held", flush=True)
+    _n_train = sum(q.numel() for q in model.parameters() if q.requires_grad)
+    _trainable_names = sorted({n.split(".")[0] for n, q in model.named_parameters() if q.requires_grad})
+    print(f"[train] trainable after freezing: {_n_train/1e6:.3f}M across {_trainable_names}", flush=True)
+
     latest = _find_latest_ckpt(args.out_dir)
     if latest is not None:
         st = torch.load(latest, map_location=device, weights_only=False)
@@ -977,7 +1093,7 @@ def main() -> int:
         depth_d = batch.depth.to(device, non_blocking=True)
         ray, z_raw, vis, uv, images, K_d = _run_flow_batch(
             flow_model, batch, device, image_size, fb_alpha, fb_beta,
-            waft_pred_dir=waft_pred_dir,
+            waft_pred_dir=waft_pred_dir, z_source=z_source,
             noise_px=track_noise_px, noise_rho=track_noise_rho,
         )
 
@@ -1044,7 +1160,7 @@ def main() -> int:
                 {"step": step, "lr": lr, "grad_norm": gn, "head_grad": head_grad, **row}
             )
 
-        if step > 0 and step % val_every == 0:
+        if (step > 0 and step % val_every == 0) or (step == 0 and val_at_step0):
             v = _validate(
                 model,
                 version,
@@ -1058,20 +1174,25 @@ def main() -> int:
                 fb_beta,
                 n_clips=val_clips_n,
                 waft_pred_dir=waft_pred_dir,
+                z_source=z_source,
             )
             print(f"[train] step {step:6d}  VAL     {_fmt_loss_row(v)}", flush=True)
+            cur = float(v["total"])
+            # The RAW best is saved unconditionally, NOT only when early stopping is on. _save_ckpt
+            # prunes every other ckpt_*.pt, so the periodic checkpoints keep just the newest step and
+            # the best point on the curve is otherwise unrecoverable: v78a reached its lowest
+            # validation (0.0951) at step 750 with early_stop_patience=0, and those weights were lost.
+            if cur < es_raw_best:
+                es_raw_best = cur
+                best_dir = args.out_dir / "best"
+                best_dir.mkdir(parents=True, exist_ok=True)
+                _save_ckpt(best_dir, step, model, optim, sched, history, cfg_snapshot)
+                print(f"[train] best checkpoint: {cur:.4f} at step {step}", flush=True)
             if es_patience > 0:
-                cur = float(v["total"])
-                # Two separate decisions, deliberately. The checkpoint follows the RAW best, so a
-                # value better by less than the tolerance is still kept; the patience counter uses
+                # Two separate decisions, deliberately. The checkpoint above follows the RAW best, so
+                # a value better by less than the tolerance is still kept; the patience counter uses
                 # the tolerance, so noise-sized gains do not postpone stopping forever. Conflating
                 # them discards a genuinely better checkpoint for being better by too little.
-                if cur < es_raw_best:
-                    es_raw_best = cur
-                    best_dir = args.out_dir / "best"
-                    best_dir.mkdir(parents=True, exist_ok=True)
-                    _save_ckpt(best_dir, step, model, optim, sched, history, cfg_snapshot)
-                    print(f"[train] best checkpoint: {cur:.4f} at step {step}", flush=True)
                 if cur < es_best - es_min_delta:
                     es_best, es_since, es_best_step = cur, 0, step
                     print(f"[train] early-stop: improved to {cur:.4f} at step {step}", flush=True)

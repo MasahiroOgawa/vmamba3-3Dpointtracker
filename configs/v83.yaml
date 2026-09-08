@@ -1,0 +1,90 @@
+# v83: the first arm in this line with a genuine generalisation signal.
+#
+# What was broken. val_clips were sampled FROM train_clips and train_clips was never reduced, so the
+# "VAL" loss was a TRAINING loss on 15 training clips. Measured today: the untrained composite scores
+# val 0.5451 (the worst of any model) and metric-AJ 0.2385 (the best of any model); every trained arm
+# drove val down to 0.09-0.47 and metric-AJ down with it. That is overfitting, not an anti-correlated
+# objective -- and it means every lr choice, early stop and "best checkpoint" in v73-v82 was selected
+# on a signal that could not see it.
+#
+# What changes here, all three at once because each is a known defect rather than a hypothesis:
+#   - holdout_val: the monitor clips leave the training set.
+#   - n_val_monitor 15 -> 40: 15 clips cannot support an early-stop decision.
+#   - early stopping ON that signal, patience 3, so training halts at the generalisation optimum
+#     instead of running past it. This is the only mechanism available that can stop before the
+#     damage, and it is what the whole v73-v82 line lacked.
+#   - pstudio oversampling stays removed (106 unique clips replicated 20x into a third of the mix).
+#
+# lr is back to 3e-5 rather than the ladder's smaller rungs: with a real early-stop signal, moving
+# faster is safe, because overshoot is now detectable. The ladder tests the opposite bound.
+#
+# The bar remains 0.2385. Unlike the ladder, this arm can exceed it rather than approach it: the
+# refiner is free to improve where it generalises and gets halted when it stops doing so.
+# NOTE: VAL numbers here are NOT comparable to v73-v82 -- different clips, and genuinely held out.
+version: v73
+model:
+  two_pool: true
+  dim: 128
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  max_log_correction: 2.0
+  max_delta_uv: 2.0
+  patch_size: 5
+  max_scale_correction: 2.5
+  d_proj: 64
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  dino_image_size: 448
+  image_size: 896
+  grid: 64
+  log_ref: 2.0
+  log_std: 1.5
+  scale_init: result/scale_standalone/best.pt
+  freeze_scale: true
+flow:
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0
+data:
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+  image_size: 896
+  num_tracks: 256
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  split:
+    source: official
+    n_val_monitor: 40
+    seed: 42
+    holdout_val: true
+train:
+  out_dir: result/v83_holdout_es
+  steps: 3000
+  warmup: 100
+  decay: 2900
+  ckpt_every: 500
+  val_every: 250
+  log_every: 50
+  lr: 3.0e-05
+  weight_decay: 0.05
+  grad_clip: 1.0
+  batch: 1
+  window: 8
+  amp: bf16
+  num_workers: 0
+  seed: 0
+  val_clips: 40
+  early_stop_patience: 3
+  early_stop_min_delta: 0.005
+loss:
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+    metre_space: false
+    metre_scale: 1.0
+  lambda_dsr: 0.0

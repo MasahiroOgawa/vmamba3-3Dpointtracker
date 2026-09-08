@@ -9,6 +9,17 @@
 #
 # Verified before running: a 1 m error now costs 1.0000 on both subsets instead of 0.0417 and 0.8403.
 #
+#
+# OUTCOME AND CORRECTION (retained: this config records a run that happened).
+# The framing above is wrong, and the run scored below its own 0.2385 starting point.
+# Normalising by scale_gt is not a defect. The refiner's head emits a LOG-depth correction, and
+# d z / d(log z) = z, so a metre-space loss multiplies that head's gradient by scene depth --
+# drivetrack (24 m) drives it ~20x harder than adt (1.19 m). That imbalance is created by the metre
+# loss, not present in the metric; the normalised loss cancels exactly it, and the measured
+# per-subset contributions then sit within 1.5x. A metre loss also concentrates on the largest
+# absolute errors, which on drivetrack lie furthest beyond AJ's 2.56 m top threshold and so cannot
+# change the score. Matching the metric's units is not the same as matching the model's
+# parameterisation. Metre-space validation values are also not comparable to the baseline.
 # Everything else is v76: WAFT + (DA3-g + frozen scale refiner) + vmamba3-2pool, from scratch.
 # 4000 steps is a probe. This is the first change in this line that alters what the model is ASKED
 # to do rather than how it is wired, and it makes every earlier arm non-comparable.

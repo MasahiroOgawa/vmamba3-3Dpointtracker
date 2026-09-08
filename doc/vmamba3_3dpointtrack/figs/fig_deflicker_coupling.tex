@@ -7,76 +7,96 @@
   learn/.style={box, fill=cTrain!18, draw=cTrain!70!black},
   flowb/.style={box, fill=black!8, draw=black!55},
   ar/.style={-{Latex[length=2mm]}, draw=black!70},
+  lbl/.style={anchor=west, text width=0.97\textwidth, align=left},
 ]
 
-% ---------------- (a) as built ----------------
+% ---------- what the stage has to undo: the flicker itself ----------
+% Sits well clear of panel (a): at a smaller yshift the sketch's axis ran through the
+% "900 tracked points" box and its y-label collided with the orange note.
+\begin{scope}[shift={(0.35,2.75)}]
+  \draw[->, black!55] (0,-0.5) -- (4.5,-0.5) node[right, black!70, font=\scriptsize] {frame};
+  \draw[->, black!55] (0,-0.56) -- (0,0.66);
+  \node[rotate=90, anchor=south, font=\scriptsize, text=black!70] at (-0.42,0.05)
+        {depth scale};
+  \draw[dashed, black!45] (0,0) -- (4.25,0)
+        node[right, black!70, font=\scriptsize, inner xsep=4pt] {true};
+  \draw[thick, cInput!75!black]
+    (0.15,0.26) -- (0.7,-0.20) -- (1.25,0.32) -- (1.8,-0.09) -- (2.35,0.38)
+    -- (2.9,-0.28) -- (3.45,0.15) -- (4.0,-0.22);
+  \node[anchor=west, font=\scriptsize, text=cInput!60!black] at (-0.1,1.02)
+        {DA3-g is off by a different factor every frame: still points seem to breathe};
+  \node[anchor=west, font=\scriptsize, align=left] at (5.6,0.0)
+        {The stage emits \emph{one} number per frame, $\Delta s_f$, and scales\\
+         that frame's depth by $e^{\Delta s_f}$ to flatten the wobble onto\\
+         the dashed line. That drift comes from the depth model alone.};
+\end{scope}
+
+% ---------------- (a) the de-flicker, as built ----------------
 \node[data]  (aimg)  at (0,0)      {video\\frames};
 \node[flowb] (aflow) at (2.3,0)    {optical\\flow};
 \node[data]  (adep)  at (0,-1.5)   {DA3-g\\depth map};
-\node[box, fill=black!4, draw=black!45] (apts) at (4.9,0)
-      {$\sim\!900$ tracked points\\$uv$, $vis$};
-\node[box, fill=black!4, draw=black!45] (asamp) at (4.9,-1.5)
-      {depth sampled\\\emph{at those} $uv$};
-\node[learn] (atok) at (7.9,-0.75) {mean over\\visible points\\$\rightarrow$ 1 token/frame};
-\node[learn] (amam) at (10.6,-0.75) {time-axis\\Mamba-3};
-\node[learn] (aout) at (13.0,-0.75) {$\Delta s_f$\\(one scalar)};
+\node[box, fill=black!4, draw=black!45] (apts) at (5.0,0)
+      {$\sim\!900$ tracked points:\\where each one is,\\and whether it is visible};
+\node[box, fill=black!4, draw=black!45] (asamp) at (5.0,-1.6)
+      {depth read \emph{only}\\at those points};
+\node[learn] (atok) at (8.3,-0.8) {average over\\visible points\\$\rightarrow$ 1 number/frame};
+\node[learn] (amam) at (11.0,-0.8) {Mamba-3\\over frames};
+\node[learn] (aout) at (13.4,-0.8) {$\Delta s_f$};
 
 \draw[ar] (aimg) -- (aflow);
 \draw[ar] (aflow) -- (apts);
 \draw[ar] (apts) -- (asamp);
 \draw[ar] (adep) -- (asamp);
-\draw[ar] (apts.east) -- ++(0.5,0) |- (atok.west);
-\draw[ar] (asamp.east) -- ++(0.5,0) |- (atok.west);
+\draw[ar] (apts.east) -- ++(0.4,0) |- (atok.west);
+\draw[ar] (asamp.east) -- ++(0.4,0) |- (atok.west);
 \draw[ar] (atok) -- (amam);
 \draw[ar] (amam) -- (aout);
 
-\node[anchor=west, text=black] at (0,-2.6)
-  {\textbf{(a) As built.} Every input reaches the stage \emph{through} the flow: the depth map is
-   only ever read at flow-chosen positions, gated by a flow-derived visibility mask.};
+\node[lbl] at (0,-3.0)
+  {\textbf{(a) De-flicker stage, as built.} Everything it sees arrives \emph{through the tracker}:
+   the depth map is read only at pixels the optical flow picked, and averaged only over points the
+   flow called visible. So a stage trained with SEA-RAFT and one trained with WAFT learn different
+   corrections from identical depth --- even though the wobble they must undo belongs to the depth
+   model alone and has nothing to do with tracking.};
 
-% ---------------- (b) proposed ----------------
-\begin{scope}[yshift=-4.6cm]
-\node[data]  (bdep)  at (0,-0.75)   {DA3-g\\depth map};
-\node[box, fill=black!4, draw=black!45] (bds) at (3.0,-0.75)
-      {$\log$ depth,\\downsampled};
-\node[learn] (bcnn) at (5.9,-0.75)  {small CNN\\$\rightarrow$ 1 token/frame};
-\node[learn] (bmam) at (8.9,-0.75)  {time-axis\\Mamba-3};
-\node[learn] (bout) at (11.6,-0.75) {$\Delta s_f$\\(one scalar)};
+% ---------------- (b) the Mamba-3 depth scale refiner ----------------
+\begin{scope}[yshift=-4.7cm]
+\node[data]  (bdep)  at (0,-0.8)    {DA3-g\\depth map};
+\node[box, fill=black!4, draw=black!45] (bds) at (3.2,-0.8)
+      {whole map,\\log scale, shrunk};
+\node[learn] (bcnn) at (6.4,-0.8)   {small CNN\\$\rightarrow$ 1 number/frame};
+\node[learn] (bmam) at (9.4,-0.8)   {Mamba-3\\over frames};
+\node[learn] (bout) at (11.9,-0.8)  {$\Delta s_f$};
 
 \draw[ar] (bdep) -- (bds);
 \draw[ar] (bds) -- (bcnn);
 \draw[ar] (bcnn) -- (bmam);
 \draw[ar] (bmam) -- (bout);
 
-\node[anchor=west] at (0,-2.6)
-  {\textbf{(b) Proposed.} The stage reads the depth map itself. No flow appears in the path, so
-   which front-end trained it cannot change what it learns.};
-\end{scope}
-
-% ---------------- (c) the supervision ----------------
-\begin{scope}[yshift=-9.0cm]
-\node[anchor=west] at (0,0.35)
-  {\textbf{(c) What trains it.} As built there is no de-flicker loss; the stage learns only through
-   the tracking loss:};
-\node[anchor=west] at (0.4,-0.55)
-  {$L=\underbrace{vis\cdot|xyz_{\text{pred}}-xyz_{\text{gt}}|_1/\text{scale}_{\text{gt}}}
-      _{\text{per-point; the stage cannot change this}}
-    +\ \lambda_{uv}\,vis\,|\Delta uv|^2$};
-\node[anchor=west, text width=15.5cm] at (0,-1.6)
-  {The stage emits one scalar per frame, but the loss sums over ${\sim}900$ points $\times$ $F$
-   frames, and a single per-frame scalar accounts for only $0.3$--$0.6\%$ of that error
-   (\S\ref{sec:deflicker-signal}). Roughly $99.5\%$ of its gradient is therefore noise from its
-   point of view. A direct target, $\Delta s^{*}_f=\mathrm{median}_n[\log z_{\text{gt}}-\log
-   z_{\text{raw}}]$ with $L_{\text{dsr}}=|\Delta s_f-\Delta s^{*}_f|$, supervises exactly what it
-   can do.};
+\node[lbl] at (0,-2.4)
+  {\textbf{(b) Mamba-3 depth scale refiner.} It reads the depth map itself, so no tracker appears
+   anywhere in the path and the front-end cannot change what it learns. It also sees the whole
+   frame rather than $\sim\!900$ scattered points.};
 \end{scope}
 
 \end{tikzpicture}
-\caption{Why the de-flicker stage depends on the optical-flow front-end, and why its training signal
-  is weak. Orange is data, blue is trainable, grey is a frozen component or an intermediate. The
-  stage's job is to undo DA3-g's per-frame global scale drift, which is a property of the depth
-  model alone --- yet as built (a) it observes that drift only through points the tracker selected,
-  which is what couples it to the front-end and makes a SEA-RAFT-trained stage behave differently
-  from a WAFT-trained one on identical depth.}
+\caption{\textbf{What the de-flicker stage is for, and why the way it was built was wrong.}
+  \emph{The problem it solves:} DA3-g estimates each frame independently, so its depth is off by a
+  slightly different factor every frame --- the sketch at the top. Points that are still in the
+  world therefore appear to breathe toward and away from the camera. The stage exists to undo that,
+  and emits one number per frame, $\Delta s_f$, that rescales that frame's depth.
+  \emph{Why (a) was a problem:} the drift is a property of the depth model, but as built the stage
+  can only observe it through the tracker --- depth sampled at flow-chosen pixels, averaged under a
+  flow-derived visibility mask. That is what couples it to the front-end, and why swapping SEA-RAFT
+  for WAFT changed its behaviour on identical depth. (b) removes the coupling by reading the map.
+  \emph{Why it also learned little:} as built there is no de-flicker loss at all. The stage is
+  trained only through the tracking loss
+  $L=vis\cdot|xyz_{\text{pred}}-xyz_{\text{gt}}|_1/\text{scale}_{\text{gt}}+\lambda_{uv}vis|\Delta
+  uv|^2$, which sums over ${\sim}900$ points $\times$ $F$ frames, while the stage controls a single
+  per-frame scalar worth only $0.3$--$0.6\%$ of that error (\S\ref{sec:deflicker-signal}): about
+  $99.5\%$ of its gradient is noise from its point of view. Giving it a direct target,
+  $\Delta s^{*}_f=\mathrm{median}_n[\log z_{\text{gt}}-\log z_{\text{raw}}]$ with
+  $L_{\text{dsr}}=|\Delta s_f-\Delta s^{*}_f|$, supervises exactly what it can change.
+  Orange is data, blue is trainable, grey is frozen or intermediate.}
 \label{fig:deflicker-coupling}
 \end{figure*}

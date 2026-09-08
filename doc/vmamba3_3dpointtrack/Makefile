@@ -7,7 +7,10 @@ PDF  = $(BASE).pdf
 # make is a SILENT NO-OP -- the .tex is untouched, so make sees the PDF as up to date and the
 # document keeps rendering the old image. That happened on 2026-08-15 and cost a round of
 # debugging a legend fix that had in fact already worked.
-FIGS = $(wildcard figs/*.pdf figs/*.png figs/*.jpg)
+# figs/*.tex belongs here too: TikZ figures are \input, so editing one leaves the main .tex
+# untouched and make reported success while rebuilding nothing -- the very no-op described
+# above, just for vector sources instead of rasters.
+FIGS = $(wildcard figs/*.pdf figs/*.png figs/*.jpg figs/*.tex)
 
 .PHONY: all clean
 

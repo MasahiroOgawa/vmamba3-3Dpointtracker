@@ -1,0 +1,83 @@
+# v90c: v90b's joint phase CONTINUED to the end of the overnight window.
+#
+# Not a new model -- the same WAFT + (DA3-g + Mamba-3 depth scale refiner) + vmamba3-2pool as v90b,
+# resumed with its optimiser and scheduler state intact so the two runs form one trajectory. v90b is
+# cut at step 2000 only so its number can be read at ~01:15 rather than at 08:00, which is the
+# intermediate confirmation asked for; v90c carries that same trajectory to ~3600.
+#
+# WHY 3600 AND NOT THE 20000 STEP CEILING. Measured 11.35 s/step (v90a: 1950 steps in 22127 s), so
+# 20000 steps is 63 h of GPU. The window to 08:00 holds ~3600 total. `steps` is set to what is
+# reachable rather than to the ceiling, because the WSD schedule anneals over `total - decay .. total`:
+# leaving total at 20000 would hold the LR flat for the whole night and end mid-plateau. With
+# total=3600 / decay=1600 the cosine starts exactly at the resume point and reaches the floor at the
+# deadline, which is the correct shape for a fine-tune tail.
+#
+# Bars: DELTA DA3-g 0.2274 (the goal) | v63 0.2238 | v90 warm start 0.2191 | v90a 0.2132.
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    holdout_val: true
+    n_val_monitor: 40
+    seed: 42
+    source: official
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: -1
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+loss:
+  lambda_dsr: 0.1
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  grid: 64
+  image_size: 896
+  log_ref: 2.0
+  log_std: 1.5
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 2.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  state_dim: 64
+  two_pool: true
+  freeze_scale: false
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 500
+  decay: 1600
+  early_stop_min_delta: 0.001
+  early_stop_patience: 4
+  grad_clip: 1.0
+  init_ckpt: result/v90b/ckpt_2000.pt
+  log_every: 50
+  lr: 5.0e-05
+  num_workers: 0
+  out_dir: result/v90c
+  seed: 0
+  steps: 3600
+  val_at_step0: true
+  val_clips: 40
+  val_every: 500
+  warmup: 100
+  weight_decay: 0.05
+  window: 8
+version: v73

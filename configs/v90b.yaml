@@ -68,7 +68,7 @@ train:
   early_stop_min_delta: 0.001
   early_stop_patience: 4
   grad_clip: 1.0
-  init_ckpt: result/v90a/best/ckpt_BEST.pt
+  init_ckpt: result/v90a/best/ckpt_500.pt
   log_every: 50
   lr: 5.0e-05
   num_workers: 0

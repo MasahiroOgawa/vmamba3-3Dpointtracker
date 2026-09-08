@@ -22,7 +22,8 @@ uv run python - "$c1" <<'PYEOF' >> "$S" 2>&1
 import sys, yaml, pathlib
 p = pathlib.Path("configs/v90b.yaml"); raw = p.read_text()
 c = yaml.safe_load(raw); c["train"]["init_ckpt"] = sys.argv[1]
-p.write_text(raw[:raw.index("version:")] + yaml.safe_dump(c, sort_keys=False))
+c.pop("version", None)
+p.write_text(raw[:raw.index("data:")] + yaml.safe_dump(c, sort_keys=False) + "version: v73\n")
 print(f"  v90b init_ckpt := {sys.argv[1]}")
 PYEOF
 note "### v90b (both stages joint) $(date -Is)"

@@ -4,7 +4,17 @@ import json
 import sys
 import pathlib
 
-BARS = {"scale-refiner-alone": 0.2385, "DELTA": 0.2270, "v63": 0.2238}
+# Every bar is a measured eval dir, not an estimate. 0.2385 stood here for
+# "scale-refiner-alone" and was never measured -- the figure came from the DA3-l era and the
+# corrected DA3-g measurement (v89) is 0.2100. DELTA was rounded to 0.2270; it is 0.2274.
+BARS = {
+    "v89-refiner-alone": 0.2100,   # result/v89_scale_only/eval
+    "v63": 0.2238,                 # result/v63_waft_live_2pool/eval
+    "DELTA": 0.2274,               # result/20260715-1443_da3g_delta
+}
+# v63 run to run: 0.2238 (seed 1) vs 0.2182 (seed 2, result/v63_seed2/eval). Any gap under ~0.0056
+# is inside the seed-to-seed spread of a single arm and must not be read as an effect.
+NOISE = 0.0056
 
 for d in sys.argv[1:]:
     p = pathlib.Path(d) / "metrics.json"
@@ -21,4 +31,6 @@ for d in sys.argv[1:]:
     verdict = " ".join(
         f"{k}({v:.4f}):{'BEAT' if mean > v else 'below'}" for k, v in BARS.items()
     )
-    print(f"[report] {d}  {per}  mean={mean:.4f}  |  {verdict}")
+    near = [k for k, v in BARS.items() if abs(mean - v) < NOISE]
+    caveat = f"  [within seed noise {NOISE} of: {', '.join(near)}]" if near else ""
+    print(f"[report] {d}  {per}  mean={mean:.4f}  |  {verdict}{caveat}")

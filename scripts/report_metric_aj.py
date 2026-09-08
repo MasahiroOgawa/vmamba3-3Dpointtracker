@@ -14,6 +14,12 @@ BARS = {
 }
 # v63 run to run: 0.2238 (seed 1) vs 0.2182 (seed 2, result/v63_seed2/eval). Any gap under ~0.0056
 # is inside the seed-to-seed spread of a single arm and must not be read as an effect.
+#
+# THIS DOES NOT APPLY TO A PAIRED COMPARISON. Two arms that share the same trained weights and
+# differ only in a module -- v63 seed 1 (0.2238) against the v90 warm start (0.2191), whose v35
+# tensors are bit-identical -- hold the seed fixed on both sides, and the scoring path has no
+# sampling, so their difference carries no seed variance at all. Applying this bar there once
+# retracted a correct measurement.
 NOISE = 0.0056
 
 for d in sys.argv[1:]:

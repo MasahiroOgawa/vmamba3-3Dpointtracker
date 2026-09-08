@@ -1,0 +1,84 @@
+# v90a: PHASE 1 -- stage 1 FROZEN, only vmamba3-2pool adapts to its output
+#
+# WAFT + (DA3-g + Mamba-3 depth scale refiner) + vmamba3-2pool, on the CORRECTED stage 1.
+# Stage 1 is v89's refiner: the depth-scale module retrained against DA3-g depth sampled at the WAFT
+# uv, after the previous one was found to regress against a DA3-l-derived target and emit the
+# OPPOSITE SIGN (+0.586 predicted where the truth was -0.927 on drivetrack).
+#
+# The scale refiner REPLACES the v44 de-flicker rather than stacking on it: both
+# per_frame_logscale methods return one bounded (B,F,1) log-scale per frame -- the de-flicker from
+# the tracked points, the scale refiner from the whole depth map -- so keeping both is duplication.
+# Stage 2 is warm-started from v63's v35 so it does not start from zero.
+#
+# Lineage: v87a/v87b were this architecture on the buggy stage 1 and peaked at 0.2142, below v63's
+# 0.2238. v89 is stage 1 measured alone. This is a new model, hence a new number.
+#
+# Bars: DELTA DA3-g 0.2274 (the goal) | v63 0.2238 | v87b (buggy stage 1) 0.2142.
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    holdout_val: true
+    n_val_monitor: 40
+    seed: 42
+    source: official
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: -1
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+loss:
+  lambda_dsr: 0.0
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  grid: 64
+  image_size: 896
+  log_ref: 2.0
+  log_std: 1.5
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 2.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  state_dim: 64
+  two_pool: true
+  freeze_scale: true
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 500
+  decay: 1900
+  early_stop_min_delta: 0.001
+  early_stop_patience: 4
+  grad_clip: 1.0
+  init_ckpt: result/v89_scale_only/ckpt_0.pt
+  log_every: 50
+  lr: 0.0001
+  num_workers: 0
+  out_dir: result/v90a
+  seed: 0
+  steps: 2000
+  val_at_step0: true
+  val_clips: 40
+  val_every: 500
+  warmup: 100
+  weight_decay: 0.05
+  window: 8
+version: v73

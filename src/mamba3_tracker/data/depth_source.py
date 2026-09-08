@@ -114,11 +114,17 @@ class DepthSource:
             return f"UNVERIFIED: {msg}"
         got = json.loads(p.read_text()).get("depth_source")
         if got != self.name:
-            raise SystemExit(
-                f"[depth_source] {artifact_dir} was built with {got!r} but this run uses "
-                f"{self.name!r}. Mixing them is the bug that invalidated v73-v85 and the scale "
-                f"refiner's training target. Use the matching artifacts or regenerate."
+            msg = (
+                f"{artifact_dir} was built with {got!r} but this run uses {self.name!r}. Mixing "
+                f"them is the bug that invalidated v73-v85 and the scale refiner's training target."
             )
+            # strict=False means "report, do not block", and that must cover the MISMATCH case too,
+            # not only a missing stamp: a track set's uv is invariant to the depth used to build it
+            # (verified, max|d uv| = 2.3e-13), so a da3l track set is a legitimate uv source for a
+            # da3g run. Only a consumer that uses the artifact's z should refuse.
+            if strict:
+                raise SystemExit(f"[depth_source] {msg} Use matching artifacts or regenerate.")
+            return f"MISMATCH {got} vs {self.name} -- ok if only uv is used"
         return f"verified {self.name}"
 
 

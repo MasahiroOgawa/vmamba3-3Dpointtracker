@@ -12,6 +12,10 @@ import sys
 import numpy as np
 import torch
 
+# Capture the caller's cwd BEFORE importing eval_waft: that import chdirs to the WAFT
+# checkout, so any relative path given on the command line would resolve against the wrong
+# directory afterwards and fail with a FileNotFoundError for a file that plainly exists.
+_ORIG_CWD = pathlib.Path.cwd()
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -26,6 +30,8 @@ def main() -> int:
     ap.add_argument("--clips", type=int, default=4)
     ap.add_argument("--frames", type=int, default=24)
     a = ap.parse_args()
+    if not a.ckpt.is_absolute():
+        a.ckpt = (_ORIG_CWD / a.ckpt).resolve()
     m = Mamba3DepthScaleRefiner(two_pool=True, max_scale_correction=2.5)
     st = torch.load(a.ckpt, map_location="cpu", weights_only=False)
     m.load_state_dict(st.get("model", st))

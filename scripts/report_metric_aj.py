@@ -22,21 +22,22 @@ BARS = {
 # retracted a correct measurement.
 NOISE = 0.0056
 
-for d in sys.argv[1:]:
-    p = pathlib.Path(d) / "metrics.json"
-    if not p.exists():
-        print(f"[report] {d}: no metrics.json")
-        continue
-    m = json.loads(p.read_text())
-    ps, mean = m["per_subset"], m["overall"]["metric_average_jaccard"]
-    per = " ".join(
-        f"{s}={ps[s]['metric_average_jaccard']:.4f}"
-        for s in ("drivetrack", "pstudio", "adt")
-        if s in ps
-    )
-    verdict = " ".join(
-        f"{k}({v:.4f}):{'BEAT' if mean > v else 'below'}" for k, v in BARS.items()
-    )
-    near = [k for k, v in BARS.items() if abs(mean - v) < NOISE]
-    caveat = f"  [within seed noise {NOISE} of: {', '.join(near)}]" if near else ""
-    print(f"[report] {d}  {per}  mean={mean:.4f}  |  {verdict}{caveat}")
+if __name__ == "__main__":
+    for d in sys.argv[1:]:
+        p = pathlib.Path(d) / "metrics.json"
+        if not p.exists():
+            print(f"[report] {d}: no metrics.json")
+            continue
+        m = json.loads(p.read_text())
+        ps, mean = m["per_subset"], m["overall"]["metric_average_jaccard"]
+        per = " ".join(
+            f"{s}={ps[s]['metric_average_jaccard']:.4f}"
+            for s in ("drivetrack", "pstudio", "adt")
+            if s in ps
+        )
+        verdict = " ".join(
+            f"{k}({v:.4f}):{'BEAT' if mean > v else 'below'}" for k, v in BARS.items()
+        )
+        near = [k for k, v in BARS.items() if abs(mean - v) < NOISE]
+        caveat = f"  [within seed noise {NOISE} of: {', '.join(near)}]" if near else ""
+        print(f"[report] {d}  {per}  mean={mean:.4f}  |  {verdict}{caveat}")

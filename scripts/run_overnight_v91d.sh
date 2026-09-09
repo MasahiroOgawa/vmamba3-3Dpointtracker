@@ -46,52 +46,55 @@ print(f'{100*sum((x-mx)*(y-my) for x, y in zip(xs, ys))/den:.5f}' if den else 'n
 wait_idle
 note ""; note "## v91d night $(date -Is)   stop $(date -d @"$STOP" '+%H:%M')"
 
+# The rate ladder runs AT the accumulation setting v91d will use. Its answer depends on the
+# gradient noise, so probing at accum=1 and then training at accum=4 would measure the wrong thing:
+# averaging 4 clips cuts the gradient's standard error by 2, which is what makes a larger rate
+# usable in the first place.
+ACCUM=4
 best_lr=""; best_slope=""
-for lr in 5.0e-4 1.5e-4 5.0e-6; do
-  tag=${lr//[.-]/}
-  cfg=configs/probe_lr_$tag.yaml
-  uv run python - "$lr" "$cfg" "result/probe_lr_$tag" <<'PYEOF'
+for lr in 5.0e-5 1.5e-4; do
+  tag=$(printf '%s' "$lr" | tr -d '.-')
+  cfg=configs/probe_a${ACCUM}_$tag.yaml
+  out=result/probe_a${ACCUM}_$tag
+  uv run python - "$lr" "$ACCUM" "$cfg" "$out" <<'PYEOF'
 import sys, yaml, pathlib
-lr, cfg_path, out = sys.argv[1], sys.argv[2], sys.argv[3]
-c = yaml.safe_load(pathlib.Path("configs/probe_overfit.yaml").read_text())
+lr, accum, cfg_path, out = float(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4]
+c = yaml.safe_load(pathlib.Path("configs/v91.yaml").read_text())
 c.pop("version", None)
-c["train"].update(lr=float(lr), out_dir=out)
+c["train"].update(lr=lr, accum=accum, out_dir=out, init_ckpt="result/v91/ckpt_1200.pt",
+                  warmup=0, steps=80, decay=1, log_every=5,
+                  val_every=10**6, ckpt_every=10**6, val_at_step0=False,
+                  early_stop_patience=10**6)
 pathlib.Path(cfg_path).write_text(
-    f"# Overfit probe at lr={lr}: same three clips and 150 steps as probe_overfit.yaml.\n"
+    f"# Rate probe at lr={lr}, accum={accum}: 80 optimiser steps on the full training split,\n"
+    f"# each averaging {accum} clips. Scored by the slope of the window-mean loss.\n"
     + yaml.safe_dump(c, sort_keys=False) + "version: v73\n")
 PYEOF
-  rm -rf "result/probe_lr_$tag"
-  uv run python scripts/train_depth_refined_tracker.py --config "$cfg" \
-    >> "result/probe_lr_$tag.log" 2>&1 || true
+  rm -rf "$out"; : > "$out.log"
+  uv run python scripts/train_depth_refined_tracker.py --config "$cfg" >> "$out.log" 2>&1 || true
   wait_idle
-  sl=$(slope "result/probe_lr_$tag.log")
-  note "  probe lr=$lr  slope=${sl}/100 steps  (negative = descending)"
+  sl=$(slope "$out.log")
+  note "  probe lr=$lr accum=$ACCUM  slope=${sl} per 100 steps  (negative = descending)"
   if [ -n "$sl" ] && [ "$sl" != "nan" ]; then
     if [ -z "$best_slope" ] || uv run python -c "import sys; sys.exit(0 if float('$sl')<float('$best_slope') else 1)"; then
       best_slope=$sl; best_lr=$lr
     fi
   fi
 done
-sl0=$(slope result/probe_overfit.log)
-note "  probe lr=5.0e-5  slope=${sl0}/100 steps  (v91's rate, run earlier)"
-if [ -n "$sl0" ] && [ "$sl0" != "nan" ]; then
-  if [ -z "$best_slope" ] || uv run python -c "import sys; sys.exit(0 if float('$sl0')<float('$best_slope') else 1)"; then
-    best_slope=$sl0; best_lr=5.0e-5
-  fi
-fi
-note "### chosen lr=$best_lr (slope $best_slope). A non-negative slope means no rate tested here"
-note "    reduces the loss, and the rate is not the lever."
+[ -z "$best_lr" ] && { best_lr=5.0e-5; best_slope=nan; note "  no probe produced a slope; falling back to 5e-5"; }
+note "### chosen lr=$best_lr accum=$ACCUM (slope $best_slope). A non-negative slope means neither"
+note "    rate reduces the loss even with 4 clips averaged, and the optimiser is not the lever."
 
 # --- v91d: continue from v91's last checkpoint at the chosen rate.
-rem=$(( (STOP - $(date +%s)) / 12 ))      # ~12 s/step measured on this arm
+rem=$(( (STOP - $(date +%s)) / 34 ))      # ~34 s per optimiser step at accum=4
 [ "$rem" -lt 200 ] && rem=200
-uv run python - "$best_lr" "$rem" <<'PYEOF'
+uv run python - "$best_lr" "$rem" "$ACCUM" <<'PYEOF'
 import sys, yaml, pathlib
-lr, steps = float(sys.argv[1]), int(sys.argv[2])
+lr, steps, accum = float(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 c = yaml.safe_load(pathlib.Path("configs/v91.yaml").read_text())
 c.pop("version", None)
 c["train"].update(out_dir="result/v91d", init_ckpt="result/v91/ckpt_1200.pt",
-                  lr=lr, warmup=0, steps=steps, decay=max(1, steps // 5),
+                  lr=lr, accum=accum, warmup=0, steps=steps, decay=max(1, steps // 5),
                   log_every=25, val_every=250, ckpt_every=250, val_at_step0=True,
                   early_stop_patience=10**6)
 head = f'''# v91d: v91 continued from its last checkpoint at the rate the overfit ladder chose.
@@ -104,7 +107,7 @@ head = f'''# v91d: v91 continued from its last checkpoint at the rate the overfi
 pathlib.Path("configs/v91d.yaml").write_text(
     head + yaml.safe_dump(c, sort_keys=False) + "version: v73\n")
 PYEOF
-note "### v91d start $(date -Is)  lr=$best_lr  steps=$rem"
+note "### v91d start $(date -Is)  lr=$best_lr  accum=$ACCUM  steps=$rem optimiser steps"
 uv run python scripts/train_depth_refined_tracker.py --config configs/v91d.yaml \
   >> result/v91d.log 2>&1 &
 tp=$!

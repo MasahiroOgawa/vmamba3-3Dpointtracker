@@ -1086,6 +1086,10 @@ def main() -> int:
     # values ranged 0.036 to 0.760 and looked flat while the run was neither improving nor not.
     win_sum: dict[str, float] = {}
     win_n = 0
+    accum = max(1, int(train_cfg.get("accum", 1)))
+    micro = 0
+    if accum > 1:
+        print(f"[train] gradient accumulation: {accum} clips per optimiser step", flush=True)
     while step < n_steps:
         try:
             batch = next(loader_iter)
@@ -1136,7 +1140,20 @@ def main() -> int:
             )
             total = total + lambda_dsr * l_dsr
             last_dsr = float(l_dsr.detach())
-        total.backward()
+        for _k, _v in _loss_to_dict(loss_out).items():
+            win_sum[_k] = win_sum.get(_k, 0.0) + _v
+        win_n += 1
+
+        # Gradient accumulation. batch>1 is not available here: clips carry depth maps of
+        # different resolutions (drivetrack 280x504, adt 504x504) and collate stacks them, so a
+        # mixed pair raises. Accumulating `accum` single-clip gradients before stepping gives the
+        # same sqrt(accum) reduction in gradient noise, across subsets, at no extra memory.
+        (total / accum).backward()
+        micro += 1
+        if micro < accum:
+            continue                      # keep accumulating; `step` counts optimiser steps
+        micro = 0
+
         head_grad = _per_head_grad_norm(model)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_val)
         if not torch.isfinite(grad_norm):
@@ -1147,10 +1164,6 @@ def main() -> int:
             optim.step()
         sched.step()
         optim.zero_grad(set_to_none=True)
-
-        for _k, _v in _loss_to_dict(loss_out).items():
-            win_sum[_k] = win_sum.get(_k, 0.0) + _v
-        win_n += 1
 
         if step % log_every == 0:
             lr = sched.get_last_lr()[0]

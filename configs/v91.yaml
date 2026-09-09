@@ -1,0 +1,89 @@
+# v91: the v90 swap, with the learning rate fixed. Not a new method -- v90's architecture exactly.
+#
+# WHAT WENT WRONG IN v90. v63 annealed 3e-4 -> 3e-5 over 20000 steps and finished converged at 3e-5.
+# v90a restarted it at 1e-4, 3.3x back UP, and the tracker moved 8.68% of its weight norm in 500
+# steps, losing 0.0059 metric-AJ (0.2191 -> 0.2132). The next 3100 steps moved it 0.037% and
+# recovered 0.0037. A converged model was kicked harder than anything it saw while converging, then
+# frozen there: warmup=100 with decay=1900 over steps=2000 puts stable_end at step 100, so the
+# cosine begins immediately and there is no stable phase at all.
+#
+# THE FIX, AND WHY NOT PURE CONTINUATION. Swapping the de-flicker for the scale refiner changes the
+# tracker's input, so the tracker does have to adapt and a step above v63's final rate is warranted
+# -- 5e-5, 1.7x, not 3.3x. warmup=0 because wsd ramps from zero, which would reintroduce exactly the
+# discontinuity being removed. The cosine is confined to the last 20% of steps, v63's own proportion.
+#
+# Stage 1 stays frozen, as in v90a: unfreezing it raised the median gradient 6x and clipped 100% of
+# steps, which is a second variable this run is not trying to test.
+#
+# Read at step 400 (~1 h), against v90a at step 500 (8.68% moved, 0.2132):
+#   metric-AJ >= 0.2191 and displacement ~1% -> the learning rate was the whole problem; run on.
+#   metric-AJ <  0.2191                      -> the learning rate is not sufficient; the swap itself
+#                                               costs, and v63's 0.2238 is the number to report.
+data:
+  da3_depth_root: ~/data/tapvid3d_da3nested
+  image_size: 896
+  num_tracks: 256
+  oversample:
+    pstudio: 20
+  split:
+    holdout_val: true
+    n_val_monitor: 40
+    seed: 42
+    source: official
+  subsets:
+  - pstudio
+  - drivetrack
+  - adt
+flow:
+  cfg: third_party/SEA-RAFT/config/eval/spring-M.json
+  fb_alpha: 0.05
+  fb_beta: 1.0
+  iters: 4
+  scale: -1
+  source: waft_live
+  url: MemorySlices/Tartan-C-T-TSKH-spring540x960-M
+loss:
+  lambda_dsr: 0.0
+  weights:
+    pos_3D: 1.0
+    reg_uv: 0.1
+model:
+  d_proj: 64
+  dim: 128
+  dino_image_size: 448
+  dino_model: facebook/dinov3-vits16-pretrain-lvd1689m
+  grid: 64
+  image_size: 896
+  log_ref: 2.0
+  log_std: 1.5
+  max_delta_uv: 2.0
+  max_log_correction: 2.0
+  max_scale_correction: 2.5
+  num_heads: 4
+  num_layers: 2
+  patch_size: 5
+  state_dim: 64
+  two_pool: true
+  freeze_scale: true
+train:
+  amp: bf16
+  batch: 1
+  ckpt_every: 200
+  decay: 240
+  early_stop_min_delta: 0.001
+  early_stop_patience: 99
+  grad_clip: 1.0
+  init_ckpt: result/v73fix_warmstart/ckpt_0.pt
+  log_every: 50
+  lr: 5.0e-05
+  num_workers: 0
+  out_dir: result/v91
+  seed: 0
+  steps: 1200
+  val_at_step0: true
+  val_clips: 40
+  val_every: 200
+  warmup: 0
+  weight_decay: 0.05
+  window: 8
+version: v73

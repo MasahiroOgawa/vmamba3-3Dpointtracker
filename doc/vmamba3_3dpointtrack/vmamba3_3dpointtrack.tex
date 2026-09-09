@@ -1729,23 +1729,57 @@ mean       & 0.086 & \textbf{0.092} & 0.225 & \textbf{0.229} \\
 \end{tabular}
 \end{table}
 
-\subsection{v44: DA3-g de-flicker (standalone)}
+\subsection{v44: the DA3-g de-flicker stage --- what it reads, and what it emits}
 \label{sec:v44}
 v43 applied its per-frame scale correction \emph{after} the v35 refiner, so the refiner still ingested the
 flickering depth (\S\ref{sec:v43}). v44 fixes the ordering and factors the de-flicker out as a
 \emph{standalone} method, comparable head-to-head with the refiner-free WAFT$+$DA3-g baseline (v40): its only
 job is to remove DA3-g's per-frame scale drift (\S\ref{sec:da3lg}); it carries no along-ray or 2D correction.
 
-\paragraph{Method.} The correction is a single log-scale per frame, estimated along the \emph{time} axis:
-\begin{enumerate}
-  \item For each frame $f$, mean-pool the visible points' geometric features
-  $[\mathbf{r},\,z_{\text{raw}}/z_{\text{ref}},\,v]$ into one \emph{frame token} $\mathbf{g}_f$.
-  \item A \emph{time-axis} Mamba-3 (bidirectional --- a de-flicker may look ahead) mixes the sequence
-  $\mathbf{g}_{1},\dots,\mathbf{g}_{F}$ across frames, modelling the scale trajectory directly.
-  \item A zero-initialised head emits $\Delta s_f=s_{\max}\tanh(\cdot)$; every point in frame $f$ is
-  rescaled $z\leftarrow z_{\text{raw}}\,e^{\Delta s_f}$ and unprojected along the frozen ray.
-\end{enumerate}
-Zero-init $\Rightarrow$ v44 starts \emph{exactly} at WAFT$+$DA3-g (v40). It uses plain Mamba-3, not the
+\paragraph{What the stage reads.} The stage never sees an image, and it never chooses a pixel.
+Its entire input for a clip of $F$ frames is the set of $N$ \emph{annotated query points} that
+TAPVid-3D ships with that clip, propagated to every frame by the frozen optical-flow front-end.
+$N$ is fixed by the dataset, not by the stage: $806$--$901$ on adt, $256$ on drivetrack, and as few
+as $98$ on pstudio. No extra point is sampled, and no pixel outside that set is ever read. Each
+point $n$ in frame $f$ contributes exactly four numbers:
+\begin{itemize}
+  \item $\mathbf{r}_{fn}=\big((u_{fn}-c_x)/f_x,\ (v_{fn}-c_y)/f_y\big)$ --- the ray direction of the
+        tracked pixel, i.e.\ \emph{where the flow has put that point in this frame}. The flow
+        \emph{vector} is not itself an input; only the position it produces is.
+  \item $z^{\text{raw}}_{fn}/z_{\text{ref}}$ --- the DA3-g depth map bilinearly sampled at that
+        pixel, divided by the clip's median raw depth.
+  \item $v_{fn}$ --- the front-end's visibility for that point, from its forward--backward
+        consistency check. This is the tracker's own estimate, not ground-truth visibility.
+\end{itemize}
+
+\paragraph{Where the points disappear.} A shared MLP embeds the four numbers per point, giving
+$(B,F,N,D)$. The stage then takes a \emph{visibility-weighted mean over the $N$ points},
+$\mathbf{g}_f=\sum_n v_{fn}\mathbf{x}_{fn}\,/\,\max(1,\sum_n v_{fn})$, collapsing every frame to a
+single token $\mathbf{g}_f\in\mathbb{R}^{D}$. Points with $v_{fn}=0$ contribute nothing to the sum,
+so the pooled token is an average over the visible points only --- but every point is embedded
+first, and the invisible ones are removed by the weight rather than by being excluded up front.
+\textbf{This is the step at which the points cease to exist.} The Mamba-3 layers that follow are a
+\emph{time-axis} sequence model over the $F$ frame tokens $\mathbf{g}_1,\dots,\mathbf{g}_F$
+(bidirectional --- a de-flicker may look ahead); they never see a point, an image patch, or a flow
+vector. The whole per-point stage is a pooling front-end for a length-$F$ sequence model.
+
+\paragraph{What it emits.} A zero-initialised head maps each output token to one bounded scalar,
+$\Delta s_f=s_{\max}\tanh(\cdot)$ --- one number per frame, and nothing else. Every point in frame
+$f$ is rescaled $z\leftarrow z^{\text{raw}}e^{\Delta s_f}$ and unprojected along the frozen ray, and
+in v45 the whole depth map for that frame is multiplied by the same $e^{\Delta s_f}$ before the v35
+refiner sees it. Zero-init means $\Delta s_f=0$ at step $0$, so the stage starts exactly at the
+WAFT$+$DA3-g baseline.
+
+\paragraph{Two readings worth correcting.} First, the stage does \emph{not} select visible points
+from the image at large: its candidate set is precisely the clip's annotated query points, and
+visibility only decides how each of those is weighted in the pool. Second, what enters Mamba-3 is
+not per-point flow and depth --- those are pooled away one step earlier. Mamba-3 receives a
+sequence of $F$ frame-level vectors and models the \emph{scale trajectory over time}. Both points
+matter for Fig.~\ref{fig:deflicker-coupling}: because the candidate set and the visibility mask are
+both produced by the front-end, a property of the depth model is observed through a sample the
+tracker chose, which is exactly what couples this stage to SEA-RAFT or WAFT.
+
+\paragraph{Size and training.} It uses plain Mamba-3, not the
 2D-image vmamba3 machinery of v35: the flicker is a purely temporal, per-frame-\emph{global} phenomenon, so
 the model is a light time-axis sequence model over frame tokens ($\sim$0.3\,M params, no DINOv3, no depth
 patch). Loss is 3D-only (2D track frozen); trained from scratch, $20$k steps, DA3-g depth. v44 is the
@@ -3520,7 +3554,7 @@ property of the depth model --- the nested model re-fits a least-squares scalar 
 frame --- but the stage never reads the depth map. Its four inputs are the ray (from the flow's
 $uv$), the depth \emph{sampled at} that $uv$, the visibility from the flow's forward--backward
 check, and a normaliser taken from those same samples. It therefore observes a property of the
-depth model through a biased ${\sim}900$-point sample chosen by the tracker, which is what couples
+depth model through a biased sample of $98$--$901$ points chosen by the tracker, which is what couples
 it to the front-end at all.
 
 \input{figs/fig_deflicker_coupling}

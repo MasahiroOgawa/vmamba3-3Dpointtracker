@@ -7,12 +7,12 @@
   learn/.style={box, fill=cTrain!18, draw=cTrain!70!black},
   flowb/.style={box, fill=black!8, draw=black!55},
   ar/.style={-{Latex[length=2mm]}, draw=black!70},
-  lbl/.style={anchor=west, text width=0.97\textwidth, align=left},
+  lbl/.style={anchor=north west, text width=0.97\textwidth, align=left},
 ]
 
 % ---------- what the stage has to undo: the flicker itself ----------
 % Sits well clear of panel (a): at a smaller yshift the sketch's axis ran through the
-% "900 tracked points" box and its y-label collided with the orange note.
+% "point tracking" box and its y-label collided with the orange note.
 \begin{scope}[shift={(0.35,2.75)}]
   \draw[->, black!55] (0,-0.5) -- (4.5,-0.5) node[right, black!70, font=\scriptsize] {frame};
   \draw[->, black!55] (0,-0.56) -- (0,0.66);
@@ -32,51 +32,69 @@
 \end{scope}
 
 % ---------------- (a) the de-flicker, as built ----------------
+% Boxes carry process names only. The earlier version spelled the contents out inside the nodes,
+% which made the "tracked points" box wide enough to reach the pooling box and left the elbow
+% arrows running along its edge; the detail now lives in the caption.
 \node[data]  (aimg)  at (0,0)      {video\\frames};
-\node[flowb] (aflow) at (2.3,0)    {optical\\flow};
-\node[data]  (adep)  at (0,-1.5)   {DA3-g\\depth map};
-\node[box, fill=black!4, draw=black!45] (apts) at (5.0,0)
-      {$\sim\!900$ tracked points:\\where each one is,\\and whether it is visible};
-\node[box, fill=black!4, draw=black!45] (asamp) at (5.0,-1.6)
-      {depth read \emph{only}\\at those points};
-\node[learn] (atok) at (8.3,-0.8) {average over\\visible points\\$\rightarrow$ 1 number/frame};
+\node[flowb] (aflow) at (2.2,0)    {optical\\flow};
+\node[data]  (adep)  at (0,-1.6)   {DA3-g\\depth map};
+\node[box, fill=black!4, draw=black!45] (apts)  at (4.5,0)    {point\\tracking};
+\node[box, fill=black!4, draw=black!45] (asamp) at (4.5,-1.6) {depth\\sampling};
+\node[learn] (atok) at (8.0,-0.8)  {masked mean\\$\rightarrow$ 1 token/frame};
 \node[learn] (amam) at (11.0,-0.8) {Mamba-3\\over frames};
-\node[learn] (aout) at (13.4,-0.8) {$\Delta s_f$};
+\node[learn] (aout) at (13.3,-0.8) {$\Delta s_f$};
 
 \draw[ar] (aimg) -- (aflow);
 \draw[ar] (aflow) -- (apts);
 \draw[ar] (apts) -- (asamp);
 \draw[ar] (adep) -- (asamp);
-\draw[ar] (apts.east) -- ++(0.4,0) |- (atok.west);
-\draw[ar] (asamp.east) -- ++(0.4,0) |- (atok.west);
+% One shared elbow into the pooling box, clear of both source boxes.
+\draw[ar] (apts.east)  -- ++(0.55,0) |- (atok.west);
+\draw[ar] (asamp.east) -- ++(0.55,0) |- (atok.west);
 \draw[ar] (atok) -- (amam);
 \draw[ar] (amam) -- (aout);
 
-\node[lbl] at (0,-3.0)
-  {\textbf{(a) De-flicker stage, as built.} Everything it sees arrives \emph{through the tracker}:
-   the depth map is read only at pixels the optical flow picked, and averaged only over points the
-   flow called visible. So a stage trained with SEA-RAFT and one trained with WAFT learn different
-   corrections from identical depth --- even though the wobble they must undo belongs to the depth
-   model alone and has nothing to do with tracking.};
+\node[lbl] at (0,-2.35)
+  {\textbf{(a) De-flicker stage, as built.} \emph{Point tracking} propagates the clip's
+   annotated query points --- $806$--$901$ on adt, $256$ on drivetrack, as few as $98$ on
+   pstudio --- to every frame with the frozen optical flow, and marks each
+   one visible or not by a forward--backward consistency check. \emph{Depth sampling} reads the
+   DA3-g depth map at exactly those pixels and nowhere else. The \emph{masked mean} then collapses
+   the points to one vector per frame, weighting each by its visibility, so Mamba-3 sees a sequence
+   of $F$ frame tokens and never sees a point. Everything the stage observes therefore arrives
+   \emph{through the tracker}: a stage trained with SEA-RAFT and one trained with WAFT learn
+   different corrections from identical depth --- even though the wobble they must undo belongs to
+   the depth model alone and has nothing to do with tracking.};
 
 % ---------------- (b) the Mamba-3 depth scale refiner ----------------
-\begin{scope}[yshift=-4.7cm]
+\begin{scope}[yshift=-6.6cm]
 \node[data]  (bdep)  at (0,-0.8)    {DA3-g\\depth map};
-\node[box, fill=black!4, draw=black!45] (bds) at (3.2,-0.8)
-      {whole map,\\log scale, shrunk};
-\node[learn] (bcnn) at (6.4,-0.8)   {small CNN\\$\rightarrow$ 1 number/frame};
-\node[learn] (bmam) at (9.4,-0.8)   {Mamba-3\\over frames};
-\node[learn] (bout) at (11.9,-0.8)  {$\Delta s_f$};
+\node[box, fill=black!4, draw=black!45] (bds) at (2.9,-0.8)
+      {log depth,\\pooled to $64^2$};
+\node[learn] (bcnn)  at (5.9,-0.2)  {small CNN\\$\rightarrow$ 64 features};
+\node[box, fill=black!4, draw=black!45] (bq) at (5.9,-1.5)
+      {10 log-depth\\quantiles};
+\node[learn] (btok) at (8.9,-0.8)   {concat\\$\rightarrow$ 1 token/frame};
+\node[learn] (bmam) at (11.6,-0.8)  {Mamba-3\\over frames};
+\node[learn] (bout) at (13.7,-0.8)  {$\Delta s_f$};
 
 \draw[ar] (bdep) -- (bds);
-\draw[ar] (bds) -- (bcnn);
-\draw[ar] (bcnn) -- (bmam);
+\draw[ar] (bds.east) -- ++(0.3,0) |- (bcnn.west);
+\draw[ar] (bds.east) -- ++(0.3,0) |- (bq.west);
+\draw[ar] (bcnn.east) -- ++(0.3,0) |- (btok.west);
+\draw[ar] (bq.east)   -- ++(0.3,0) |- (btok.west);
+\draw[ar] (btok) -- (bmam);
 \draw[ar] (bmam) -- (bout);
 
-\node[lbl] at (0,-2.4)
+\node[lbl] at (0,-2.15)
   {\textbf{(b) Mamba-3 depth scale refiner.} It reads the depth map itself, so no tracker appears
-   anywhere in the path and the front-end cannot change what it learns. It also sees the whole
-   frame rather than $\sim\!900$ scattered points.};
+   anywhere in the path and the front-end cannot change what it learns, and it sees every pixel of
+   the frame rather than the few hundred scattered points panel (a) is restricted to. Note what the
+   CNN emits: \emph{$64$ features}, not a number. Those are concatenated with ten quantiles of the
+   frame's log depth --- the CNN ends in a global average, which discards the shape of the depth
+   distribution, and the quantiles put it back --- and projected to one $128$-dimensional token per
+   frame. Only after Mamba-3 has mixed the $F$ tokens does a linear head produce the scalar
+   $\Delta s_f$. Both stages therefore hand Mamba-3 the same thing: one token per frame.};
 \end{scope}
 
 \end{tikzpicture}
@@ -92,7 +110,7 @@
   \emph{Why it also learned little:} as built there is no de-flicker loss at all. The stage is
   trained only through the tracking loss
   $L=vis\cdot|xyz_{\text{pred}}-xyz_{\text{gt}}|_1/\text{scale}_{\text{gt}}+\lambda_{uv}vis|\Delta
-  uv|^2$, which sums over ${\sim}900$ points $\times$ $F$ frames, while the stage controls a single
+  uv|^2$, which sums over the clip's $98$--$901$ points $\times$ $F$ frames, while the stage controls a single
   per-frame scalar worth only $0.3$--$0.6\%$ of that error (\S\ref{sec:deflicker-signal}): about
   $99.5\%$ of its gradient is noise from its point of view. Giving it a direct target,
   $\Delta s^{*}_f=\mathrm{median}_n[\log z_{\text{gt}}-\log z_{\text{raw}}]$ with

@@ -1081,6 +1081,11 @@ def main() -> int:
     t0 = time.perf_counter()
     step = start_step
     loader_iter = iter(loader)
+    # Mean of every step in the log window, not the single step the log happens to land on. With
+    # batch=1 the per-clip loss spans about 20x, so a lone sample carries no trend: v91's 24 logged
+    # values ranged 0.036 to 0.760 and looked flat while the run was neither improving nor not.
+    win_sum: dict[str, float] = {}
+    win_n = 0
     while step < n_steps:
         try:
             batch = next(loader_iter)
@@ -1143,16 +1148,21 @@ def main() -> int:
         sched.step()
         optim.zero_grad(set_to_none=True)
 
+        for _k, _v in _loss_to_dict(loss_out).items():
+            win_sum[_k] = win_sum.get(_k, 0.0) + _v
+        win_n += 1
+
         if step % log_every == 0:
             lr = sched.get_last_lr()[0]
             dt = time.perf_counter() - t0
-            row = _loss_to_dict(loss_out)
+            row = {k: v / win_n for k, v in win_sum.items()}
+            win_sum, win_n = {}, 0
             gn = float(grad_norm.item()) if torch.isfinite(grad_norm) else float("nan")
             duv_str = ""
             if pred.delta_uv is not None:
                 duv_str = f"  |Δuv|={float(pred.delta_uv.abs().mean().item()):.3f}px"
             print(
-                f"[train] step {step:6d}/{n_steps}  {_fmt_loss_row(row, last_dsr)}  lr={lr:.2e}  "
+                f"[train] step {step:6d}/{n_steps}  mean{_fmt_loss_row(row, last_dsr)}  lr={lr:.2e}  "
                 f"|grad|={gn:.2e}  {_fmt_grad_row(head_grad)}{duv_str}  elapsed={dt:.0f}s",
                 flush=True,
             )

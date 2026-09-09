@@ -18,8 +18,27 @@ STEP = re.compile(
 MODS = ("embed", "layers", "dz_head", "duv_head")
 MOD = {m: re.compile(rf"{m}=([\d.eE+-]+)") for m in MODS}
 VAL = re.compile(r"\[train\] step\s+(\d+)\s+VAL\s+loss=([\d.eE+-]+)")
-# (arm, first log line, metric-AJ of the checkpoint that arm produced)
-ARMS = [("v90a", 410, 4717), ("v90b", 4717, 4817), ("v90c", 4817, 10**9)]
+ARM_NAMES = ("v90a", "v90b", "v90c")
+# Each arm spans from where the trainer announced its config to the next such announcement. These
+# were hardcoded line numbers, with v90c running to end-of-file; once v91 was appended to the same
+# log that band swallowed it and v90c reported 58 step lines instead of 32.
+#
+# The "### <arm>" banners are not usable here: the runner scripts tee those to their own logs and
+# to OVERNIGHT_STATUS.md, and v90c's never reached this file. The config line is written by the
+# trainer itself, into the same stream as the step lines it delimits.
+RUN_MARK = re.compile(r"^\[train\] config configs/(\w+)\.yaml")
+
+
+def arm_bands(log_lines: list[str]) -> list[tuple[str, int, int]]:
+    marks = [(i, m[1]) for i, ln in enumerate(log_lines) if (m := RUN_MARK.match(ln))]
+    out = []
+    for name in ARM_NAMES:
+        hits = [i for i, n in marks if n == name]
+        if not hits:
+            continue
+        start = hits[-1]                     # the last attempt, if the run was killed and relaunched
+        out.append((name, start, next((i for i, _ in marks if i > start), len(log_lines))))
+    return out
 AJ = {  # step -> (arm, metric-AJ), all measured on minival, DA3-g
     ("v90a", 500): 0.2132, ("v90a", 2000): 0.2154,
     ("v90b", 2000): 0.2164,
@@ -29,16 +48,21 @@ WARM_AJ, WARM_VAL = 0.2191, 0.2155
 
 lines = LOG.read_text(errors="ignore").replace("\r", "\n").split("\n")
 runs = {}
+ARMS = arm_bands(lines)
 for arm, lo, hi in ARMS:
     tr_s, tr_l, tr_g, va_s, va_l = [], [], [], [], []
     mods = {m: [] for m in MODS}
-    for ln in lines[lo - 1 : min(hi - 1, len(lines))]:
+    for ln in lines[lo:hi]:
         if m := STEP.search(ln):
-            tr_s.append(int(m[1])); tr_l.append(float(m[3])); tr_g.append(float(m[4]))
+            tr_s.append(int(m[1]))
+            tr_l.append(float(m[3]))
+            tr_g.append(float(m[4]))
             for k, rx in MOD.items():
-                mm = rx.search(ln); mods[k].append(float(mm[1]) if mm else float("nan"))
+                mm = rx.search(ln)
+                mods[k].append(float(mm[1]) if mm else float("nan"))
         elif m := VAL.search(ln):
-            va_s.append(int(m[1])); va_l.append(float(m[2]))
+            va_s.append(int(m[1]))
+            va_l.append(float(m[2]))
     runs[arm] = (tr_s, tr_l, tr_g, va_s, va_l, mods)
     print(f"  {arm}: {len(tr_s)} step lines, {len(va_s)} validations")
 
@@ -52,15 +76,18 @@ fig, ax = plt.subplots(4, 1, figsize=(11, 15), sharex=False)
 # --- training loss, log scale: batch=1 makes this swing by orders of magnitude per clip
 off = 0
 for arm, _, _ in ARMS:
-    s, l, *_ = runs[arm]
+    s, loss, *_ = runs[arm]
     if not s:
         continue
     x = [v + (off if arm == "v90a" else 0) for v in s]
-    ax[0].plot(x, l, lw=0.6, alpha=0.30, color=C[arm])
-    ax[0].plot(x, running_median(l, 9), lw=2.0, color=C[arm], label=f"{arm} (running median, 9)")
-ax[0].set_yscale("log"); ax[0].set_ylabel("training loss (log)")
+    ax[0].plot(x, loss, lw=0.6, alpha=0.30, color=C[arm])
+    ax[0].plot(x, running_median(loss, 9), lw=2.0, color=C[arm],
+               label=f"{arm} (running median, 9)")
+ax[0].set_yscale("log")
+ax[0].set_ylabel("training loss (log)")
 ax[0].set_title("Training loss — batch=1, so each point is one clip", loc="left")
-ax[0].legend(fontsize=9); ax[0].grid(alpha=0.3)
+ax[0].legend(fontsize=9)
+ax[0].grid(alpha=0.3)
 
 # --- gradient norm against the clip threshold
 for arm, _, _ in ARMS:
@@ -68,9 +95,11 @@ for arm, _, _ in ARMS:
     if s:
         ax[1].plot(s, g, lw=0.7, alpha=0.55, color=C[arm], label=arm)
 ax[1].axhline(1.0, color="k", ls="--", lw=1.5, label="grad_clip = 1.0")
-ax[1].set_yscale("log"); ax[1].set_ylabel("|grad| before clipping (log)")
+ax[1].set_yscale("log")
+ax[1].set_ylabel("|grad| before clipping (log)")
 ax[1].set_title("Gradient norm vs the clip threshold", loc="left")
-ax[1].legend(fontsize=9, ncol=4); ax[1].grid(alpha=0.3)
+ax[1].legend(fontsize=9, ncol=4)
+ax[1].grid(alpha=0.3)
 
 # --- per-module gradient: which parameter group consumes the global clip budget
 MC = {"embed": "#7570b3", "layers": "#66a61e", "dz_head": "#e6194b", "duv_head": "#999999"}
@@ -86,9 +115,11 @@ for arm, _, _ in ARMS:
 ax[2].axhline(1.0, color="k", ls="--", lw=1.5, label="grad_clip = 1.0 (global)")
 ax[2].axvline(2000, color="k", lw=0.8, alpha=0.5)
 ax[2].annotate("scale refiner UNFROZEN from here (v90b/c)", (2020, 20), fontsize=9)
-ax[2].set_yscale("log"); ax[2].set_ylabel("per-module |grad| (log)")
+ax[2].set_yscale("log")
+ax[2].set_ylabel("per-module |grad| (log)")
 ax[2].set_title("dz_head dominates the global clip budget once the refiner is unfrozen", loc="left")
-ax[2].legend(fontsize=9, ncol=5); ax[2].grid(alpha=0.3)
+ax[2].legend(fontsize=9, ncol=5)
+ax[2].grid(alpha=0.3)
 
 # --- validation loss and metric-AJ on one axis pair
 ax2 = ax[3].twinx()
@@ -102,15 +133,18 @@ for arm, _, _ in ARMS:
     _, _, _, vs, vl, _ = runs[arm]
     if vs:
         ax[3].plot(vs, vl, "o-", color=C[arm], lw=2, ms=5, label=f"{arm} val")
-xs = [s for (a, s) in AJ]; ys = [AJ[k] for k in AJ]
+xs = [s for (a, s) in AJ]
+ys = [AJ[k] for k in AJ]
 ax2.scatter(xs, ys, s=90, marker="D", color="darkorange", zorder=5, label="metric-AJ (measured)")
 for (a, s), v in AJ.items():
     ax2.annotate(f"{v:.4f}", (s, v), textcoords="offset points", xytext=(6, -3),
                  fontsize=8, color="darkorange")
-ax[3].set_xlabel("step"); ax[3].set_ylabel("held-out validation loss")
+ax[3].set_xlabel("step")
+ax[3].set_ylabel("held-out validation loss")
 ax2.set_ylabel("metric-AJ", color="darkorange")
 ax[3].set_title("Validation loss falls; metric-AJ never regains the untrained weights", loc="left")
-ax[3].legend(fontsize=9, loc="upper right"); ax[3].grid(alpha=0.3)
+ax[3].legend(fontsize=9, loc="upper right")
+ax[3].grid(alpha=0.3)
 
 fig.tight_layout()
 out = pathlib.Path("result/analysis/v90_curves.png")

@@ -911,7 +911,8 @@ $\mathbf{u}_0{+}\Delta\mathbf{u}$ before $e^{\Delta\!\log z}$ rescales it.}
 \begin{tikzpicture}[
     node distance=4mm and 8mm,
     io/.append style={minimum width=22mm},
-    new/.style={rectangle, rounded corners, draw=cInput!75!black, fill=cInput!15,
+    % square-cornered like io: these are refiner inputs (data), not processing steps
+    new/.style={rectangle, sharp corners, draw=cInput!75!black, fill=cInput!15,
       minimum height=8mm, minimum width=22mm, align=center, font=\small},
   ]
   % ── inputs: one left column, stacked top-to-bottom (common with the paper figure) ──

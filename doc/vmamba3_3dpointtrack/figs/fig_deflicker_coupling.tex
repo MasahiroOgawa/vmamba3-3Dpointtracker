@@ -2,10 +2,14 @@
 \centering
 \begin{tikzpicture}[
   font=\footnotesize,
-  box/.style={draw, rounded corners=2pt, minimum height=7mm, inner xsep=4pt, align=center},
-  data/.style={box, fill=cInput!18, draw=cInput!70!black},
-  learn/.style={box, fill=cTrain!18, draw=cTrain!70!black},
-  flowb/.style={box, fill=black!8, draw=black!55},
+  % Rounded = a processing step, square-cornered = a data object that flows between steps.
+  bx/.style={draw, minimum height=7mm, inner xsep=4pt, align=center},
+  proc/.style={bx, rounded corners=2pt},
+  obj/.style={bx, sharp corners},
+  data/.style={obj, fill=cInput!18, draw=cInput!70!black},
+  objmid/.style={obj, fill=black!4, draw=black!45},
+  learn/.style={proc, fill=cTrain!18, draw=cTrain!70!black},
+  flowb/.style={proc, fill=black!8, draw=black!55},
   ar/.style={-{Latex[length=2mm]}, draw=black!70},
   lbl/.style={anchor=north west, text width=0.97\textwidth, align=left},
 ]
@@ -38,11 +42,11 @@
 \node[data]  (aimg)  at (0,0)      {video\\frames};
 \node[flowb] (aflow) at (2.2,0)    {optical\\flow};
 \node[data]  (adep)  at (0,-1.6)   {DA3-g\\depth map};
-\node[box, fill=black!4, draw=black!45] (apts)  at (4.5,0)    {point\\tracking};
-\node[box, fill=black!4, draw=black!45] (asamp) at (4.5,-1.6) {depth\\sampling};
+\node[flowb] (apts)  at (4.5,0)    {point\\tracking};
+\node[flowb] (asamp) at (4.5,-1.6) {depth\\sampling};
 \node[learn] (atok) at (8.0,-0.8)  {masked mean\\$\rightarrow$ 1 token/frame};
 \node[learn] (amam) at (11.0,-0.8) {Mamba-3\\over frames};
-\node[learn] (aout) at (13.3,-0.8) {$\Delta s_f$};
+\node[objmid] (aout) at (13.3,-0.8) {$\Delta s_f$};
 
 \draw[ar] (aimg) -- (aflow);
 \draw[ar] (aflow) -- (apts);
@@ -69,14 +73,12 @@
 % ---------------- (b) the Mamba-3 depth scale refiner ----------------
 \begin{scope}[yshift=-6.6cm]
 \node[data]  (bdep)  at (0,-0.8)    {DA3-g\\depth map};
-\node[box, fill=black!4, draw=black!45] (bds) at (2.9,-0.8)
-      {log depth,\\pooled to $64^2$};
+\node[flowb] (bds) at (2.9,-0.8) {take log,\\pool to $64^2$};
 \node[learn] (bcnn)  at (5.9,-0.2)  {small CNN\\$\rightarrow$ 64 features};
-\node[box, fill=black!4, draw=black!45] (bq) at (5.9,-1.5)
-      {10 log-depth\\quantiles};
+\node[flowb] (bq) at (5.9,-1.5) {10 log-depth\\quantiles};
 \node[learn] (btok) at (8.9,-0.8)   {concat\\$\rightarrow$ 1 token/frame};
 \node[learn] (bmam) at (11.6,-0.8)  {Mamba-3\\over frames};
-\node[learn] (bout) at (13.7,-0.8)  {$\Delta s_f$};
+\node[objmid] (bout) at (13.7,-0.8)  {$\Delta s_f$};
 
 \draw[ar] (bdep) -- (bds);
 \draw[ar] (bds.east) -- ++(0.3,0) |- (bcnn.west);
@@ -115,6 +117,7 @@
   $99.5\%$ of its gradient is noise from its point of view. Giving it a direct target,
   $\Delta s^{*}_f=\mathrm{median}_n[\log z_{\text{gt}}-\log z_{\text{raw}}]$ with
   $L_{\text{dsr}}=|\Delta s_f-\Delta s^{*}_f|$, supervises exactly what it can change.
-  Orange is data, blue is trainable, grey is frozen or intermediate.}
+  Orange is data, blue is trainable, grey is frozen or intermediate; rounded boxes are
+  processing steps and square-cornered boxes are the data objects passed between them.}
 \label{fig:deflicker-coupling}
 \end{figure*}

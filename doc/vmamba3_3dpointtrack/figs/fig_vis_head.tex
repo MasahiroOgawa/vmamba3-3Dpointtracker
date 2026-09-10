@@ -2,48 +2,50 @@
 \centering
 \begin{tikzpicture}[
   font=\footnotesize,
-  box/.style={draw, rounded corners=2pt, minimum height=7mm, inner xsep=4pt, align=center},
-  data/.style={box, fill=cInput!18, draw=cInput!70!black},
-  learn/.style={box, fill=cTrain!18, draw=cTrain!70!black},
-  flowb/.style={box, fill=black!8, draw=black!55},
+  % Rounded = a processing step, square-cornered = a data object that flows between steps.
+  bx/.style={draw, minimum height=7mm, inner xsep=4pt, align=center},
+  proc/.style={bx, rounded corners=2pt},
+  obj/.style={bx, sharp corners},
+  objin/.style={obj, fill=cInput!18, draw=cInput!70!black},
+  objmid/.style={obj, fill=black!4, draw=black!45},
+  frozen/.style={proc, fill=black!8, draw=black!55},
+  learn/.style={proc, fill=cTrain!18, draw=cTrain!70!black},
   ar/.style={-{Latex[length=2mm]}, draw=black!70},
   lbl/.style={anchor=north west, text width=0.97\textwidth, align=left},
 ]
 
 % ---- path A: the flow's forward-backward mask (the default, and the one that wins) ----
-\node[data]  (img)  at (0,0)      {video\\frames};
-\node[flowb] (flow) at (2.3,0)    {optical\\flow};
-\node[flowb] (fb)   at (5.0,0)    {forward--backward\\consistency};
-\node[box, fill=black!4, draw=black!45] (mask) at (8.6,0) {visibility mask\\(not learned)};
+\node[objin]  (img)  at (0,0)    {video\\frames};
+\node[frozen] (flow) at (2.3,0)  {optical\\flow};
+\node[frozen] (fb)   at (5.3,0)  {forward--backward\\consistency};
+\node[objmid] (mask) at (8.6,0)  {visibility\\mask};
 
 \draw[ar] (img) -- (flow);
 \draw[ar] (flow) -- (fb);
 \draw[ar] (fb) -- (mask);
 
 % ---- path B: the learned head ----
-\node[flowb] (trunk) at (2.3,-1.9) {v35 trunk\\(frozen)};
-\node[box, fill=black!4, draw=black!45] (feat) at (5.0,-1.9)
-      {per-point feature\\$x\in\mathbb{R}^{128}$};
-\node[learn] (head) at (8.6,-1.9) {\texttt{vis\_head}\\$128\to64\to1$};
-\node[learn] (sig)  at (11.4,-1.9) {$\sigma(\cdot)$};
+\node[frozen] (trunk) at (2.3,-2.0) {v35 trunk\\(frozen)};
+\node[objmid] (feat)  at (5.3,-2.0) {per-point feature\\$x\in\mathbb{R}^{128}$};
+\node[learn]  (head)  at (8.6,-2.0) {\texttt{vis\_head}\\$128{\to}64{\to}1{\to}\sigma$};
 
 \draw[ar] (trunk) -- (feat);
 \draw[ar] (feat) -- (head);
-\draw[ar] (head) -- (sig);
 % the flow mask is itself one of the trunk's four input channels
-\draw[ar, dashed, draw=black!45] (fb.south) -- ++(0,-0.55) -| (trunk.north)
-      node[pos=0.25, above, font=\scriptsize, text=black!60]
-      {the mask is also the trunk's 4th input channel};
+\draw[ar, dashed, draw=black!45] (fb.south) -- ++(0,-0.5) -| (trunk.north);
+\node[anchor=north west, font=\scriptsize, text=black!60] at (2.5,-0.95)
+      {also the trunk's 4th input channel};
 
-% ---- the switch ----
-\node[box, fill=cTrain!8, draw=black!60, minimum height=10mm] (sw) at (12.6,-0.95)
-      {\texttt{-{}-vis-source}};
-\draw[ar] (mask.east) -- ++(0.5,0) |- (sw.west);
-\draw[ar] (sig.east) -- ++(0.4,0) |- (sw.west);
-\node[anchor=west, font=\scriptsize, text=black!70] at (13.6,-0.6) {\texttt{flow} (default)};
-\node[anchor=west, font=\scriptsize, text=black!70] at (13.6,-1.3) {\texttt{model}};
+% ---- the switch: both paths enter its left edge through one shared corridor ----
+\node[proc, fill=cTrain!8, draw=black!60, minimum width=22mm, minimum height=12mm]
+      (sw) at (13.0,-1.0) {\texttt{-{}-vis-source}};
+\coordinate (corr) at (10.3,0);
+\draw[ar] (mask.east) -- (mask.east -| corr) |- ([yshift=3.5mm]sw.west);
+\draw[ar] (head.east) -- (head.east -| corr) |- ([yshift=-3.5mm]sw.west);
+\node[anchor=south, font=\scriptsize, text=black!70] at (11.1,-0.62) {\texttt{flow}};
+\node[anchor=north, font=\scriptsize, text=black!70] at (11.1,-1.38) {\texttt{model}};
 
-\node[lbl] at (0,-3.1)
+\node[lbl] at (0,-3.2)
   {\textbf{Two sources of visibility, and the switch between them.} Every number in this report
    is scored with the \emph{upper} path: the optical flow's forward--backward consistency mask,
    passed through unchanged. It is never learned. The \emph{lower} path is \texttt{vis\_head}, a
@@ -60,6 +62,8 @@
   adt's entire deficit to DELTA is this channel: our 3-D positions are the closer ones, and
   scoring them against ground-truth visibility raises adt from $0.3048$ to $0.4194$, a headroom of
   $+0.1146$ where the gap to DELTA is $0.0196$. Four attempts at claiming it failed
-  (\S\ref{sec:vis-head}), and \texttt{-{}-vis-source flow} remains the default.}
+  (\S\ref{sec:vis-head}), and \texttt{-{}-vis-source flow} remains the default.
+  Rounded boxes are processing steps; square-cornered boxes are the data objects passed between
+  them.}
 \label{fig:vis-head}
 \end{figure*}

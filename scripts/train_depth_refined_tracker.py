@@ -615,7 +615,7 @@ def main() -> int:
     if lambda_vis > 0:
         print(f"[train] L_vis enabled, lambda_vis={lambda_vis:.3f}")
     last_dsr = float("nan")
-    last_vis = float("nan")
+    vis_sum, vis_n = 0.0, 0
     if lambda_dsr > 0:
         print(f"[train] L_dsr enabled, lambda_dsr={lambda_dsr:.3f}")
     track_noise_px = float(data_cfg.get("track_noise_px", 0.0) or 0.0)
@@ -1190,7 +1190,8 @@ def main() -> int:
                 * qm_v
             ).sum() / qm_v.sum().clamp_min(1.0)
             total = total + lambda_vis * l_vis
-            last_vis = float(l_vis.detach())
+            vis_sum += float(l_vis.detach())
+            vis_n += 1
         for _k, _v in _loss_to_dict(loss_out).items():
             win_sum[_k] = win_sum.get(_k, 0.0) + _v
         win_n += 1
@@ -1221,6 +1222,8 @@ def main() -> int:
             dt = time.perf_counter() - t0
             row = {k: v / win_n for k, v in win_sum.items()}
             win_sum, win_n = {}, 0
+            last_vis = vis_sum / vis_n if vis_n else float("nan")
+            vis_sum, vis_n = 0.0, 0
             gn = float(grad_norm.item()) if torch.isfinite(grad_norm) else float("nan")
             duv_str = ""
             if pred.delta_uv is not None:

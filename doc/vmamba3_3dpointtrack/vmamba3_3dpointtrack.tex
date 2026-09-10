@@ -179,7 +179,7 @@ the result it produced. The order is the order the work happened in, v1 through 
 every method here was chosen in response to the previous one's result --- including the
 defects, which sit at the version where they were found rather than in a chapter of their own.
 
-\subsection{Terminology: Mamba-3 and Vision-Mamba-3}
+\subsection{Terminology: Mamba-3 and Vision-Mamba-3 (all versions)}
 \label{sec:vmamba3-def}
 The tracker below is an application of \emph{Vision-Mamba-3}, our reformulation of the Mamba-3 state-space
 model as a drop-in \emph{attention} operator for vision. Two names recur, and we use them precisely:
@@ -199,86 +199,6 @@ model as a drop-in \emph{attention} operator for vision. Two names recur, and we
 A module is \emph{Vision-Mamba-3} when it runs this operator on vision input, and \emph{Mamba-3} when on
 geometry alone. The operator's full derivation --- SSD $\equiv$ linear attention, the self/cross forms,
 2-D RoPE, and the non-causal (VSSD) variant --- is the companion note \texttt{mamba3\_attention}.
-
-\subsection{Overview}
-Given a video $\{I_t\}_{t=1}^{F}$ and query points $\{(\mathbf{u}_n, a_n)\}_{n=1}^{N}$ (pixel
-position $\mathbf{u}_n$ at anchor frame $a_n$), the goal is a 3D track
-$\hat{\mathbf X}\in\mathbb{R}^{F\times N\times 3}$ and visibility $\hat v\in\{0,1\}^{F\times N}$.
-Our pipeline (Fig.~\ref{fig:pipeline}) has a \emph{training-free} baseline --- SEA-RAFT
-flow-chaining for the 2D track plus DA3-l unprojection for 3D --- and a small \emph{learned} module,
-v33, that refines depth.
-
-\begin{figure}[h]
-\centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[node distance=9mm and 12mm]
-  \node[io] (vid) {video\\$\{I_t\}$};
-  \node[frozen, right=of vid] (flow) {optical flow\\(frozen)};
-  \node[frozen, right=of flow] (chain) {flow\\chaining};
-  \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
-  \node[frozen, below=17mm of flow] (da3) {metric depth\\(frozen)};
-  % refiner inputs (white) — the SAME white input box as Fig 3 / Fig 5.
-  \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
-  % the single learned module (large blue box); internals in Fig 3 / Fig 5.
-  \node[learn, minimum width=30mm, minimum height=14mm, right=13mm of inp] (ref)
-    {\textbf{learned}\\\textbf{depth refiner}\\{\scriptsize v33: Fig.~\ref{fig:arch}\ \ v35: Fig.~\ref{fig:v35-arch}}};
-  \node[io, fill=white, draw=black!45, right=13mm of ref] (out) {3D track\\$\hat{\mathbf X}_t$};
-
-  \draw[arr] (vid) -- (flow);
-  \draw[arr] (flow) -- (chain);
-  \draw[arr] (chain) -- (uv);
-  \draw[arr] (vid.south) |- (da3.west);
-  \draw[arr] (uv) -- (inp) node[midway, right, font=\scriptsize] {ray $\mathbf{r}(\mathbf{u}_t)$};
-  \draw[arr] (da3.east) -- (inp.west) node[midway, above, font=\scriptsize] {$z_{\text{raw}}$};
-  \draw[arr] (inp) -- (ref);
-  \draw[arr] (ref) -- (out);
-\end{tikzpicture}%
-}
-\caption{Overall pipeline. The flow front-end (SEA-RAFT or WAFT) and metric-depth backbone (DA3-l or
-DA3-g) are both frozen and swappable across this report's experiments. Grey = frozen / training-free;
-the \textbf{large blue box} is the only learned module ($0.40$M params); its internals are
-Fig.~\ref{fig:arch} (v33) and Fig.~\ref{fig:v35-arch} (v35). The frozen flow front-end's 2D track
-$\mathbf{u}_t$ (and visibility) is \emph{never} modified. The refiner's \emph{inputs} (white box) ---
-the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$ (from $\mathbf{u}_t$ and the intrinsics), the frozen
-depth backbone's raw depth $z_{\text{raw}}$, and visibility $v$ --- are exactly the white input boxes
-that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and Fig.~\ref{fig:v35-arch} (v35
-additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The box corrects depth along the
-frozen ray and unprojects to 3D, so the 2D reprojection is invariant by construction
-(Fig.~\ref{fig:ray}).}
-\label{fig:pipeline}
-\end{figure}
-
-\subsection{The 2-D track: SEA-RAFT flow-chaining (frozen front-end)}
-We precompute dense forward/backward flow for consecutive frames with a frozen SEA-RAFT model,
-$\mathbf{f}^{\rightarrow}_t,\mathbf{f}^{\leftarrow}_t$. Each query is propagated outward from its
-anchor by bilinearly sampling the flow at the current position,
-\begin{equation}
-\mathbf{u}_{t+1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\rightarrow}_t,\,\mathbf{u}_t\right),
-\qquad
-\mathbf{u}_{t-1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\leftarrow}_{t-1},\,\mathbf{u}_t\right),
-\end{equation}
-where $\mathcal{S}$ is bilinear sampling. Visibility uses a forward--backward consistency test:
-a hop is consistent iff $\lVert \mathbf{d}^{\rightarrow}+\mathbf{d}^{\leftarrow}\rVert \le
-\alpha\,(\lVert\mathbf{d}^{\rightarrow}\rVert+\lVert\mathbf{d}^{\leftarrow}\rVert)+\beta$
-($\alpha{=}0.05$, $\beta{=}1$\,px), and a point stays occluded once it fails. This 2D track is
-strong on its own and is held \emph{fixed} for everything downstream.
-
-\subsection{Metric depth and differentiable unprojection}
-We use two Depth-Anything-3~(DA3) metric-depth models: \textbf{DA3-l} (\texttt{DA3Metric-Large},
-0.35\,B) for all results through v39, and \textbf{DA3-g} (\texttt{DA3Nested-Giant-Large}, 1.4\,B)
-from v40 onward (\S\ref{sec:v40}); a bare ``DA3'' refers to DA3-l.
-DA3-l supplies a per-frame metric depth map $D_t$ (absolute metres). We sample it at the tracked
-pixel and unproject with the pinhole intrinsics $K=(f_x,f_y,c_x,c_y)$:
-\begin{equation}
-z_t = \mathcal{S}(D_t,\mathbf{u}_t),\qquad
-\hat{\mathbf X}_t = \Big(\tfrac{u_t-c_x}{f_x}\,z_t,\;\tfrac{v_t-c_y}{f_y}\,z_t,\;z_t\Big).
-\label{eq:unproject}
-\end{equation}
-Sampling is done with \texttt{grid\_sample} so gradients flow to the (refined) depth; the depth
-model itself is frozen. The baseline \emph{SEA-RAFT$+$DA3-l} tracker is exactly
-Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3-l.
-
-% (v1--v32 prehistory relocated to the start of Method, right after the terminology subsection.)
 
 \subsection{Direct regression, and why it was abandoned (v1--v32)}
 \label{sec:prehistory}
@@ -710,6 +630,86 @@ memory if the within-frame summaries $\bm{H}^{(t)}$ are kept (the
 default), or $O(N N_{\!state} D)$ if only the rolling track hidden
 state is kept (streaming inference).
 
+\subsection{Pipeline overview: frozen front-ends, one learned refiner (v33 onward)}
+Given a video $\{I_t\}_{t=1}^{F}$ and query points $\{(\mathbf{u}_n, a_n)\}_{n=1}^{N}$ (pixel
+position $\mathbf{u}_n$ at anchor frame $a_n$), the goal is a 3D track
+$\hat{\mathbf X}\in\mathbb{R}^{F\times N\times 3}$ and visibility $\hat v\in\{0,1\}^{F\times N}$.
+Our pipeline (Fig.~\ref{fig:pipeline}) has a \emph{training-free} baseline --- SEA-RAFT
+flow-chaining for the 2D track plus DA3-l unprojection for 3D --- and a small \emph{learned} module,
+v33, that refines depth.
+
+\begin{figure}[h]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[node distance=9mm and 12mm]
+  \node[io] (vid) {video\\$\{I_t\}$};
+  \node[frozen, right=of vid] (flow) {optical flow\\(frozen)};
+  \node[frozen, right=of flow] (chain) {flow\\chaining};
+  \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
+  \node[frozen, below=17mm of flow] (da3) {metric depth\\(frozen)};
+  % refiner inputs (white) — the SAME white input box as Fig 3 / Fig 5.
+  \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
+  % the single learned module (large blue box); internals in Fig 3 / Fig 5.
+  \node[learn, minimum width=30mm, minimum height=14mm, right=13mm of inp] (ref)
+    {\textbf{learned}\\\textbf{depth refiner}\\{\scriptsize v33: Fig.~\ref{fig:arch}\ \ v35: Fig.~\ref{fig:v35-arch}}};
+  \node[io, fill=white, draw=black!45, right=13mm of ref] (out) {3D track\\$\hat{\mathbf X}_t$};
+
+  \draw[arr] (vid) -- (flow);
+  \draw[arr] (flow) -- (chain);
+  \draw[arr] (chain) -- (uv);
+  \draw[arr] (vid.south) |- (da3.west);
+  \draw[arr] (uv) -- (inp) node[midway, right, font=\scriptsize] {ray $\mathbf{r}(\mathbf{u}_t)$};
+  \draw[arr] (da3.east) -- (inp.west) node[midway, above, font=\scriptsize] {$z_{\text{raw}}$};
+  \draw[arr] (inp) -- (ref);
+  \draw[arr] (ref) -- (out);
+\end{tikzpicture}%
+}
+\caption{Overall pipeline. The flow front-end (SEA-RAFT or WAFT) and metric-depth backbone (DA3-l or
+DA3-g) are both frozen and swappable across this report's experiments. Grey = frozen / training-free;
+the \textbf{large blue box} is the only learned module ($0.40$M params); its internals are
+Fig.~\ref{fig:arch} (v33) and Fig.~\ref{fig:v35-arch} (v35). The frozen flow front-end's 2D track
+$\mathbf{u}_t$ (and visibility) is \emph{never} modified. The refiner's \emph{inputs} (white box) ---
+the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$ (from $\mathbf{u}_t$ and the intrinsics), the frozen
+depth backbone's raw depth $z_{\text{raw}}$, and visibility $v$ --- are exactly the white input boxes
+that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and Fig.~\ref{fig:v35-arch} (v35
+additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The box corrects depth along the
+frozen ray and unprojects to 3D, so the 2D reprojection is invariant by construction
+(Fig.~\ref{fig:ray}).}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{The 2-D track by SEA-RAFT flow-chaining, frozen (v33--v36)}
+We precompute dense forward/backward flow for consecutive frames with a frozen SEA-RAFT model,
+$\mathbf{f}^{\rightarrow}_t,\mathbf{f}^{\leftarrow}_t$. Each query is propagated outward from its
+anchor by bilinearly sampling the flow at the current position,
+\begin{equation}
+\mathbf{u}_{t+1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\rightarrow}_t,\,\mathbf{u}_t\right),
+\qquad
+\mathbf{u}_{t-1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\leftarrow}_{t-1},\,\mathbf{u}_t\right),
+\end{equation}
+where $\mathcal{S}$ is bilinear sampling. Visibility uses a forward--backward consistency test:
+a hop is consistent iff $\lVert \mathbf{d}^{\rightarrow}+\mathbf{d}^{\leftarrow}\rVert \le
+\alpha\,(\lVert\mathbf{d}^{\rightarrow}\rVert+\lVert\mathbf{d}^{\leftarrow}\rVert)+\beta$
+($\alpha{=}0.05$, $\beta{=}1$\,px), and a point stays occluded once it fails. This 2D track is
+strong on its own and is held \emph{fixed} for everything downstream.
+
+\subsection{Metric depth and differentiable unprojection (v33 onward)}
+We use two Depth-Anything-3~(DA3) metric-depth models: \textbf{DA3-l} (\texttt{DA3Metric-Large},
+0.35\,B) for all results through v39, and \textbf{DA3-g} (\texttt{DA3Nested-Giant-Large}, 1.4\,B)
+from v40 onward (\S\ref{sec:v40}); a bare ``DA3'' refers to DA3-l.
+DA3-l supplies a per-frame metric depth map $D_t$ (absolute metres). We sample it at the tracked
+pixel and unproject with the pinhole intrinsics $K=(f_x,f_y,c_x,c_y)$:
+\begin{equation}
+z_t = \mathcal{S}(D_t,\mathbf{u}_t),\qquad
+\hat{\mathbf X}_t = \Big(\tfrac{u_t-c_x}{f_x}\,z_t,\;\tfrac{v_t-c_y}{f_y}\,z_t,\;z_t\Big).
+\label{eq:unproject}
+\end{equation}
+Sampling is done with \texttt{grid\_sample} so gradients flow to the (refined) depth; the depth
+model itself is frozen. The baseline \emph{SEA-RAFT$+$DA3-l} tracker is exactly
+Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3-l.
+
+% (v1--v32 prehistory relocated to the start of Method, right after the terminology subsection.)
+
 \subsection{The depth-along-ray refiner (v33)}
 \label{sec:v33}
 DA3-l metric depth is accurate in \emph{relative} structure but carries a global scale bias
@@ -816,7 +816,7 @@ to multi-head attention but computed as a linear recurrence.}
 \label{fig:arch}
 \end{figure}
 
-\subsection{Why depth-only (and not 2D)}
+\subsection{Why depth-only, and not 2-D (v33 rationale)}
 An earlier variant (v32) added a learned 2D residual $\Delta\mathbf{u}$ on top of SEA-RAFT. It
 \emph{degraded} accuracy: SEA-RAFT's 2D track is already near-optimal, and small nudges push the
 sampling location across DA3-l depth discontinuities (object boundaries), flipping points out of the
@@ -1367,7 +1367,7 @@ pose $+$ triangulation), whereas the far-field problem is dominated by a depth-m
 bigger depth model fixes directly. Caveats: the nested model is 1.4\,B ($\sim$$4\times$ slower,
 non-commercial license) and its metric scale is mildly resolution-sensitive.
 
-\subsection{DA3-g re-evaluation of the external SOTA baselines}
+\subsection{Re-evaluating the external baselines on DA3-g depth (v40)}
 \label{sec:da3g-reeval}
 The v40 result raises a fair question: is the drivetrack gain specific to our pipeline, or does the DA3-l
 scale bias hurt \emph{every} method that lifts 2D tracks with DA3 depth? To answer it we re-ran each
@@ -1599,7 +1599,7 @@ v39 (DA3-l $+$ refiner, ceiling)            & 0.141 & 0.279 & 0.318 & 0.246 \\
   metric \emph{and} low-noise in the near field.
 \end{enumerate}
 
-\subsection{DA3-l vs.\ DA3-g: architecture, loss, and where the near-field error really is}
+\subsection{DA3-l against DA3-g, and where the near-field error really is (v40--v42)}
 \label{sec:da3lg}
 The depth-backbone swap (DA3-l $\to$ DA3-g, \S\ref{sec:v40}--\S\ref{sec:v42}) helped far-field drivetrack but
 not the near field, and the refiner could halve DA3-l's near depth error ($0.73\!\to\!0.35$\,m) but barely
@@ -2113,7 +2113,7 @@ triangulation cuts far-field ($>30$\,m) metric error materially, the world-frame
 otherwise the bottleneck is elsewhere (front-end depth) and we would instead prioritise the
 uncertainty/temporal-fusion route.
 
-\subsection{Error analysis and proposed refinements}
+\subsection{Error analysis, and the refinements it proposed (v45--v46)}
 \label{sec:error-analysis}
 The v46 negative result prompts a per-stage question: of our three pipeline processes --- frozen 2D flow
 (WAFT), frozen metric depth (DA3-g), and the learned refiner --- \emph{which one carries the remaining
@@ -3555,7 +3555,7 @@ unclaimed.
 
 \input{figs/fig_vis_head}
 
-\subsection{v93/v93b: the DA3-g arm that reaches DELTA, and what produced it}
+\subsection{The DA3-g arm that reaches DELTA, and what produced it (v93/v93b)}
 \label{sec:v93}
 This is where the DA3-g line stops. \textbf{v93b matches DELTA$+$DA3-g on absolute metric-AJ}
 ($0.22744$ against $0.22737$), and the entire gain comes from one repair to the training data
@@ -3763,7 +3763,7 @@ forward--backward flow check, and \texttt{-{}-vis-source flow} remains the defau
 headroom on adt is real and unclaimed.
 
 
-\subsection{Training}
+\subsection{Training setup, common to every arm (all versions)}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
 visibility are frozen, so they carry no gradient):
 \begin{equation}
@@ -3978,7 +3978,7 @@ does not beat the DA3-l v39 overall ($0.246$). TAPIP3D adt is OOM-limited (``N/A
 \label{fig:6method-abs-da3g}
 \end{table}
 
-\subsection{Leaderboard (scale-invariant) results}
+\subsection{Results across all arms: the scale-invariant leaderboard metric}
 Table~\ref{tab:median} reports median-scaled 3D-AJ.
 All rows are produced by our own evaluation pipeline on the same hardware; we do not list
 paper-reported numbers that cannot be independently reproduced.
@@ -4016,7 +4016,7 @@ TCR's Wan2.1 video-diffusion backbone is primarily trained on indoor/studio cont
 while drivetrack contains outdoor ego-motion scenes at scales $>$10\,m.
 
 
-\subsection{Absolute-metric results: the reversal}
+\subsection{Results across all arms: absolute metric-AJ, and the reversal}
 \label{sec:abs}
 Under the absolute-metric protocol the ranking \emph{reverses} (Table~\ref{tab:abs},
 Fig.~\ref{fig:reversal}). Our best model is v39 (WAFT flow $+$ the v35 depth refiner;
@@ -4052,7 +4052,7 @@ favours SEA-RAFT$+$MegaSAM. Right: under the absolute metric, v35 wins --- most 
 \label{fig:reversal}
 \end{figure}
 
-\subsection{Comparison to state-of-the-art}
+\subsection{Results across all arms: comparison to the state of the art}
 \label{sec:sota}
 
 \paragraph{SpatialTracker.}
@@ -4205,7 +4205,7 @@ metric-AJ every direct-unprojection method leaps on drivetrack, but no DA3-g pip
 overtakes the DA3-l v39 on the near-field subsets (cf.\ \S\ref{sec:v41}).
 
 
-\subsection{Qualitative results}
+\subsection{Results across all arms: qualitative}
 Figures~\ref{fig:qual-pstudio}--\ref{fig:qual-adt} compare our best method \textbf{v39} (WAFT flow $+$ the
 vmamba3 depth refiner, our top absolute-metric-AJ pipeline) against the closest similar-size state of the art,
 \textbf{DELTA$+$DA3-l}, on the clip where \emph{v39} scores its highest per-clip absolute metric-AJ in each
@@ -4284,7 +4284,7 @@ depth refiner corrects (whence v39's win in Fig.~\ref{fig:qual-drivetrack}).}
 \label{fig:qual-st}
 \end{figure}
 
-\subsection{Efficiency}
+\subsection{Results across all arms: efficiency}
 \begin{table}[h]
 \centering
 \caption{Inference throughput and model size on the \textbf{DA3-l} pipeline (RTX\,4080, 12\,GB;

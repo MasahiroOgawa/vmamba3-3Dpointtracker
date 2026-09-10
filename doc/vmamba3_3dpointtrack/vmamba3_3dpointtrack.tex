@@ -64,7 +64,120 @@ separating genuine method limitations from evaluation artefacts.
 \tableofcontents
 
 % =====================================================================
-\section{Method}
+\section{Objective}
+\label{sec:objective}
+Absolute metric accuracy in 3-D point tracking, reproducible on a single commodity
+GPU. The target is TAPVid-3D's absolute metric-AJ --- fixed-metre thresholds, no
+per-clip rescaling --- rather than the scale-invariant leaderboard metric, because a
+tracker can top the leaderboard while being metrically wrong. The constraint is one
+12\,GB card, which rules out the long temporal windows, camera-pose inputs and
+video-diffusion backbones the strongest published trackers rely on. What is learned is
+kept deliberately small: the optical-flow front-end and the metric-depth backbone are
+frozen, and only a depth-along-ray refiner is trained.
+
+\section{Evaluation protocol}
+\label{sec:protocol}
+Stated before any method, because several conclusions in this report turned on the
+protocol rather than on a model, and because two metrics that sound alike rank the
+same systems differently.
+
+\label{sec:metrics}
+
+\paragraph{Dataset.}
+We evaluate on the TAPVid-3D~\cite{tapvid3d} \textbf{minival} split (150 clips: 50 each of
+\emph{pstudio} indoor mocap $\sim$3\,m, \emph{drivetrack} driving $\sim$20\,m, \emph{adt} egocentric
+$\sim$1\,m).
+
+\paragraph{Notation.}
+Let a clip have $N$ query tracks over $T$ frames with ground-truth 3D positions
+$\mathbf{X}^*_{n,t}\!\in\!\mathbb{R}^3$ and visibility flags $v^*_{n,t}\!\in\!\{0,1\}$
+(1\,=\,visible) in per-frame camera coordinates; predictions are
+$\hat{\mathbf{X}}_{n,t}$ and $\hat{v}_{n,t}$.
+Define the within-threshold indicator at level $\alpha$:
+\begin{equation}
+  w^{(\alpha)}_{n,t}
+  = \mathbf{1}\!\left[\lVert\hat{\mathbf{X}}_{n,t}-\mathbf{X}^*_{n,t}\rVert
+    < \delta^{(\alpha)}_{n,t}\right],
+  \label{eq:within}
+\end{equation}
+where the threshold $\delta^{(\alpha)}_{n,t}$ differs between the two protocols below.
+
+\paragraph{3D Average Jaccard (3D-AJ).}
+For each level $\alpha\in\{1,2,4,8,16\}$, define
+\begin{align}
+  \mathrm{TP}(\alpha) &= \textstyle\sum_{n,t} v^*_{n,t}\,\hat{v}_{n,t}\,w^{(\alpha)}_{n,t},
+  \label{eq:tp}\\
+  \mathrm{FN}(\alpha) &= \textstyle\sum_{n,t} v^*_{n,t}\!\left(1-\hat{v}_{n,t}\,w^{(\alpha)}_{n,t}\right),
+  \label{eq:fn}\\
+  \mathrm{FP}(\alpha) &= \textstyle\sum_{n,t} \hat{v}_{n,t}\!\left(1-v^*_{n,t}\,w^{(\alpha)}_{n,t}\right).
+  \label{eq:fp}
+\end{align}
+The per-level Jaccard is $J(\alpha)=\mathrm{TP}/(\mathrm{TP}+\mathrm{FN}+\mathrm{FP})$, and
+the headline metric averages over all five levels:
+\begin{equation}
+  \text{3D-AJ} = \tfrac{1}{5}\!\sum_{\alpha\in\{1,2,4,8,16\}}\!J(\alpha).
+  \label{eq:3daj}
+\end{equation}
+We additionally report \textbf{Average Percentage of points within Distance 3D (APD3D)}
+(fraction of visible GT points within threshold, regardless of predicted visibility):
+\begin{equation}
+  \text{APD3D} = \tfrac{1}{5}\!\sum_{\alpha}
+  \frac{\sum_{n,t} v^*_{n,t}\,w^{(\alpha)}_{n,t}}{\sum_{n,t} v^*_{n,t}},
+  \label{eq:apd3d}
+\end{equation}
+and \textbf{OA} (occlusion accuracy):
+$\text{OA}=\frac{1}{NT}\sum_{n,t}\mathbf{1}[\hat{v}_{n,t}=v^*_{n,t}]$.
+
+\paragraph{Normalized (scale-invariant) protocol.}
+The official 3D-AJ is \emph{scale-invariant twice over}.
+First, the predicted cloud is rescaled globally by
+\begin{equation}
+  s = \frac{\operatorname{median}_{(n,t)\in\mathcal{V}}
+            \lVert\mathbf{X}^*_{n,t}\rVert}
+           {\operatorname{median}_{(n,t)\in\mathcal{V}}
+            \lVert\hat{\mathbf{X}}_{n,t}\rVert},
+  \qquad
+  \mathcal{V}=\{(n,t): v^*_{n,t}=1,\;\hat{v}_{n,t}=1\},
+  \label{eq:scale}
+\end{equation}
+setting $\hat{\mathbf{X}}\leftarrow s\hat{\mathbf{X}}$ before~\eqref{eq:within}.
+Second, the threshold in~\eqref{eq:within} is depth-relative:
+\begin{equation}
+  \delta^{(\alpha)}_{n,t}(\text{norm})
+  = \frac{\alpha\cdot(\mathbf{X}^*_{n,t})_z}{\sqrt{f_x f_y}},
+  \label{eq:thresh_norm}
+\end{equation}
+where $(\mathbf{X}^*_{n,t})_z$ is the GT depth at frame $t$ and $\sqrt{f_x f_y}$ is the
+geometric-mean focal length.
+Geometrically, \eqref{eq:thresh_norm} equals the world-space radius subtended by
+$\alpha$\,pixels at that point's depth.
+Both~\eqref{eq:scale} and~\eqref{eq:thresh_norm} discard absolute depth ---
+exactly the quantity that matters for metric 3D reconstruction.
+
+\paragraph{Absolute-metric protocol.}
+We additionally report an \textbf{absolute-metric} version: no median scaling ($s=1$) and
+fixed metric thresholds
+\begin{equation}
+  \delta^{(\alpha)}(\text{abs})
+  \;\in\;
+  \{1,\;4,\;16,\;64,\;256\}\,\text{cm}
+  \quad\text{for}\quad
+  \alpha\in\{1,2,4,8,16\},
+  \label{eq:thresh_abs}
+\end{equation}
+giving \textbf{metric-AJ} and \textbf{metric-APD3D} from~\eqref{eq:3daj}--\eqref{eq:apd3d},
+plus mean/median 3D error in metres.
+Our pipeline reproduces the official scale-invariant metric exactly
+(we recover SpatialTracker's published drivetrack 3D-AJ of $0.058$ to three decimals
+once the $256$-px intrinsics convention is applied), so the absolute variant is a
+faithful, scale-sensitive extension rather than a re-implementation.
+
+\section{Methodology and its result}
+\label{sec:methodology}
+One subsection per idea, named for what it does with its version in brackets, each carrying
+the result it produced. The order is the order the work happened in, v1 through v93, because
+every method here was chosen in response to the previous one's result --- including the
+defects, which sit at the version where they were found rather than in a chapter of their own.
 
 \subsection{Terminology: Mamba-3 and Vision-Mamba-3}
 \label{sec:vmamba3-def}
@@ -86,6 +199,86 @@ model as a drop-in \emph{attention} operator for vision. Two names recur, and we
 A module is \emph{Vision-Mamba-3} when it runs this operator on vision input, and \emph{Mamba-3} when on
 geometry alone. The operator's full derivation --- SSD $\equiv$ linear attention, the self/cross forms,
 2-D RoPE, and the non-causal (VSSD) variant --- is the companion note \texttt{mamba3\_attention}.
+
+\subsection{Overview}
+Given a video $\{I_t\}_{t=1}^{F}$ and query points $\{(\mathbf{u}_n, a_n)\}_{n=1}^{N}$ (pixel
+position $\mathbf{u}_n$ at anchor frame $a_n$), the goal is a 3D track
+$\hat{\mathbf X}\in\mathbb{R}^{F\times N\times 3}$ and visibility $\hat v\in\{0,1\}^{F\times N}$.
+Our pipeline (Fig.~\ref{fig:pipeline}) has a \emph{training-free} baseline --- SEA-RAFT
+flow-chaining for the 2D track plus DA3-l unprojection for 3D --- and a small \emph{learned} module,
+v33, that refines depth.
+
+\begin{figure}[h]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[node distance=9mm and 12mm]
+  \node[io] (vid) {video\\$\{I_t\}$};
+  \node[frozen, right=of vid] (flow) {optical flow\\(frozen)};
+  \node[frozen, right=of flow] (chain) {flow\\chaining};
+  \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
+  \node[frozen, below=17mm of flow] (da3) {metric depth\\(frozen)};
+  % refiner inputs (white) — the SAME white input box as Fig 3 / Fig 5.
+  \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
+  % the single learned module (large blue box); internals in Fig 3 / Fig 5.
+  \node[learn, minimum width=30mm, minimum height=14mm, right=13mm of inp] (ref)
+    {\textbf{learned}\\\textbf{depth refiner}\\{\scriptsize v33: Fig.~\ref{fig:arch}\ \ v35: Fig.~\ref{fig:v35-arch}}};
+  \node[io, fill=white, draw=black!45, right=13mm of ref] (out) {3D track\\$\hat{\mathbf X}_t$};
+
+  \draw[arr] (vid) -- (flow);
+  \draw[arr] (flow) -- (chain);
+  \draw[arr] (chain) -- (uv);
+  \draw[arr] (vid.south) |- (da3.west);
+  \draw[arr] (uv) -- (inp) node[midway, right, font=\scriptsize] {ray $\mathbf{r}(\mathbf{u}_t)$};
+  \draw[arr] (da3.east) -- (inp.west) node[midway, above, font=\scriptsize] {$z_{\text{raw}}$};
+  \draw[arr] (inp) -- (ref);
+  \draw[arr] (ref) -- (out);
+\end{tikzpicture}%
+}
+\caption{Overall pipeline. The flow front-end (SEA-RAFT or WAFT) and metric-depth backbone (DA3-l or
+DA3-g) are both frozen and swappable across this report's experiments. Grey = frozen / training-free;
+the \textbf{large blue box} is the only learned module ($0.40$M params); its internals are
+Fig.~\ref{fig:arch} (v33) and Fig.~\ref{fig:v35-arch} (v35). The frozen flow front-end's 2D track
+$\mathbf{u}_t$ (and visibility) is \emph{never} modified. The refiner's \emph{inputs} (white box) ---
+the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$ (from $\mathbf{u}_t$ and the intrinsics), the frozen
+depth backbone's raw depth $z_{\text{raw}}$, and visibility $v$ --- are exactly the white input boxes
+that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and Fig.~\ref{fig:v35-arch} (v35
+additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The box corrects depth along the
+frozen ray and unprojects to 3D, so the 2D reprojection is invariant by construction
+(Fig.~\ref{fig:ray}).}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{The 2-D track: SEA-RAFT flow-chaining (frozen front-end)}
+We precompute dense forward/backward flow for consecutive frames with a frozen SEA-RAFT model,
+$\mathbf{f}^{\rightarrow}_t,\mathbf{f}^{\leftarrow}_t$. Each query is propagated outward from its
+anchor by bilinearly sampling the flow at the current position,
+\begin{equation}
+\mathbf{u}_{t+1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\rightarrow}_t,\,\mathbf{u}_t\right),
+\qquad
+\mathbf{u}_{t-1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\leftarrow}_{t-1},\,\mathbf{u}_t\right),
+\end{equation}
+where $\mathcal{S}$ is bilinear sampling. Visibility uses a forward--backward consistency test:
+a hop is consistent iff $\lVert \mathbf{d}^{\rightarrow}+\mathbf{d}^{\leftarrow}\rVert \le
+\alpha\,(\lVert\mathbf{d}^{\rightarrow}\rVert+\lVert\mathbf{d}^{\leftarrow}\rVert)+\beta$
+($\alpha{=}0.05$, $\beta{=}1$\,px), and a point stays occluded once it fails. This 2D track is
+strong on its own and is held \emph{fixed} for everything downstream.
+
+\subsection{Metric depth and differentiable unprojection}
+We use two Depth-Anything-3~(DA3) metric-depth models: \textbf{DA3-l} (\texttt{DA3Metric-Large},
+0.35\,B) for all results through v39, and \textbf{DA3-g} (\texttt{DA3Nested-Giant-Large}, 1.4\,B)
+from v40 onward (\S\ref{sec:v40}); a bare ``DA3'' refers to DA3-l.
+DA3-l supplies a per-frame metric depth map $D_t$ (absolute metres). We sample it at the tracked
+pixel and unproject with the pinhole intrinsics $K=(f_x,f_y,c_x,c_y)$:
+\begin{equation}
+z_t = \mathcal{S}(D_t,\mathbf{u}_t),\qquad
+\hat{\mathbf X}_t = \Big(\tfrac{u_t-c_x}{f_x}\,z_t,\;\tfrac{v_t-c_y}{f_y}\,z_t,\;z_t\Big).
+\label{eq:unproject}
+\end{equation}
+Sampling is done with \texttt{grid\_sample} so gradients flow to the (refined) depth; the depth
+model itself is frozen. The baseline \emph{SEA-RAFT$+$DA3-l} tracker is exactly
+Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3-l.
+
+% (v1--v32 prehistory relocated to the start of Method, right after the terminology subsection.)
 
 \subsection{Direct regression, and why it was abandoned (v1--v32)}
 \label{sec:prehistory}
@@ -516,86 +709,6 @@ is $O(F \cdot T N D)$ in time, $O(N T_{\max} N_{\!state} D)$ in
 memory if the within-frame summaries $\bm{H}^{(t)}$ are kept (the
 default), or $O(N N_{\!state} D)$ if only the rolling track hidden
 state is kept (streaming inference).
-
-\subsection{Overview}
-Given a video $\{I_t\}_{t=1}^{F}$ and query points $\{(\mathbf{u}_n, a_n)\}_{n=1}^{N}$ (pixel
-position $\mathbf{u}_n$ at anchor frame $a_n$), the goal is a 3D track
-$\hat{\mathbf X}\in\mathbb{R}^{F\times N\times 3}$ and visibility $\hat v\in\{0,1\}^{F\times N}$.
-Our pipeline (Fig.~\ref{fig:pipeline}) has a \emph{training-free} baseline --- SEA-RAFT
-flow-chaining for the 2D track plus DA3-l unprojection for 3D --- and a small \emph{learned} module,
-v33, that refines depth.
-
-\begin{figure}[h]
-\centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[node distance=9mm and 12mm]
-  \node[io] (vid) {video\\$\{I_t\}$};
-  \node[frozen, right=of vid] (flow) {optical flow\\(frozen)};
-  \node[frozen, right=of flow] (chain) {flow\\chaining};
-  \node[io, right=of chain] (uv) {2D track\\$\mathbf{u}_t$ (+vis)};
-  \node[frozen, below=17mm of flow] (da3) {metric depth\\(frozen)};
-  % refiner inputs (white) — the SAME white input box as Fig 3 / Fig 5.
-  \node[io, below=17mm of uv] (inp) {refiner inputs\\$[\,\mathbf{r}(\mathbf{u}_t),\ z_{\text{raw}},\ v\,]$};
-  % the single learned module (large blue box); internals in Fig 3 / Fig 5.
-  \node[learn, minimum width=30mm, minimum height=14mm, right=13mm of inp] (ref)
-    {\textbf{learned}\\\textbf{depth refiner}\\{\scriptsize v33: Fig.~\ref{fig:arch}\ \ v35: Fig.~\ref{fig:v35-arch}}};
-  \node[io, fill=white, draw=black!45, right=13mm of ref] (out) {3D track\\$\hat{\mathbf X}_t$};
-
-  \draw[arr] (vid) -- (flow);
-  \draw[arr] (flow) -- (chain);
-  \draw[arr] (chain) -- (uv);
-  \draw[arr] (vid.south) |- (da3.west);
-  \draw[arr] (uv) -- (inp) node[midway, right, font=\scriptsize] {ray $\mathbf{r}(\mathbf{u}_t)$};
-  \draw[arr] (da3.east) -- (inp.west) node[midway, above, font=\scriptsize] {$z_{\text{raw}}$};
-  \draw[arr] (inp) -- (ref);
-  \draw[arr] (ref) -- (out);
-\end{tikzpicture}%
-}
-\caption{Overall pipeline. The flow front-end (SEA-RAFT or WAFT) and metric-depth backbone (DA3-l or
-DA3-g) are both frozen and swappable across this report's experiments. Grey = frozen / training-free;
-the \textbf{large blue box} is the only learned module ($0.40$M params); its internals are
-Fig.~\ref{fig:arch} (v33) and Fig.~\ref{fig:v35-arch} (v35). The frozen flow front-end's 2D track
-$\mathbf{u}_t$ (and visibility) is \emph{never} modified. The refiner's \emph{inputs} (white box) ---
-the frozen pixel ray $\mathbf{r}(\mathbf{u}_t)$ (from $\mathbf{u}_t$ and the intrinsics), the frozen
-depth backbone's raw depth $z_{\text{raw}}$, and visibility $v$ --- are exactly the white input boxes
-that sit \emph{outside} the blue box in Fig.~\ref{fig:arch} and Fig.~\ref{fig:v35-arch} (v35
-additionally feeds a $5{\times}5$ depth patch and a DINOv3 feature). The box corrects depth along the
-frozen ray and unprojects to 3D, so the 2D reprojection is invariant by construction
-(Fig.~\ref{fig:ray}).}
-\label{fig:pipeline}
-\end{figure}
-
-\subsection{The 2-D track: SEA-RAFT flow-chaining (frozen front-end)}
-We precompute dense forward/backward flow for consecutive frames with a frozen SEA-RAFT model,
-$\mathbf{f}^{\rightarrow}_t,\mathbf{f}^{\leftarrow}_t$. Each query is propagated outward from its
-anchor by bilinearly sampling the flow at the current position,
-\begin{equation}
-\mathbf{u}_{t+1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\rightarrow}_t,\,\mathbf{u}_t\right),
-\qquad
-\mathbf{u}_{t-1} = \mathbf{u}_t + \mathcal{S}\!\left(\mathbf{f}^{\leftarrow}_{t-1},\,\mathbf{u}_t\right),
-\end{equation}
-where $\mathcal{S}$ is bilinear sampling. Visibility uses a forward--backward consistency test:
-a hop is consistent iff $\lVert \mathbf{d}^{\rightarrow}+\mathbf{d}^{\leftarrow}\rVert \le
-\alpha\,(\lVert\mathbf{d}^{\rightarrow}\rVert+\lVert\mathbf{d}^{\leftarrow}\rVert)+\beta$
-($\alpha{=}0.05$, $\beta{=}1$\,px), and a point stays occluded once it fails. This 2D track is
-strong on its own and is held \emph{fixed} for everything downstream.
-
-\subsection{Metric depth and differentiable unprojection}
-We use two Depth-Anything-3~(DA3) metric-depth models: \textbf{DA3-l} (\texttt{DA3Metric-Large},
-0.35\,B) for all results through v39, and \textbf{DA3-g} (\texttt{DA3Nested-Giant-Large}, 1.4\,B)
-from v40 onward (\S\ref{sec:v40}); a bare ``DA3'' refers to DA3-l.
-DA3-l supplies a per-frame metric depth map $D_t$ (absolute metres). We sample it at the tracked
-pixel and unproject with the pinhole intrinsics $K=(f_x,f_y,c_x,c_y)$:
-\begin{equation}
-z_t = \mathcal{S}(D_t,\mathbf{u}_t),\qquad
-\hat{\mathbf X}_t = \Big(\tfrac{u_t-c_x}{f_x}\,z_t,\;\tfrac{v_t-c_y}{f_y}\,z_t,\;z_t\Big).
-\label{eq:unproject}
-\end{equation}
-Sampling is done with \texttt{grid\_sample} so gradients flow to the (refined) depth; the depth
-model itself is frozen. The baseline \emph{SEA-RAFT$+$DA3-l} tracker is exactly
-Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3-l.
-
-% (v1--v32 prehistory relocated to the start of Method, right after the terminology subsection.)
 
 \subsection{The depth-along-ray refiner (v33)}
 \label{sec:v33}
@@ -2269,6 +2382,1132 @@ per-frame increment is independent of $T$.
 \paragraph{v52.} The same swap on v45 (DA3-g $+$ de-flicker $+$ vmamba3, reported $0.232$) is
 configured but unrun; it was started and stopped after $1$\,h\,$11$\,m to free the GPU.
 
+\subsection{The quadratic-path defect, and the re-scoring of every learned row (v35--v51)}
+\label{sec:collapse-reeval}
+
+\texttt{Mamba3CrossAttention} has two paths that compute the same function. The \emph{collapse}
+path builds the pooled state $h=\sum_j m_j B_j V_j^{\top}$ of size $(N,d_\mathrm{head})$ and reads
+it with $C$ --- the VSSD collapse as written, linear in $T$. The \emph{token-level} path instead
+materialises the full $T_q\times T_{kv}$ similarity and multiplies it by the expanded mask, at
+$O(T^2)$.
+
+The token-level path was the module default, and all three refiner sites inherited it. Nothing
+required this: \texttt{build\_cross\_mask} computed a per-token \emph{vector} and then expanded it
+across the query axis, its own docstring noting that all $T_q$ rows are identical. The
+bidirectional mask is likewise a vector, $\gamma_j(\mathrm{fwd}+\mathrm{rev})$. That vector is now
+\texttt{build\_cross\_scale} and both paths consume it, so the collapse path handles bidirectional
+directly and no site needs the quadratic one.
+
+\paragraph{What it cost.} Peak memory on the token-level path grows with batch $\times\,T^2$. On
+\texttt{adt} --- $T=300$ frames and $679$--$957$ tracked points, against \texttt{pstudio}'s $150$
+and $223$ --- one such tensor is already $2.4$\,GB, and the second pool's measured $1.58\times$ took
+a $12$\,GB card over. The two-pool arms lost $33$ and $23$ \texttt{adt} clips to out-of-memory
+failures; the one-pool arms never hit it and always covered all $25814$ frames. The published
+$0.2529$ was therefore scored on $18914$ frames against a $25814$-frame baseline, and the exclusion
+was systematic rather than random: every \texttt{adt} clip is $T=300$, so what decided the failure
+was track count, meaning the clips with the most tracked points were the ones lost.
+
+\paragraph{The re-scoring.} Every learned row was re-evaluated on the collapse path. The two paths
+agree to $2.8$--$3.1\times10^{-6}$ relative across $\{$bidirectional$\}\times\{$two-pool$\}$, and
+through the trained v50 weights to $5.1\times10^{-6}$ at $T=300$, so the checkpoints transfer
+unchanged. Nothing was retrained; this is a change of evaluation cost, not of function.
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+arm & quantity & before & after \\
+\midrule
+v35 SEA-RAFT$+$DA3-l$+$vmamba3 & mean metric-AJ & $0.234$ & $0.225$ \\
+v39 WAFT$+$DA3-l$+$vmamba3     & mean metric-AJ & $0.2458$ & $0.2458$ \\
+v41 WAFT$+$DA3-g$+$vmamba3     & mean metric-AJ & $0.2161$ & $0.2161$ \\
+v42 $+$ pstudio oversample     & mean metric-AJ & $0.2246$ & $0.2246$ \\
+v43 $+$ scale head             & mean metric-AJ & $0.2292$ & $0.2292$ \\
+v44 de-flicker standalone      & mean metric-AJ & $0.2026$ & $0.2026$ \\
+v45 de-flicker $+$ refiner     & mean metric-AJ & $0.2320$ & $0.2320$ \\
+\midrule
+v50 SEA-RAFT$+$2pool & mean metric-AJ (frames) & $0.222$ ($15914$) & $\mathbf{0.235}$ ($25814$) \\
+v51 WAFT$+$2pool     & mean metric-AJ (frames) & $0.253$ ($18914$) & $\mathbf{0.256}$ ($25814$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Six of the seven complete arms reproduce to four decimals, which is the expected result
+and the reason the sweep was worth running rather than assumed. Only the two-pool rows moved, and
+only through \texttt{adt}: \texttt{drivetrack} and \texttt{pstudio} shifted by at most $0.0002$,
+because those subsets never lost a clip.
+
+\paragraph{v35 does not reconcile, and is recorded as measured.} The $0.234$ previously carried for
+v35 is not reproducible. Only four evaluations ever used that checkpoint --- $0.2458$ (WAFT),
+$0.2263$ (the \texttt{v36\_fuse} directory), $0.2255$ (this re-run) and $0.0034$ (drivetrack only)
+--- and none yields $0.234$. The disagreement is confined to \texttt{pstudio} ($0.274$ against
+$0.248$); \texttt{drivetrack} and \texttt{adt} match exactly. The re-run used the default
+front-end, which is v35's configuration rather than v36's \texttt{--bidir-fuse}, yet lands on the
+v36 row. The tables now carry the measured $0.225$. This is a flow-chaining provenance gap, not an
+operator one --- every arm that shares the operator reproduced exactly.
+
+\paragraph{Throughput.} On the collapse path the second pool costs nothing measurable. Matched
+protocol, all $25814$ frames: WAFT $41.20$\,fps one-pool against $41.58$ two-pool, SEA-RAFT $6.72$
+against $6.92$ --- against the $1.58\times$ memory and the out-of-memory failures the token-level
+path produced.
+
+% =====================================================================
+\subsection{The SEA-RAFT-trained, WAFT-evaluated rows (v35--v51)}
+\label{sec:searaft-trained-waft-eval}
+
+Every WAFT row recorded before v57 was \emph{trained} with the SEA-RAFT front-end and only
+\emph{evaluated} on WAFT. The refiner sees flow during training --- \texttt{track\_clip} runs inside
+the training loop --- so it learns one front-end's error characteristics and is then scored on a
+different one. That is a train/test mismatch, and those numbers are superseded by the WAFT-trained
+arms v57--v62. They are kept here, and only here: the paper carries the corrected numbers alone,
+because a manuscript reports what the method does, not the order in which it was measured.
+
+\begin{center}
+\begin{tabular}{llcc}
+\toprule
+row & front-end at train / eval & mean metric-AJ & status \\
+\midrule
+v35 & SEA-RAFT / SEA-RAFT & $0.225$ & matched, superseded by v57 \\
+v39 & SEA-RAFT / WAFT     & $0.2458$ & \emph{mismatched} \\
+v50 & SEA-RAFT / SEA-RAFT & $0.235$ & matched, superseded by v58 \\
+v51 & SEA-RAFT / WAFT     & $0.2560$ & \emph{mismatched} \\
+\midrule
+v45 & SEA-RAFT / WAFT     & $0.2320$ & \emph{mismatched}; see \S\ref{sec:waft-deflicker-silent} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The mismatched rows score \emph{higher} than their matched counterparts --- $0.2458$
+against $0.225$ for one pool, $0.2560$ against $0.235$ for two --- which is why the defect was not
+obvious from the numbers. WAFT is the stronger front-end, and swapping it in at evaluation time
+improves the input the refiner is given without the refiner having been trained for it. The gain is
+real but it is not the gain a WAFT pipeline would deliver, and it cannot be attributed to the
+refiner: the arm changed two things at once. v57--v62 hold the front-end fixed at WAFT for both
+training and evaluation, which is the only configuration that answers ``how good is this pipeline
+on WAFT''.
+
+\paragraph{Two further defects in the same rows.} They were also produced on the token-level
+attention path (\S\ref{sec:collapse-reeval}), and their evaluation tracks came from a 2026-07-09
+cache built under a different cuDNN configuration. v57--v62 use the collapse path throughout and
+regenerate both the training and the evaluation tracks from one code path.
+
+%% ================================================================
+\subsection{The WAFT-trained arms, and what the regression turned out to be (v57--v62)}
+\label{sec:waft-trained-arms}
+
+v57--v60 hold the flow front-end fixed at WAFT for \emph{both} training and evaluation, which is the
+configuration \S\ref{sec:searaft-trained-waft-eval} called for. All completed 2026-08-21 over all
+$25814$ minival frames with zero failures. v62, added later, is the arm that identified the cause.
+
+\begin{center}
+\begin{tabular}{llccccc}
+\toprule
+arm & depth backbone & de-flicker & pools & trained on & mean metric-AJ \\
+\midrule
+v39 & DA3-l & --- & 1 & SEA-RAFT & $0.2459$ \\
+v57 & DA3-l & --- & 1 & WAFT     & $\mathbf{0.2504}$ \\
+v58 & DA3-l & --- & 2 & WAFT     & $0.2507$ \\
+\midrule
+v42 & DA3-g & no  & 1 & SEA-RAFT & $0.2246$ \\
+v45 & DA3-g & yes & 1 & SEA-RAFT & $\mathbf{0.2320}$ \\
+v59 & DA3-g & yes & 1 & WAFT     & $0.2194$ \\
+v60 & DA3-g & yes & 2 & WAFT     & $0.2211$ \\
+v62 & DA3-g & \textbf{no} & 2 & WAFT & $0.2228$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Every baseline was re-scored on the same evaluation tracks as the arm it is compared
+against, so none of these differences is a track artefact: v45 gave $0.2320$ on both the old and the
+regenerated tracks, and v39 gave $0.2459$ against its published $0.2458$.
+
+\noindent\emph{Superseded as a front-end comparison.} Every row above scores a WAFT-cached
+evaluation, and the SEA-RAFT rows were trained with SEA-RAFT and then scored that way, so those
+comparisons mix front-ends across training and evaluation. The table remains an accurate record of
+what was measured, and the reasoning that follows from it is what located the cause, but the
+front-end question it appears to answer is settled only under the protocol of
+\S\ref{sec:waft-matched-protocol}, where both arms run live at one resolution and one iteration
+count.
+
+\subsubsection{WAFT training does not hurt the refiner; it costs the de-flicker stage's contribution}
+\label{sec:waft-deflicker-silent}
+
+The first reading of these numbers was that WAFT training makes the pipeline worse, which cannot be
+right for a stronger front-end. Splitting by backbone shows it is not what happens.
+
+\begin{itemize}
+  \item On \textbf{DA3-l}, which has no de-flicker stage, WAFT training \emph{helps}:
+    $0.2459\to0.2504$, $+0.0045$.
+  \item On \textbf{DA3-g without de-flicker}, it is neutral: $0.2246\to0.2228$, $-0.0018$.
+  \item On \textbf{DA3-g with de-flicker}, it appears to hurt: $0.2320\to0.2194$, $-0.0126$.
+\end{itemize}
+
+\noindent The difference is entirely in what the de-flicker stage contributes:
+%
+\[
+  \text{SEA-RAFT-trained: } 0.2246 \to 0.2320 \;(+0.0074), \qquad
+  \text{WAFT-trained: } 0.2228 \to 0.2211 \;(-0.0017).
+\]
+%
+The stage is worth $+0.0074$ when the refiner is trained on SEA-RAFT and nothing at all when it is
+trained on WAFT. It is not harming the pipeline --- removing it entirely (v62) recovers only
+$+0.0017$ --- it has stopped working, and the contribution it used to make is what the $-0.0126$ is
+made of.
+
+A direct measurement of the stage agrees. Run on identical inputs, its per-frame log-scale output is
+$0.0006$ in the WAFT-trained model against $0.0191$ in v45, a thirty-fold reduction: a zero-initialised
+head that has stayed at zero.
+
+\paragraph{A candidate mechanism, not yet established.} The de-flicker estimates one scalar per frame
+by aggregating over the points marked \emph{visible} in that frame. WAFT declares $68.5\%$ of
+point-frames visible against SEA-RAFT's $85.6\%$ --- and is far more accurate in doing so, agreeing
+with ground truth $97.0\%$ of the time against $79.3\%$. The aggregate is therefore built from about
+a fifth fewer points, which is the condition under which a zero-initialised head learns to stay near
+zero. This is consistent with every measurement here but has not been tested.
+
+\subsubsection{The cause: the cached-track path silently removes an augmentation the live path applies}
+\label{sec:waft-aug-asymmetry}
+
+The reasoning that found this is worth stating first, because it is what made the search finite.
+\emph{At evaluation both models receive the same WAFT input.} The evaluation front-end, its
+positions and its visibility flags are byte-identical for v45 and v59; only the weights differ. So
+no property of WAFT at inference can explain the gap, and every candidate that lived at evaluation
+time --- the track files, the depth distribution, visibility, flicker --- was eliminated in turn
+(\S\ref{sec:waft-eliminated}). What remains is training. And a model trained on the \emph{matched}
+front-end cannot legitimately lose to one trained on a \emph{mismatched} one; if it does, the
+training procedures were not equivalent.
+
+\paragraph{The models disagree about which data is hard.} Running both checkpoints over
+\emph{training} clips, on identical batches, gives the opposite ranking to minival:
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+model & 3-D error on \emph{training} clips & mean metric-AJ on minival \\
+\midrule
+v45 (SEA-RAFT-trained) & $0.8585$\,m & $\mathbf{0.2320}$ \\
+v59 (WAFT-trained)     & $\mathbf{0.7034}$\,m & $0.2194$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent v59 is markedly better on the data it was trained on and worse on data it has not seen.
+That is overfitting, and it points at the training procedure rather than at the front-end.
+
+\paragraph{Where the procedures diverge.} Training runs with \texttt{augment=True}, which applies a
+photometric jitter --- brightness and contrast each drawn from $[0.7,1.3]$ --- to the window's
+images. Both arms receive those recoloured images for the DINOv3 appearance feature. The 2-D track
+is where they part:
+
+\begin{itemize}
+  \item The \textbf{SEA-RAFT} branch runs \texttt{track\_clip} on \texttt{batch.images}, i.e.\ on
+    the \emph{recoloured} frames, at every step. A different colour draw yields a slightly different
+    flow field and therefore a slightly different tracked position.
+  \item The \textbf{WAFT} branch reads a track computed once, offline, from the \emph{original}
+    frames. Recolouring an image today cannot alter a number already written to disk.
+\end{itemize}
+
+\noindent Measured on the same window and the same queries, with only the photometric draw changed:
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+front-end & median $|\Delta \mathbf{u}|$ & mean & p90 & unchanged \\
+\midrule
+SEA-RAFT & $0.1395$\,px & $1.3003$\,px & $4.0565$\,px & $12.5\%$ \\
+WAFT (cached) & $0.0000$ & $0.0000$ & $0.0000$ & $\mathbf{100\%}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The SEA-RAFT arm therefore trains against a 2-D input that is resampled every epoch, and
+the WAFT arm against one that is byte-identical across all $20\,000$ steps. Input noise resampled
+each pass is a regulariser; the cached path removes it.
+
+Nobody wrote that regulariser deliberately. Photometric augmentation exists to vary
+\emph{appearance}; the jitter in the tracked coordinates is a side effect of recomputing flow on
+altered images, and the tell is that the cached path has no equivalent --- had the coordinate jitter
+been a designed part of training, the cached path would have needed its own version of it. The
+consequence is that ``SEA-RAFT-trained'' and ``WAFT-trained'' were never the same experiment with one
+variable changed.
+
+\paragraph{Why not simply add random jitter to the cached tracks.} It would reproduce the
+\emph{symptom} --- input that moves each epoch --- without reproducing its cause, and the two are not
+the same distribution: the flow's response to a colour change is structured, concentrated where the
+image is low-contrast, and correlated along a track, whereas independent Gaussian noise is none of
+those. The comparison being made here is between two front-ends under one protocol, so the protocol
+has to match in mechanism, not merely in variance.
+
+\paragraph{The correction.} Setting \texttt{flow.source: waft\_live} runs WAFT inside the training
+loop on the augmented images, exactly as the SEA-RAFT path runs SEA-RAFT. It is a model swap rather
+than a new code path: both front-ends are consumed by the same \texttt{track\_clip}, so once the
+cache is out of the picture the flow network is the only difference between the two arms.
+
+The first version of this correction was itself misconfigured, in a way that took a reader's
+scepticism to expose, and \S\ref{sec:waft-matched-protocol} records what was wrong and what the arm
+measures once it is fixed.
+
+
+\subsubsection{Removing the cache exposed two further asymmetries, and only then does the arm measure the front-end}
+\label{sec:waft-matched-protocol}
+
+Running WAFT live removed the augmentation asymmetry of \S\ref{sec:waft-aug-asymmetry}, and in doing
+so made two others visible. Both had been present all along, hidden behind the cache; both made the
+two arms differ in something other than the flow network, which is the one thing the comparison is
+supposed to isolate.
+
+\paragraph{Resolution: each front-end was running at its own config's default.} Both wrappers take a
+base-2 exponent \texttt{scale} and apply it to the input images, \texttt{scale\_factor} $= 2^{\text{scale}}$,
+undoing it afterwards on both the flow field and the flow vectors. SEA-RAFT's
+\texttt{spring-M.json} sets $-1$; WAFT's \texttt{tar-c-t.json} sets $0$. Neither was ever passed
+explicitly; on a $896 \times 896$ input SEA-RAFT therefore ran at $448 \times 448$ and WAFT at the
+full $896 \times 896$:
+
+\begin{center}\small
+\begin{tabular}{lrrr}
+\toprule
+front-end & \texttt{scale} & runs at & ViT tokens \\
+\midrule
+SEA-RAFT (\texttt{spring-M})  & $-1$ & $448\times448$ & $1\,024$ \\
+WAFT (\texttt{tar-c-t})       & $0$  & $896\times896$ & $4\,096$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Four times the pixels and four times the tokens, into a backbone that is itself two Vision
+Transformers, and $1.9\times$ even WAFT's own $432 \times 960$ training resolution. This is what
+produced the claim, recorded here because it was wrong and was repeated more than once, that WAFT is
+roughly ten times heavier per step than SEA-RAFT. It is not a property of WAFT; it is a measurement
+of two different operating points. WAFT's own paper reports SEA-RAFT~(L) at $108$\,ms against
+WAFT-DAv2-a2 at $240$\,ms at matched iterations, and its headline ``up to $4.1\times$ faster'' is an
+accuracy-matched claim against other methods, not a latency claim against SEA-RAFT. With
+\texttt{flow.scale} set to $-1$ for both, the training rate rose from $3.9$ to $12.5$ steps per
+minute on the DA3-g arm, and on the lighter DA3-l arm WAFT runs at $40$ steps per minute, which is
+SEA-RAFT's own rate. Even the residual $3.2\times$ is therefore specific to the DA3-g
+configuration and does not generalise.
+
+\paragraph{Refinement steps: the config's value reached only one of the two.} The configs set
+\texttt{iters: 4}, which was passed to SEA-RAFT and not to WAFT, leaving WAFT on
+\texttt{tar-c-t.json}'s default of $5$. The WAFT arm was therefore given $25\%$ more refinement than
+the baseline it was being measured against. \texttt{flow.iters} now reaches whichever front-end
+\texttt{flow.source} selects.
+
+\paragraph{The evaluator could not run WAFT at all, which is why a cache existed anywhere.} Caching
+was never a protocol decision; \texttt{eval\_metric3d} had no WAFT path, and the cache was the way
+around that. Regenerating it at the corrected resolution would only have relocated the defect, since
+nothing checks a cache against what training saw. The evaluator now builds WAFT through the same
+\texttt{build\_flow} and consumes it through the same \texttt{track\_clip} as SEA-RAFT, running it
+live on the evaluation frames, and reads \texttt{flow.source}, \texttt{flow.scale} and
+\texttt{flow.iters} from the \texttt{cfg.json} written beside the checkpoint. A run is therefore
+scored with the front-end it was trained with, at the same resolution and iteration count, without
+anyone having to remember to say so.
+
+\paragraph{A protocol defect introduced by editing the code mid-run.} The \texttt{flow.iters}
+plumbing landed while the DA3-g arm was training. Training had started before it and therefore used $5$;
+the evaluation at the end of the same job started afterwards, read the config, and used $4$. The
+run's \texttt{cfg.json} recorded $4$ --- the intention, not the run. It has been corrected to $5$
+with a note, and the arm re-evaluated consistently. The difference turned out to be immaterial,
+which is worth recording alongside the defect: \texttt{drivetrack} $0.1628 \to 0.1631$,
+\texttt{pstudio} $0.2032 \to 0.2027$, \texttt{adt} $0.3053 \to 0.3056$, and the mean unchanged at
+$0.2238$. The mismatched run is kept rather than deleted.
+
+\paragraph{What the corrected arm measures.} With WAFT live on both sides at
+\texttt{scale}~$=-1$, over all $25\,814$ frames with no failures:
+
+\begin{center}\small
+\begin{tabular}{lccc}
+\toprule
+DA3-g $+$ de-flicker $+$ VSSD-2pool & flow at train & flow at eval & mean metric-AJ \\
+\midrule
+v60 & WAFT cached, full-res & WAFT cached, full-res & $0.2211$ \\
+v63 & WAFT live, half-res   & WAFT live, half-res   & $\mathbf{0.2238}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Removing the cache is worth $+0.0027$ on this arm. That is a small gain, and smaller than the
+$-0.0126$ the cached WAFT arms had fallen behind by; the augmentation asymmetry of
+\S\ref{sec:waft-aug-asymmetry} therefore accounts for part of that gap but not all of it.
+
+\paragraph{Every arm, with the resolution each front-end actually ran at.} Resolution is the column
+that reconciles the results, and it was absent from every earlier version of this comparison. A
+\texttt{scale} of $0$ means the flow network saw the full $896 \times 896$ input; $-1$ means it saw
+$448 \times 448$, a quarter of the pixels. At evaluation time there is no augmentation; a cached
+track and a live run at the same scale and iteration count are therefore the same thing --- ``cached'' matters
+only on the training side, where the images are augmented and the cache is not recomputed.
+
+\begin{center}\small
+\begin{tabular}{llccll r}
+\toprule
+& & & & \multicolumn{1}{c}{train flow} & \multicolumn{1}{c}{eval flow} & \\
+arm & depth & pools & de-fl. & \multicolumn{1}{c}{net / res / iters} & \multicolumn{1}{c}{net / res / iters} & mean \\
+\midrule
+v39 & DA3-l & 1 & ---  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $0.2458$ \\
+v57 & DA3-l & 1 & ---  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2504$ \\
+v58 & DA3-l & 2 & ---  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2507$ \\
+v51 & DA3-l & 2 & ---  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $\mathbf{0.2560}$ \\
+v50 & DA3-l & 2 & ---  & SEA-RAFT $\;448\;$ i4 live   & SEA-RAFT $\;448\;$ i4 & $0.2350$ \\
+v64 & DA3-l & 2 & ---  & WAFT $\;448\;$ i4 live       & WAFT $\;448\;$ i4 & $0.2547$ \\
+\midrule
+v42 & DA3-g & 1 & no   & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $0.2246$ \\
+v45 & DA3-g & 1 & yes  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $\mathbf{0.2320}$ \\
+v59 & DA3-g & 1 & yes  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2194$ \\
+v60 & DA3-g & 2 & yes  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2211$ \\
+v62 & DA3-g & 2 & no   & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2228$ \\
+v63 & DA3-g & 2 & yes  & WAFT $\;448\;$ i5 live       & WAFT $\;448\;$ i5 & $0.2238$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{What the table shows once resolution is visible.} Three separate effects had been
+running together, and each is isolated by holding the other columns fixed.
+
+\emph{Cached versus live training, at one resolution and one network.} This is the augmentation
+asymmetry of \S\ref{sec:waft-aug-asymmetry}, and it is worth a few thousandths:
+
+\begin{center}\small
+\begin{tabular}{lccc}
+\toprule
+& cached training & live training & $\Delta$ \\
+\midrule
+DA3-l, 2 pools, eval $448$              & v58$^{\dagger}$ $0.2507$ & v64 $0.2547$ & $+0.0040$ \\
+DA3-g, 2 pools, de-flicker, eval $448$  & v60$^{\dagger}$ $0.2211$ & v63 $0.2238$ & $+0.0027$ \\
+\bottomrule
+\end{tabular}
+\\[2pt]
+{\footnotesize $^{\dagger}$Evaluated at $896$ rather than $448$. These two rows are therefore not a clean
+isolation either; they bound the effect rather than measure it exactly.}
+\end{center}
+
+\emph{Evaluation resolution.} Every arm scored at $896$ sits above the comparable arm scored at
+$448$, and this is the comparison that had been hidden. v64 reaches $0.2547$ against v51's
+$0.2560$. However, v64 is scored from a $448$ front-end and v51 from an $896$ one, which means
+v64 is not merely behind: it is behind while being handicapped in a way the earlier tables did not
+show.
+
+\emph{The evaluation front-end is not a free choice.} v50 and v51 are the \emph{same trained model},
+differing only in what scored it: SEA-RAFT at $448$ gives $0.2350$, WAFT at $896$ gives $0.2560$.
+That $+0.0210$ is the evaluation front-end alone, with training held fixed --- larger than any
+training-side effect measured anywhere in this investigation.
+
+\paragraph{A comparison I drew and had to withdraw.} v64 was reported here as beating v50 and hence
+as showing WAFT the better front-end. That is wrong, and the table above is what makes it obvious:
+v50 is scored with SEA-RAFT at $448$, the weakest evaluation in the table; beating it therefore
+says nothing. The standing best is v51 at $0.2560$, and v64 is below it. The pairing was chosen because
+both arms were live at one resolution, which made it look like the controlled comparison; the
+control it lacked was the evaluation front-end, which the previous version of this table did not
+have a column for.
+
+\paragraph{What is actually being asked, and the arms that answer it.} The best configuration known
+is SEA-RAFT-trained at $448$ and evaluated with WAFT at $896$. To displace it, a fully-WAFT arm has
+to be evaluated at $896$ too --- otherwise it is competing from a weaker front-end. v65 and v66
+therefore run WAFT live at $896$ on both sides, everything else held to v64 and v63 respectively:
+
+\begin{center}\small
+\begin{tabular}{lllc}
+\toprule
+arm & configuration & train/eval flow & target \\
+\midrule
+v65 & DA3-l, 2 pools               & WAFT $896$ i4 live, both sides & v51 $0.2560$ \\
+v66 & DA3-g, 2 pools, de-flicker   & WAFT $896$ i4 live, both sides & v45 $0.2320$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent These cost four times the pixels of the $448$ arms, whose measured training rates were
+$40$ steps per minute on DA3-l and $12.5$ on DA3-g. Until they land, the honest statement is that no
+fully-WAFT arm has yet been evaluated at the resolution the best result uses, and therefore that
+nothing here shows WAFT beating SEA-RAFT as a front-end.
+
+\paragraph{Half-resolution WAFT really is the weaker front-end, measured directly.} The claim that
+the $448$ arms are handicapped should not rest on the metric-AJ gap it is meant to explain, and was
+therefore measured on the front-end alone: WAFT's 2-D track error against ground truth, no refiner and no
+depth involved, on a balanced sample of twelve minival clips. Ground truth comes from projecting
+each clip's \texttt{tracks\_XYZ} with its own intrinsics, and only points the dataset marks visible
+at that frame are scored.
+
+\begin{center}\small
+\begin{tabular}{lrrr}
+\toprule
+& \multicolumn{1}{c}{$896$ (scale $0$)} & \multicolumn{1}{c}{$448$ (scale $-1$)} & \multicolumn{1}{c}{$\Delta$} \\
+\midrule
+median 2-D error over clips & $3.12$\,px & $3.60$\,px & $+0.49$\,px \\
+relative degradation        & ---        & $+15.7\%$  & \\
+clips where $448$ is worse  & ---        & $12/12$    & \\
+worst single clip           & $39.55$\,px & $57.97$\,px & $+18.42$\,px \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Every clip degrades, which makes this a property of the resolution rather than a few unlucky
+sequences,
+and the degradation is worst exactly where tracking is already hardest: the two \texttt{drivetrack}
+clips with errors in the tens of pixels lose $5.60$ and $18.42$\,px, against roughly a pixel on the
+well-behaved clips. An arm evaluated at $448$ is therefore fed a measurably worse 2-D track than one
+evaluated at $896$, before its refiner sees anything. This is what disqualifies the v64-versus-v51
+comparison, and it is independent of anything about training.
+
+\paragraph{The refiner must be VSSD-2pool on both sides of any comparison.} Two pools is the better
+refiner and is what the pipeline uses. A comparison against a one-pool arm therefore understates
+the baseline rather than testing the front-end. This is satisfied on DA3-l and is not on DA3-g:
+
+\begin{center}\small
+\begin{tabular}{llcccl}
+\toprule
+comparison & configuration & pools match & res.\ match & baseline & status \\
+\midrule
+v65 vs.\ v51 & DA3-l                      & yes ($2$ vs.\ $2$) & yes ($896$) & $0.2560$ & valid \\
+v66 vs.\ v45 & DA3-g $+$ de-flicker       & \textbf{no} ($2$ vs.\ $1$) & yes ($896$) & $0.2320$ & not pool-matched \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent v45 is a one-pool arm, and no SEA-RAFT-trained DA3-g arm was ever built with two pools ---
+that configuration was deliberately not run, being of no interest on its own. \textbf{v65 against
+v51 is therefore the only comparison in this investigation that is matched on all four axes} --- flow network
+aside: same depth backbone, same pool count, same evaluation resolution, same iteration count, live
+on both sides. It is the one that decides the question. v66 measures whether full-resolution WAFT
+lifts the DA3-g arm above $0.2320$, which is worth knowing, though a win there would be confounded by
+the extra pool and could not be attributed to the front-end.
+
+\subsubsection{The rebuilt table: every row self-consistent}
+\label{sec:waft-rebuilt}
+
+Every arm below trains and evaluates with the same front-end, WAFT run live at
+\texttt{image\_size}~$896$, \texttt{scale}~$=-1$ and \texttt{iters}~$=4$, and every one uses
+VSSD-2pool where a refiner is present. The rows they replace were trained on SEA-RAFT tracks and
+scored on WAFT tracks.
+
+\begin{center}\small
+\begin{tabular}{lllrrr}
+\toprule
+arm & depth & configuration & paper & rebuilt & $\Delta$ \\
+\midrule
+v67 & DA3-l & vmamba3, one pool            & $0.246$ & $0.2485$ & $+0.0025$ \\
+v64 & DA3-l & vmamba3-2pool                & $0.256$ & $\mathbf{0.2547}$ & $-0.0013$ \\
+\midrule
+v68 & DA3-g & vmamba3-2pool                & $0.216$ & $0.2218$ & $+0.0058$ \\
+v70 & DA3-g & \quad $+$ per-frame scale head & $0.229$ & $0.2212$ & $-0.0078$ \\
+v69 & DA3-g & de-flicker, standalone       & $0.203$ & $0.1998$ & $-0.0032$ \\
+v63 & DA3-g & de-flicker $+$ vmamba3-2pool & $0.232$ & $0.2238$ & $-0.0082$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The correction was worth making and changed little.} Every row moves by less than
+$0.009$, and no ordering changes within either backbone: DA3-l with two pools remains the best
+configuration, and de-flicker alone remains harmful. The train/eval mismatch was therefore a real
+defect in how the numbers were produced rather than a distortion of what they say --- which is the
+outcome one hopes for but cannot assume, and is only knowable by rebuilding.
+
+\paragraph{VSSD-2pool, measured with one variable changed.} v67 and v64 differ in
+\texttt{two\_pool} and nothing else --- same depth backbone, same front-end, same resolution,
+same iteration count, live on both sides:
+
+\begin{center}\small
+\begin{tabular}{lc}
+\toprule
+DA3-l refiner & mean metric-AJ \\
+\midrule
+one pool               & $0.2485$ \\
+VSSD-2pool             & $\mathbf{0.2547}$ \\
+\midrule
+gain from the second pool & $+0.0062$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The per-frame scale head does nothing at two pools.} Against v68, which differs only in
+that head, the mean moves $0.2218 \to 0.2212$, i.e.\ $-0.0007$. On a single seed that is not a
+demonstrated regression; the honest reading is no measurable effect. It is consistent with the
+de-flicker stage being what addresses DA3-g's per-frame scale drift, and it means the scale head
+should be reported for completeness rather than as a contribution. Note that the paper's $0.229$ for
+this row was a one-pool arm, so the $-0.0078$ against it is confounded by the pool change; the v68
+comparison is the clean one.
+
+\paragraph{One conclusion did change, and it is in the paper's DA3-g table.} With the DA3-g rows
+rebuilt, the best DA3-g configuration ($0.2238$) now sits \emph{below} DELTA$+$DA3-g ($0.227$),
+where the previous $0.232$ sat above it. The paper's claim that our DA3-g pipeline leads the
+external DA3-g methods does not survive, and has been withdrawn. The claim the DA3-g table exists to
+support --- that no DA3-g configuration reaches the DA3-l ceiling --- is unaffected.
+
+\subsubsection{Four hypotheses for the DA3-g gap, and what killed each}
+\label{sec:deflicker-signal}
+
+Under a self-consistent protocol the DA3-g arm reaches $0.2238$ (v63) against $0.2320$ for v45,
+which was trained on SEA-RAFT tracks and evaluated on WAFT ones. A model evaluated on the front-end
+it trained with should not lose to one that was not, so the gap was treated as a defect and
+searched for. It localises entirely in the de-flicker stage:
+
+\begin{center}\small
+\begin{tabular}{lccc}
+\toprule
+training front-end & no de-flicker & $+$ de-flicker & de-flicker's gain \\
+\midrule
+SEA-RAFT (v42 $\to$ v45)      & $0.2246$ & $0.2320$ & $+0.0074$ \\
+WAFT cached (v62 $\to$ v59)   & $0.2228$ & $0.2194$ & $-0.0034$ \\
+WAFT live (v68 $\to$ v63)     & $0.2218$ & $0.2238$ & $+0.0020$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Everything else in the pipeline matches; only what the de-flicker stage learns differs. Four
+explanations were proposed and each was measured rather than argued:
+
+\begin{center}\small
+\begin{tabular}{p{5.4cm}p{6.4cm}l}
+\toprule
+hypothesis & measurement & verdict \\
+\midrule
+The two arms were scored from different-quality tracks &
+Both cached track sets against ground truth, from disk: $-0.0014$ overall, medians identical at
+$0.743$\,m &
+dead \\
+WAFT training taught a weaker correction &
+The WAFT-trained de-flicker's weights are uniformly \emph{larger} ($\texttt{out.weight}$ $0.035$ vs
+$0.027$) &
+dead \\
+WAFT's track is too clean, so the stage trains on a weaker instability signal &
+Injected $2.72$\,px of AR(1) positional noise, derived to match SEA-RAFT's measured error. Result
+got \emph{worse}: $0.2238 \to 0.2200$ (v71) &
+dead \\
+WAFT's error is less \emph{structured}, so less of it is per-frame-correctable &
+Per-frame scale spread over 16 clips: SEA-RAFT $0.0294$, WAFT $0.0294$, ratio $0.998\times$ &
+dead \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{The noise result is worth keeping.} Adding positional noise pushed de-flicker's
+contribution negative again, $+0.0020 \to -0.0018$ against the same no-de-flicker baseline. The
+hypothesis predicted the opposite, so the mechanism is not that the stage needs a harder training
+signal. Recorded because the noise level was derived rather than guessed --- $\sqrt{5.20^2-4.10^2}
+= 3.20$\,px of displacement from the two front-ends' measured 2-D error, a per-component
+$\sigma$ of $2.72$\,px, verified back at $3.25$\,px median with AR(1) correlation $+0.90$ --- and it
+still failed, which makes it evidence rather than a failed guess.
+
+\subsubsection{What the search actually found: the stage is supervised by almost nothing}
+\label{sec:deflicker-supervision}
+
+The fourth measurement returned a number that reframes the question. Alongside the per-frame scale
+spread it reports the fraction of the depth error that a \emph{single per-frame scalar} can explain
+--- which is precisely and only what the de-flicker can remove, since it emits one scalar per frame
+and applies it to every point:
+
+\begin{center}\small
+\begin{tabular}{lcc}
+\toprule
+over 16 minival clips & SEA-RAFT sampling & WAFT sampling \\
+\midrule
+per-frame scale spread (std of log-scale over frames) & $0.0294$ & $0.0294$ \\
+fraction a per-frame scalar explains                  & $0.0025$ & $0.0055$ \\
+clips where that fraction exceeds $5\%$               & \multicolumn{2}{c}{$4/16$} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Roughly $99.5\%$ of the stage's gradient is noise from its own point of view.} There is
+no de-flicker-specific loss. The stage is trained only through the tracking loss,
+$L = vis\cdot|xyz_{\text{pred}}-xyz_{\text{gt}}|_1/\text{scale}_{\text{gt}} + \lambda_{uv}\,vis\,
+|\Delta uv|^2$, which sums per-point 3-D error over ${\sim}900$ points and $F$ frames. Of that
+error, $0.3$--$0.6\%$ is the per-frame-scalar component the stage can act on; the rest is per-point
+error it is architecturally incapable of changing.
+
+That explains the observations the four hypotheses could not. If the learning signal is
+overwhelmingly irrelevant, what the stage converges to is high-variance: v45's $+0.0074$ against
+v63's $+0.0020$ is then variance rather than mechanism, which is why no mechanism reproduced it;
+perturbing the front-end moves a noise-dominated optimisation unpredictably, in either direction;
+and injecting further noise made it worse because the signal was already noise-dominated.
+
+\paragraph{The stage also cannot see what it is meant to correct.}
+Fig.~\ref{fig:deflicker-coupling} traces its inputs. DA3-g's per-frame global scale drift is a
+property of the depth model --- the nested model re-fits a least-squares scalar independently each
+frame --- but the stage never reads the depth map. Its four inputs are the ray (from the flow's
+$uv$), the depth \emph{sampled at} that $uv$, the visibility from the flow's forward--backward
+check, and a normaliser taken from those same samples. It therefore observes a property of the
+depth model through a biased sample of $98$--$901$ points chosen by the tracker, which is what couples
+it to the front-end at all.
+
+\input{figs/fig_deflicker_coupling}
+
+\paragraph{The ceiling, and a correction to what the variance figure means.} The
+$0.3$--$0.6\%$ above is a share of log-error \emph{variance}, and it was briefly read here as
+meaning the stage had nothing to gain. Against the metric actually reported it means no such thing.
+Taking the per-frame scale from ground truth --- an oracle correction, the bound on every possible
+design of this stage --- gives:
+
+\begin{center}\small
+\begin{tabular}{lcccc}
+\toprule
+& as-is & $+$ per-clip constant & $+$ per-frame (full oracle) & flicker alone \\
+\midrule
+drivetrack & $0.0078$ & $0.2455$ & $0.3492$ & $+0.1037$ \\
+pstudio    & $0.2706$ & $0.5402$ & $0.5925$ & $+0.0522$ \\
+adt        & $0.4667$ & $0.5121$ & $0.5683$ & $+0.0561$ \\
+\midrule
+ALL        & $0.2484$ & $0.4326$ & $\mathbf{0.5033}$ & $\mathbf{+0.0707}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Variance-explained and a threshold-based metric are not interchangeable: a small systematic scale
+error moves points across fixed-metre thresholds while contributing little variance. The headroom is
+large, $+0.2549$ in total, and the stage delivers $+0.0020$ --- about $3\%$ of the flicker component
+alone. The gradient dilution is therefore a real loss rather than a reason to abandon the stage.
+
+\paragraph{The split says which problem is which.} Of that $+0.2549$, only $+0.0707$ is
+frame-to-frame wobble; $+0.1842$ is a per-clip \emph{constant} offset, which is a calibration
+problem and not flicker at all. The correction needed is dominated by that constant ($|$median$|$
+p50 $0.294$) rather than the wobble around it (p50 $0.027$), and the old stage's output bound of
+$0.5$ clipped $17.4\%$ of frames outright. The stage was therefore misnamed, under-ranged,
+unsupervised and fed through the tracker --- four separate defects, and \S\ref{sec:depth-scale-refiner} is what
+replaces it.
+
+\subsubsection{Mamba-3 depth scale refiner}
+\label{sec:depth-scale-refiner}
+
+\texttt{Mamba3DepthScaleRefiner} replaces the de-flicker stage. The temporal model, the bounded
+output and the zero-initialised head are unchanged; it remains an exact identity at
+initialisation and a strict add-on to the no-refiner baseline. Four things differ, one per defect:
+
+\begin{center}\small
+\begin{tabular}{p{4.2cm}p{4.6cm}p{4.6cm}}
+\toprule
+defect & evidence & change \\
+\midrule
+Trained only through per-point 3-D error; the one scalar it emits is a few percent of that &
+Delivers $+0.0020$ against a $+0.0707$ ceiling &
+$L_{\text{dsr}}$, a direct target from ground-truth depth \\
+Every input arrives through the flow &
+Couples it to the front-end; biased ${\sim}900$-point sample &
+Reads the depth map \\
+\texttt{max\_scale\_correction} $=0.5$ &
+Clips $17.4\%$ of frames; needed $|\Delta s|$ reaches $2.44$ &
+$2.5$, which clips none \\
+Named for frame-to-frame wobble &
+The constant term is $10\times$ larger at the median &
+Renamed; the per-frame scale is unconstrained \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Algorithm.} Per frame the depth map is taken in log space, pooled to $64\times64$,
+normalised by \emph{fixed} dataset constants and encoded by a small convolutional stack into one
+token. The token sequence goes through the same time-axis Mamba-3 as before, and a zero-initialised
+head emits $\Delta s_f = 2.5\tanh(\cdot)$, applied as $z = z_{\text{raw}}\exp(\Delta s_f)$ along the
+frozen ray.
+
+The normalisation constants are fixed rather than per-clip deliberately: subtracting a per-clip
+median would remove exactly the absolute-scale cue that predicting the constant offset depends on,
+and that offset is ten elevenths of the available gain.
+
+\paragraph{Loss.}
+\[
+  \Delta s^{*}_f = \mathrm{median}_{n \in \text{visible}}\!\left[\log z_{\text{gt}}(f,n) - \log
+  z_{\text{raw}}(f,n)\right], \qquad
+  L_{\text{dsr}} = \frac{\sum_f w_f\,|\Delta s_f - \Delta s^{*}_f|}{\sum_f w_f},
+\]
+added to the tracking loss as $\lambda_{\text{dsr}} L_{\text{dsr}}$. The median resists the handful
+of badly tracked points whose log-ratios are orders of magnitude out. The weight $w_f =
+\sqrt{n_{\text{visible}}(f)}$ follows the standard error of a median; an earlier version required
+eight visible points per frame and silently discarded every clip with fewer than eight
+\emph{tracks} in total, which was a third of batches and the small clips rather than the occluded
+ones.
+
+$\lambda_{\text{dsr}} = 1$ is a starting value, not a derived one: $L_{\text{dsr}}$ runs $0.05$ to
+$0.24$ on typical batches against a tracking loss of $0.01$ to $0.66$, which puts the two at the
+same order.
+It is the first thing to sweep if the arm disappoints.
+
+\subsubsection{Explanations that were proposed and eliminated}
+\label{sec:waft-eliminated}
+
+Recorded because each cost real time, and because the pattern --- a plausible mechanism supported by
+two measurements, then refuted by a third --- recurred often enough to be worth warning about.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+proposed cause & test & result \\
+\midrule
+evaluation tracks differ    & v45 re-scored on the new tracks & $0.2320\to0.2320$ \\
+2-D input quality           & both branches, identical batches & WAFT better, $0.69$ vs $0.80$\,px \\
+arms not comparable         & config diff, code equivalences   & no mechanism; $\sim$$5\times10^{-6}$ \\
+visibility gate erases input& GT visibility at inference       & closes part, not the gap \\
+depth distribution differs  & $z$ sampled at each uv           & identical; $z_{\mathrm{ref}}$ ratio $0.9998$ \\
+systematic scale bias       & end-to-end $\log(z/z^{*})$       & both $\approx1.018\times$ \\
+temporal flicker            & error variance across frames     & WAFT smoother, $0.79\times$ \\
+de-flicker actively harmful & v62, stage removed               & $+0.0017$ only \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The flicker test deserves its own note, since it was the closest structural analogy
+available: if WAFT were better per frame but noisier across frames, a per-track refiner mixing along
+time could not see or repair that, exactly as \S\ref{sec:v44} describes for DA3-g's depth scale.
+Measured on tracks visible through a whole $24$-frame window, WAFT's 2-D error is not only smaller
+but moves less between frames --- flicker $0.79\times$ and frame-to-frame jerk $0.74\times$
+SEA-RAFT's, against a ground-truth motion of $3.21$\,px per frame. The analogy does not hold. One
+gap remains in that test: it uses only never-occluded tracks, so flicker localised at occlusion
+boundaries, where the two front-ends disagree most, would not appear in it.
+
+\subsection{The depth-scale-refiner line (v72--v90)}
+\label{sec:dsr-line}
+
+Every arm here attacks one number: on DA3-g our best self-consistent 2-pool arm, v63, scores
+$0.2238$ absolute metric-AJ against DELTA's $0.2274$. The deficit is $0.0036$, and it is not spread
+across the benchmark.
+
+\subsubsection{The gap is adt, and only adt}
+\label{sec:dsr-where}
+
+\begin{center}\small
+\begin{tabular}{lrrr}
+\toprule
+subset & v63 (ours) & DELTA & gap \\
+\midrule
+drivetrack & $0.1631$ & $0.1641$ & $-0.0009$ \\
+pstudio    & $0.2027$ & $0.1936$ & $\mathbf{+0.0091}$ \\
+adt        & $0.3056$ & $0.3244$ & $\mathbf{-0.0188}$ \\
+\midrule
+mean       & $0.2238$ & $0.2274$ & $-0.0036$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+We already beat DELTA on pstudio and tie on drivetrack. Recovering $56\%$ of the adt gap would flip
+the mean. The oracle decomposition (\texttt{result/adt\_error.log}, APD3D after an oracle fix, so
+each column is a ceiling) says where the headroom is:
+
+\begin{center}\small
+\begin{tabular}{lrrrrr}
+\toprule
+subset & as-is & $+$bias & $+$scale & $+$GT ray & vis.\ agree \\
+\midrule
+drivetrack & $0.0078$ & $0.2455$ & $0.3492$ & $0.3953$ & $0.7828$ \\
+pstudio    & $0.2706$ & $0.5402$ & $0.5925$ & $0.6458$ & $0.6949$ \\
+adt        & $0.4667$ & $0.5121$ & $0.5683$ & $0.6124$ & $0.7849$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+v63 reaches $0.4837$ APD3D on adt against a per-frame-scale ceiling of $0.5683$, so $0.0846$ APD3D
+is unclaimed --- roughly $0.053$ metric-AJ on adt at the $\approx 0.63\times$ conversion, or
+$0.018$ on the mean. The gap to DELTA is $0.0036$. Capturing a fifth of what we already leave on
+adt would be enough, which is what motivated a scale estimator that reads the whole depth map
+(\S\ref{sec:depth-scale-refiner}) rather than only the tracked points.
+
+\subsubsection{The arms}
+\label{sec:dsr-arms}
+
+\begin{center}\small
+\begin{tabular}{llrrrrl}
+\toprule
+arm & configuration & dtrack & pstudio & adt & mean & status \\
+\midrule
+--     & DELTA DA3-g (target)               & $0.1641$ & $0.1936$ & $0.3244$ & $0.2274$ & baseline \\
+v63    & de-flicker $+$ v35, 20k            & $0.1631$ & $0.2027$ & $0.3056$ & $0.2238$ & \textbf{best clean} \\
+v84    & composite from scratch, step $1000$& $0.1541$ & $0.1940$ & $0.2810$ & $0.2097$ & contaminated \\
+v72    & scale refiner as the tracker       & $0.1430$ & $0.1958$ & $0.2787$ & $0.2058$ & clean \\
+v76    & composite from scratch             & $0.1411$ & $0.1988$ & $0.2707$ & $0.2035$ & contaminated \\
+v77    & v76 in metre space                 & $0.1160$ & $0.1979$ & $0.2862$ & $0.2000$ & contaminated \\
+v78a   & lr $3\mathrm{e}{-}5$               & $0.1371$ & $0.1916$ & $0.2647$ & $0.1978$ & contaminated \\
+v75    & warm start from v63                & $0.0983$ & $0.2005$ & $0.2724$ & $0.1904$ & duplicate of v76 \\
+v74    & scale refiner as preprocessing     & $0.1042$ & $0.1990$ & $0.2345$ & $0.1792$ & never loaded it \\
+v81    & lr $1\mathrm{e}{-}5$, no oversample& $0.0744$ & $0.1911$ & $0.2530$ & $0.1728$ & contaminated \\
+v82    & lr $3\mathrm{e}{-}6$, no oversample& $0.0010$ & $0.1596$ & $0.1339$ & $0.0982$ & contaminated \\
+\midrule
+\multicolumn{7}{l}{\emph{swap: the scale refiner replaces the de-flicker (buggy stage 1)}}\\
+v87\,ws& untrained                          & $0.1590$ & $0.0642$ & $0.1322$ & $0.1184$ & \\
+v87a   & stage 1 frozen, v35 adapts         & $0.1447$ & $0.2017$ & $0.2359$ & $0.1941$ & \\
+v87b   & both joint                         & $0.1532$ & $0.2102$ & $0.2793$ & $0.2142$ & \\
+\midrule
+\multicolumn{7}{l}{\emph{reference points}}\\
+v88\,ws& add behind a zero gate ($\equiv$ v63)& $0.1628$ & $0.2032$ & $0.3053$ & $0.2238$ & \\
+v89$^{-}$& scale refiner alone, buggy stage 1& $0.1398$ & $0.1450$ & $0.1456$ & $0.1435$ & see \S\ref{sec:dsr-target} \\
+--     & untrained composite                & $0.0006$ & $0.1427$ & $0.1094$ & $0.0843$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Nothing in this line beats v63. Most of it cannot be interpreted at all, for four separate reasons.
+
+\subsubsection{Defect 1: a DA3-l-trained stage fed DA3-g depth}
+\label{sec:dsr-contam}
+
+Every composite from v73 to v85 loads \texttt{model.scale\_init} pointing at a scale refiner trained
+by \texttt{train\_scale\_standalone.py}, which read \texttt{DA3\_ROOT} --- hardcoded to DA3-l. The
+tracker itself reads DA3-g. \texttt{doc/plan\_da3g\_reeval.md} had already excluded exactly this for
+the DA3-l-trained refiners v33/v35/v39, on the grounds that feeding them DA3-g zero-shot ``only
+shows the over-correction collapse''. It was reintroduced anyway, because nothing enforced it.
+
+Only v63, v72 and the v88 warm start are free of it.
+
+\subsubsection{Defect 2: the scale refiner was trained against another dataset's error}
+\label{sec:dsr-target}
+
+\texttt{build\_cache} computed its regression target as
+$r=\log z_{\mathrm{gt}}-\log z_{\mathrm{pr}}$, where $z_{\mathrm{pr}}$ is the \emph{WAFT
+prediction's} own $z$. That prediction set was unprojected with DA3-l depth, while the model's input
+is the DA3-g map. The refiner therefore learned to read a DA3-g map and emit the DA3-l correction.
+DA3-l under-estimates drivetrack depth ($\approx 0.55\times$) so its correction is positive; DA3-g
+over-estimates and needs a negative one. Measured on minival, against its own target
+$ds^{*}=\mathrm{median}_n[\log z_{\mathrm{gt}}-\log z_{\mathrm{raw}}]$:
+
+\begin{center}\small
+\begin{tabular}{lrrrrr}
+\toprule
+subset & $|ds^{*}|$ before & after & change & true $ds^{*}$ & predicted \\
+\midrule
+drivetrack & $0.0879$ & $0.5725$ & $+551.3\%$ & $+0.014$ & $+0.586$ \\
+pstudio    & $0.2393$ & $0.2536$ & $+6.0\%$   & $+0.231$ & $+0.250$ \\
+adt        & $0.0726$ & $0.0676$ & $-6.8\%$   & $+0.035$ & $+0.009$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The failure is a gross \emph{over-correction}, not an inverted sign: on drivetrack the stage emits
+$+0.586$ where the truth is $+0.014$, roughly forty times too large, because $+0.586$ is the
+correction DA3-\emph{l} needs. It therefore worsens the very quantity it exists to fix.
+This explains the whole downstream pattern at once: v89$^{-}$ (the stage alone) scores $0.1435$
+where applying no correction scores $0.208$; substituting it for the de-flicker peaks at $0.2142$;
+and when the same stage is added behind a learnable gate the optimiser drives that gate
+\emph{negative} ($-0.0054$ after $500$ steps), an attempt to shrink a signal that is too large.
+
+Retraining against the correct target exposes the deeper point. The error to be fixed is half what
+the buggy target implied --- emitting zero costs $0.1632$ on DA3-g against $0.3260$ on the DA3-l
+residual --- and of that, the model recovers only $2.3\%$, against $73.3\%$ before. The per-frame
+scale error on DA3-g is both small and largely \emph{unpredictable from the depth map}. The premise
+of the module holds on DA3-l, whose $\approx 0.55\times$ far-field bias is a large systematic
+signal, and very nearly fails on DA3-g.
+
+Two lessons. A module's own training objective is not evidence that it helps: the $73.3\%$ was
+honest and meaningless. And a diagnostic is only as good as its calibration --- an earlier version
+of this measurement used invented intrinsics ($f_x=f_y=500$, principal point at the image centre)
+and reported a true $ds^{*}$ of $-0.927$ on drivetrack, which made the defect look like a sign
+inversion. With the clip's real \texttt{fx\_fy\_cx\_cy} the truth is $+0.014$.
+\texttt{scripts/check\_scale\_on\_minival.py} now uses the recorded intrinsics and reports signed
+means alongside the error, so both the magnitude and the direction are visible.
+
+\subsubsection{Defect 3: the validation signal measured nothing}
+\label{sec:dsr-val}
+
+Two independent faults, both in the monitoring path:
+
+\begin{itemize}
+\item \texttt{val\_clips} was sampled \emph{from} \texttt{train\_clips} and \texttt{train\_clips} was
+never reduced, so the ``VAL'' loss was a training loss on training clips.
+\item \texttt{TAPVid3DDataset} redraws a random temporal window and a random query subset on every
+\texttt{\_\_getitem\_\_}; \texttt{augment=False} disables only photometric augmentation. Consecutive
+validation passes therefore measured different data.
+\end{itemize}
+
+The second dominates. v82, at $\mathrm{lr}=3\mathrm{e}{-}6$ where the weights barely move, produced
+validation values spanning $0.49$ to $1.14$ --- a $2.3\times$ noise floor at an essentially fixed
+model. Every curve comparison in v73--v82 was smaller than that. Both are fixed
+(\texttt{data.split.holdout\_val}, and the dataset RNG re-seeded per validation pass), and
+\texttt{train.val\_at\_step0} now records each run's own starting point.
+
+With a correct signal the loss behaves: v84 went from validation $0.5615$ / metric-AJ $0.0843$ at
+step $0$ to $0.1197$ / $0.2097$ at step $1000$ --- both moving together, which is what undertraining
+looks like and what the broken signal had made impossible to see.
+
+\subsubsection{Defect 4: three settings that silently did nothing}
+\label{sec:dsr-noop}
+
+\begin{itemize}
+\item \texttt{train.init\_ckpt} was read only from a \texttt{--init-ckpt} CLI flag. v75 set it in
+YAML, trained without it, and silently became a duplicate of v76 --- their validation matches to
+four decimals. The run's \texttt{cfg.json} recorded the warm start that never happened.
+\item \texttt{model.freeze\_scale} lived inside the \texttt{scale\_init} branch, so an arm
+warm-started through \texttt{init\_ckpt} was never frozen while the log implied it was.
+\item The best-checkpoint save was gated on \texttt{early\_stop\_patience > 0}, and
+\texttt{\_save\_ckpt} prunes all but the newest checkpoint, so the best point on a curve was
+unrecoverable. v78a's step-$750$ weights, its best, were lost this way.
+\end{itemize}
+
+All three are now read from the config and applied however the weights arrived, and the best
+checkpoint is saved unconditionally.
+
+\subsubsection{Substituting the de-flicker, and adding it}
+\label{sec:dsr-swap}
+
+The de-flicker and the depth-scale refiner are duplicates: both \texttt{per\_frame\_logscale}
+methods return one bounded $(B,F,1)$ log-scale per frame, the first from the tracked points, the
+second from the whole depth map. Two stages estimating the same quantity is not a pipeline, so the
+scale refiner replaces the de-flicker.
+
+Measured with the buggy stage 1, substitution is expensive: untrained it costs pstudio
+$0.2027\!\to\!0.0642$ and adt $0.3056\!\to\!0.1322$. Freezing stage 1 and re-adapting v35 recovers
+pstudio entirely ($0.2017$) but only $77\%$ of adt, and \emph{loses} drivetrack
+($0.1590\!\to\!0.1447$); unfreezing reaches $0.2142$, still short of v63.
+
+As a control, \texttt{Mamba3V88} \emph{adds} the stage to v63 behind a zero-initialised gate, so
+$ds=\mathrm{gate}\cdot ds_{\mathrm{scale}}+ds_{\mathrm{deflicker}}$ and the model is numerically
+identical to \texttt{Mamba3V45} at initialisation --- verified directly,
+$\max|xyz_{V45}-xyz_{V88}|=0$. Its warm start scores $0.2238$, reproducing v63 to four decimals and
+confirming both the identity and that the iters-4/5 protocol difference is below $0.001$.
+
+\subsubsection{v89 and v90: the line rerun on a corrected stage 1}
+\label{sec:dsr-v8990}
+
+With defect 2 fixed --- the target is now the residual against DA3-g depth sampled at the WAFT $uv$,
+and the cache key carries a \texttt{TARGET\_VERSION} so the old targets cannot be reused --- the
+two arms that matter are rebuilt and renumbered, because a corrected stage 1 makes them different
+models rather than reruns:
+
+\begin{center}\small
+\begin{tabular}{ll}
+\toprule
+arm & configuration \\
+\midrule
+v89   & the corrected DA3-g scale refiner \emph{alone} (stage 2 zero-init, i.e.\ the identity) \\
+v90a  & WAFT $+$ (DA3-g $+$ v89's refiner) $+$ vmamba3-2pool, stage 1 frozen \\
+v90b  & the same, both stages joint, continued from v90a's best \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+v89 isolates what the depth-scale stage contributes by itself, against two references on the same
+protocol: no correction at all is $0.208$, and the same arm with the \emph{buggy} stage 1 scored
+$0.1435$ --- worse than doing nothing, which is what exposed the over-correction. The corrected
+stage 1 clears the gate at $2/3$ subsets improved (pstudio $-4.7\%$, adt $-9.4\%$, drivetrack
+$+4.1\%$), and \textbf{v89 scores $0.2100$} (drivetrack $0.1496$, pstudio $0.1807$, adt $0.2996$)
+--- recovering $+0.0665$ over v89$^{-}$ and landing marginally above the $0.208$ that no correction
+gives. Its predictions are nearly constant at $+0.016$ and it removes only $2.3\%$ of the DA3-g
+scale error, so this is a correct module measuring a genuinely small effect, not a broken one. That
+also bounds what v90 can gain from stage 1: the de-flicker and v35 together add $+0.016$ over no
+correction, of which stage 1 here contributes about $+0.002$. v90 is the swap:
+stage 1 replaces the de-flicker, stage 2 is warm-started from v63's v35.
+
+Two gates run before any training, because the previous attempt failed silently in exactly these
+two places. First, stage 1 must reduce the minival scale error on at least two of three subsets ---
+its own held-out objective is explicitly not accepted as evidence, having improved $73.3\%$ while
+inverting the sign. Second, the untrained v90 warm start must beat $0.15$, the buggy arm having
+scored $0.1184$ there. Either gate failing stops the run rather than spending hours on a stage that
+worsens the quantity it exists to fix.
+
+\subsubsection{One registry for the depth choice}
+\label{sec:dsr-registry}
+
+The DA3-l/DA3-g choice was made four ways --- a \texttt{DA3\_ROOT} env var, a
+\texttt{--da3-depth-root} flag, a \texttt{data.da3\_depth\_root} key, and hardcoded paths --- with
+the loader copy-pasted into six scripts, fourteen scripts defaulting to DA3-l silently, and no
+derived artifact recording which depth produced it. That is what allowed defects 1 and 2, and what
+made both invisible.
+
+The choice now lives in one module, \texttt{mamba3\_tracker/data/depth\_source.py}: one
+registry, one loader; \texttt{resolve()} identifies a raw path instead of trusting it, \texttt{stamp()} writes provenance
+beside an artifact and \texttt{verify()} refuses a mismatch. Verification is deliberately
+use-dependent --- a track's $uv$ is invariant to scaling along the ray (verified,
+$\max|\Delta uv| = 2.3\mathrm{e}{-}13$), so a DA3-l track set is a valid $uv$ source for a DA3-g
+run, while its $z$ is not. All seven existing WAFT caches are retro-stamped \texttt{da3l}.
+
+% Force all deferred floats before the bibliography
+\clearpage
+% =====================================================================
+\bibliographystyle{unsrt}
+\bibliography{refs}
+
+
+\subsection{Where the adt gap to DELTA actually is (v91)}
+\label{sec:adt-gap}
+adt is the subset to attack. It is where the DA3-g deficit lives ($-0.0182$ metric-AJ against
+DELTA$+$DA3-g), and on pstudio we are already ahead by $+0.0159$. Splitting adt's 50 clips into the
+two things metric-AJ multiplies together --- how close the predicted point is, and whether it is
+called visible --- shows they point in opposite directions.
+
+\begin{figure*}[!tb]
+\centering
+\includegraphics[width=\textwidth]{figs/adt_gap.png}
+\caption{\textbf{adt, 50 clips, v91 against DELTA$+$DA3-g, paired per clip.} Points above the
+diagonal are clips where we are better (below, for the error panel). Our 3D positions are the
+closer ones on two thirds of clips --- points within threshold on $33/50$, median error on $32/50$
+--- and metric-AJ is still worse on $34/50$, because occlusion accuracy is worse on $41/50$. The
+deficit is entirely in the visibility channel.}
+\label{fig:adt-gap}
+\end{figure*}
+
+\begin{table}[h]
+\centering
+\caption{adt, mean over 50 clips. Every position measure favours us; the headline does not.}
+\label{tab:adt-split}
+\begin{tabular}{lccc}
+\toprule
+ & DELTA$+$DA3-g & v91 & \\
+\midrule
+points within threshold      & 0.4688 & \textbf{0.4831} & we win, 33/50 clips \\
+median 3D error (m)          & 0.2406 & \textbf{0.2037} & we win, 32/50 clips \\
+mean 3D error (m)            & 0.6844 & \textbf{0.3911} & we win by a wide margin \\
+occlusion accuracy           & \textbf{0.8257} & 0.7849 & we lose, 41/50 clips \\
+\midrule
+\textbf{metric-AJ}           & \textbf{0.3244} & 0.3062 & we lose \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The visibility we are scored on was never predicted.}
+\texttt{eval\_metric3d.py} returns the visibility it was handed, which is the optical-flow
+front-end's forward--backward consistency mask. It is not learned and not refined; the refiner's own
+\texttt{vis\_logits} were a zero placeholder that nothing consumed. DELTA predicts visibility.
+
+\paragraph{What the channel is worth.}
+Scoring the \emph{same} predicted positions against ground-truth visibility
+(\texttt{-{}-oracle-vis}; a ceiling, not a result) gives the following. Points-within-threshold is
+unchanged to four decimals, so the positions really are identical and the whole difference is the
+visibility channel.
+
+\begin{table}[h]
+\centering
+\caption{adt with the visibility channel replaced by an oracle. The gap to DELTA is $0.0196$; the
+channel is worth $+0.1146$, six times that.}
+\label{tab:adt-oracle}
+\begin{tabular}{lccc}
+\toprule
+adt & metric-AJ & pts within thresh & occlusion acc. \\
+\midrule
+DELTA$+$DA3-g               & 0.3244 & 0.4688 & 0.8257 \\
+v91, flow visibility        & 0.3048 & 0.4831 & 0.7846 \\
+v91, \emph{oracle} visibility & \textbf{0.4194} & 0.4829 & 1.0000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Why the visibility head could not be trained as the pipeline stands}
+\label{sec:vis-head-blocked}
+Adding a zero-initialised \texttt{vis\_head} to the v35 refiner, freezing everything else, and
+supervising it with a BCE against ground-truth visibility is a four-tensor change and was
+implemented (v92). It cannot learn, for a reason that turned out to matter far more than the head:
+
+\begin{quote}
+\textbf{The training batches do not contain the supervision the configuration asks for.} With
+\texttt{num\_tracks: 256} and an $8$-frame window, the median number of tracks actually supervised
+per item is \textbf{8} on pstudio, \textbf{8} on adt and \textbf{35} on drivetrack, with a minimum
+of \textbf{3}.
+\end{quote}
+
+The cause is in \texttt{TAPVid3DDataset.\_\_getitem\_\_}: after a random $8$-frame window is cropped
+from a $300$-frame clip, only queries whose \emph{anchor frame} falls inside that window are kept.
+Roughly $8/300$ of them do. Every optimiser step is therefore supervised by about $8\times8 = 64$
+point-observations rather than the $256\times8 = 2048$ the config specifies --- about $3\%$.
+
+This is the most plausible explanation yet for the three findings that preceded it, and it sits
+upstream of all of them:
+\begin{itemize}
+  \item the per-clip loss CV of $2.7$ --- a mean over $\sim$8 points is bound to
+        be violently noisy;
+  \item v91d's training-loss slope of $-0.00025\pm0.00257$ per 100 steps over 4244 clips, i.e.\ no
+        measurable learning at any rate from $5\times10^{-6}$ to $5\times10^{-4}$;
+  \item and directly for the head at hand, $38$--$62\%$ of items have \emph{every} point visible,
+        so the visibility BCE starts at $-\log(1-\epsilon)\approx0.001$ with no negatives to learn
+        from. That is exactly what v92 printed at step 0.
+\end{itemize}
+
+The fix is a data change, not a model one: re-anchor every query to the sampled window (the branch
+that already runs when \emph{no} anchor falls inside it), or sample the window around a query's
+anchor. It changes what every previous number in this report means, so it is recorded here rather
+than applied.
+
+
 \subsection{The visibility head (v92)}
 \label{sec:vis-head}
 Every metric-AJ number in this report is scored with a visibility that was never predicted.
@@ -2316,6 +3555,214 @@ unclaimed.
 
 \input{figs/fig_vis_head}
 
+\subsection{v93/v93b: the DA3-g arm that reaches DELTA, and what produced it}
+\label{sec:v93}
+This is where the DA3-g line stops. \textbf{v93b matches DELTA$+$DA3-g on absolute metric-AJ}
+($0.22744$ against $0.22737$), and the entire gain comes from one repair to the training data
+sampler --- not from the optimiser, the loss, or the architecture, all of which were tried and
+excluded first.
+
+\subsubsection{Protocol}
+\paragraph{Architecture.} WAFT $+$ (DA3-g $+$ Mamba-3 depth scale refiner) $+$ vmamba3-2pool,
+the \texttt{v73} composite. Stage~2 carries \emph{three} heads on the shared per-point trunk
+feature: \texttt{dz\_head} for depth along the ray, \texttt{duv\_head} for the bounded 2-D
+correction, and \texttt{vis\_head} for visibility (\S\ref{sec:vis-head}). All three are trained
+here; only the first two affect the reported metric, because the evaluator is run with
+\texttt{-{}-vis-source flow} and takes visibility from the front-end's forward--backward mask.
+\texttt{vis\_head} is therefore present and supervised but inert at scoring time, which is what
+makes the head's on/off comparison exact.
+
+Two runs forming one trajectory: v93b resumes v93 from its last checkpoint with the optimiser and
+scheduler state intact, so the pair is a single $8297$-step run rather than two fine-tunes.
+
+\begin{table}[h]
+\centering
+\caption{v93/v93b. Everything but the sampler matches v91, so the sampler is the only difference
+from the arms that preceded it.}
+\label{tab:v93-protocol}
+\begin{tabular}{ll}
+\toprule
+initialisation & \texttt{result/v73fix\_warmstart/ckpt\_0.pt}, whose \emph{v35} is bit-identical
+                 to v63's \texttt{ckpt\_20000} \\
+learning rate & $5\times10^{-5}$, no warmup, cosine over the last $20\%$ of steps \\
+batch / window & $1$ / $8$ frames \\
+\textbf{sampler} & \texttt{data.reanchor\_window: true} \\
+steps & $3191$ (v93) $+$ $5106$ (v93b) $=$ $8297$ \\
+wall clock & $\approx$3.7\,s/step, about 8.5\,h in total on one 12\,GB GPU \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Every component, and whether it trains. The frozen mass is what makes the arm cheap: of
+$1.196$\,M parameters in the learned stack, $0.621$\,M train, and the two large pre-trained models
+in front of it are never touched.}
+\label{tab:v93-freeze}
+\begin{tabular}{llcl}
+\toprule
+stage & component & trains? & note \\
+\midrule
+front-end & WAFT optical flow & \textbf{frozen} & supplies $uv$ and the visibility mask \\
+front-end & DA3-g metric depth (1.4\,B) & \textbf{frozen} & supplies the depth map \\
+front-end & DINOv3 ViT-S/16 & \textbf{frozen} & appearance feature per point \\
+\midrule
+stage 1 & \texttt{scale\_refiner} (0.575\,M) & \textbf{frozen} & one $\Delta s_f$/frame, from v89 \\
+\midrule
+stage 2 & \emph{v35} trunk (embed, Mamba-3 layers) & \textbf{trains} & \\
+stage 2 & \quad \texttt{dz\_head} & \textbf{trains} & depth along the ray, zero-init \\
+stage 2 & \quad \texttt{duv\_head} & \textbf{trains} & bounded $\Delta uv$, zero-init \\
+stage 2 & \quad \texttt{vis\_head} (8321) & \textbf{trains} & visibility logit; inert at scoring \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Result}
+\begin{table}[h]
+\centering
+\caption{TAPVid-3D minival, absolute metric-AJ, DA3-g depth, one evaluation protocol. v93b matches
+DELTA overall, beats it on pstudio and loses on adt.}
+\label{tab:v93-result}
+\begin{tabular}{lcccc}
+\toprule
+arm & mean & drivetrack & pstudio & adt \\
+\midrule
+DELTA $+$ DA3-g              & 0.22737 & \textbf{0.16407} & 0.19363 & \textbf{0.32440} \\
+\textbf{v93b} \texttt{ckpt\_8297} & \textbf{0.22744} & 0.16309 & \textbf{0.20918} & 0.31004 \\
+v93 \texttt{ckpt\_3191}      & 0.22531 & 0.15891 & 0.20929 & 0.30774 \\
+v93b \texttt{best/ckpt\_5500}& 0.22310 & 0.15670 & 0.20530 & 0.30740 \\
+v63 seed 1                   & 0.22384 & 0.16314 & 0.20275 & 0.30563 \\
+v93 step 0 (the initialisation) & 0.21886 & 0.16069 & 0.19714 & 0.29875 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Report it as a tie, not a win.} The margin over DELTA is $+0.00007$, three orders of
+magnitude inside the $0.0056$ seed-to-seed spread measured from v63's two seeds ($0.2238$ vs
+$0.2182$). On one seed each the two are indistinguishable. The number that does survive is the
+\emph{paired} gain over its own initialisation, $+0.00858$, which carries no seed noise because
+both sides are the same run.
+
+\subsubsection{What produced it: the sampler, and nothing else}
+\label{sec:v93-sampler}
+\texttt{TAPVid3DDataset} cropped a random $8$-frame window from a $\sim$300-frame clip and then
+kept only the queries whose \emph{anchor frame} fell inside it. Anchors are spread across the
+whole clip, so $8$ frames catch about $2.7\%$ of them: after \texttt{max\_queries} had already cut
+$824$ to $256$, a \textbf{median of 8 tracks} survived per item on adt and pstudio, minimum 3.
+Every optimiser step was supervised by roughly $64$ point-observations instead of $2048$.
+
+The anchor marks which frame is the \emph{question}, not a different kind of annotation --- every
+point is labelled in every frame, and measurably the anchor is the point's first visible frame
+only $1$--$3\%$ of the time and frame 0 only $0.4\%$, while the point is visible at its anchor
+$100\%$ of the time. A point anchored outside the window is therefore a valid query inside it,
+asked from a frame where it is visible, and its query pixel is its own 3-D position projected
+there --- which reproduces the released \texttt{queries\_xyt} to under a pixel for $97$--$99\%$ of
+points. With \texttt{reanchor\_window} the median rises from $9$ to $121$ tracks on adt and $6$ to
+$114$ on pstudio.
+
+This is a \emph{training-data} change only. \texttt{eval\_metric3d} loads whole clips with every
+query and no anchor filter, so no measured number --- ours or any baseline's --- is affected by
+it. Configs that produced an already-published number pin \texttt{reanchor\_window: false} in
+their own file so they still reproduce.
+
+\subsubsection{Three levers that did nothing, on this same arm}
+Each was measured before the sampler was suspected, and each is a negative result worth keeping:
+
+\begin{itemize}
+  \item \textbf{Learning rate.} An overfit ladder at $5\times10^{-6}$, $5\times10^{-5}$,
+        $1.5\times10^{-4}$ and $5\times10^{-4}$, then v91d overnight at the best of them with
+        4-clip gradient accumulation: training-loss slope $-0.00025\pm0.00257$ per 100 steps
+        ($0.1\sigma$) over $4244$ clips, validation $0.1877\to0.1884$, metric-AJ
+        $0.2235\to0.2231$. The run was stationary, not diverging, so no smaller rate helps either.
+  \item \textbf{Gradient noise.} \texttt{batch>1} is unavailable --- clips carry depth maps of
+        different resolutions (drivetrack $280\times504$, adt $504\times504$) and collate stacks
+        them --- so accumulation was used instead, giving the same $\sqrt{4}$ reduction. No effect.
+  \item \textbf{A learned visibility head} (\S\ref{sec:vis-head-blocked}), four attempts, closed
+        below.
+\end{itemize}
+
+\subsubsection{Neither loss curve is usable here: 7 of 7}
+\label{sec:v93-curves}
+Figure~\ref{fig:v93-curve} is the point of this section as much as the result is. Across all
+$8297$ steps the training loss sits flat at $\approx$0.2 with no trend, and the held-out
+validation wanders $0.131$--$0.138$ and never falls below its own step-0 value --- while metric-AJ
+rises $+0.0086$. Validation's own pick, \texttt{best/ckpt\_5500}, scores $0.2231$ against
+\texttt{ckpt\_8297}'s $0.2274$: it selected the worst of the three scored checkpoints.
+
+Counting every occasion in this line, \textbf{validation has mispredicted the direction of
+metric-AJ seven times out of seven}. Two nights of this work were spent concluding ``it is not
+learning'' from curves that could not have shown learning --- at \texttt{batch: 1} the per-clip
+loss spans $21\times$, and the logger was printing a single clip's loss per 50 steps. The
+practical rule for this pipeline is to score checkpoints and not to read curves.
+
+\begin{figure*}[!tb]
+\centering
+\includegraphics[width=\textwidth]{figs/v93_curve.png}
+\caption{\textbf{v93 and v93b as one trajectory.} \emph{Top:} training loss, flat throughout.
+\emph{Middle:} held-out validation, also flat, with its minimum at step $5500$ --- the checkpoint
+that scored worst. \emph{Bottom:} metric-AJ on the four scored checkpoints, the only signal that
+moved, against DELTA's $0.22737$. The fitted trend is $+0.00090\pm0.00038$ per 1000 steps
+($2.4\sigma$), but it rests on four non-monotonic points and the final leg contains the
+end-of-schedule learning-rate anneal, which a longer run gets only once.}
+\label{fig:v93-curve}
+\end{figure*}
+
+\subsubsection{Whether more steps would go further}
+The trend on the scored checkpoints is $+0.00090\pm0.00038$ per 1000 steps, which extrapolates to
+$\approx$0.232 at 14k steps. Three things argue against taking that at face value: only four
+points and non-monotonic (step $5500$ fell $0.0022$ below step $3191$); the last leg mixes real
+progress with the cosine anneal from $5\times10^{-5}$ to $5\times10^{-6}$ over steps
+$6638$--$8297$, which is not repeatable per 1000 steps; and at $+0.0009$ per 1000 steps it takes
+$\sim$6000 steps to move by one seed spread. Settling it needs a longer run with the anneal placed
+at the end of the longer horizon, scored every 2000 steps, before repeat seeds are worth spending.
+
+\subsubsection{The visibility head, closed after four attempts}
+adt is where the remaining deficit to DELTA lives, and \S\ref{sec:adt-gap} showed it is entirely
+the visibility channel: our 3-D positions are the closer ones, and scoring them against
+ground-truth visibility gives $0.4194$ on adt against $0.3048$, so the channel is worth $+0.1146$
+where the gap to DELTA is $0.0196$. Four attempts failed to claim any of it.
+
+\begin{enumerate}
+  \item \textbf{A residual on the flow mask's logit.} Unusable by construction: the mask must be
+        clamped away from 0 and 1 to keep the logit finite, putting the base at $\pm6.9$, and the
+        head moved $\pm0.057$ in 400 steps. No point crossed the $0.5$ threshold and adt scored
+        $0.2995/0.4766/0.7849$ identically with the head on and off.
+  \item \textbf{Direct prediction, 8-frame windows.} Trained where $94.6\%$ of observations are
+        visible and evaluated where $39$--$75\%$ are. Per-subset damage tracked that gap exactly:
+        pstudio $+0.0238$ (closest to the training rate), drivetrack $-0.0081$, adt $-0.0653$,
+        with adt's occlusion accuracy collapsing $0.7849\to0.5482$.
+  \item \textbf{Whole-clip features, cached.} The trunk is frozen, so its per-point feature is a
+        constant of the data: caching it (280 clips, 3\,M observations per subset, 2.0\,GB) turns
+        the fit into an MLP over a fixed array and removes the distribution mismatch. The head
+        still lost to the flow mask on adt, $0.6051$ against $0.7666$, predicting ``visible''
+        $81\%$ of the time where the truth is $57\%$.
+  \item \textbf{Class weighting}, the last untried knob, swept against the cached features:
+\end{enumerate}
+
+\begin{table}[h]
+\centering
+\caption{Held-out visibility accuracy against the flow mask. No setting beats it on adt, the
+subset the work is aimed at.}
+\label{tab:vis-posweight}
+\begin{tabular}{lccc}
+\toprule
+ & adt & drivetrack & pstudio \\
+\midrule
+flow mask (the bar) & \textbf{0.7666} & 0.7790 & \textbf{0.7551} \\
+\midrule
+\texttt{pos\_weight} 0.3 & 0.5942 & 0.6627 & 0.6651 \\
+\texttt{pos\_weight} 0.5 & 0.6176 & 0.7619 & 0.7592 \\
+\texttt{pos\_weight} 1.0 & 0.6051 & 0.7971 & 0.7477 \\
+\texttt{pos\_weight} 2.0 & 0.5604 & \textbf{0.8209} & 0.7464 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The trunk features do not carry enough occlusion evidence for a small head to beat a
+forward--backward flow check, and \texttt{-{}-vis-source flow} remains the default. The $+0.1146$
+headroom on adt is real and unclaimed.
+
+
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
 visibility are frozen, so they carry no gradient):
@@ -2328,7 +3775,6 @@ $s_{\text{clip}}$ (matching the benchmark's scale convention). We train $20$k st
 lr $3\!\times\!10^{-4}$, warmup $500$, $8$-frame windows, bf16; $\sim$9.5\,h on one GPU).
 
 % =====================================================================
-\section{Evaluation}
 \label{sec:eval}
 
 % The four result floats are declared here, several subsections ahead of the prose that reads
@@ -2531,98 +3977,6 @@ so even v42 --- our best DA3-g pipeline (mean $0.225$), which adds a pstudio $\t
 does not beat the DA3-l v39 overall ($0.246$). TAPIP3D adt is OOM-limited (``N/A'').}
 \label{fig:6method-abs-da3g}
 \end{table}
-
-\subsection{Protocol and metrics}
-\label{sec:metrics}
-
-\paragraph{Dataset.}
-We evaluate on the TAPVid-3D~\cite{tapvid3d} \textbf{minival} split (150 clips: 50 each of
-\emph{pstudio} indoor mocap $\sim$3\,m, \emph{drivetrack} driving $\sim$20\,m, \emph{adt} egocentric
-$\sim$1\,m).
-
-\paragraph{Notation.}
-Let a clip have $N$ query tracks over $T$ frames with ground-truth 3D positions
-$\mathbf{X}^*_{n,t}\!\in\!\mathbb{R}^3$ and visibility flags $v^*_{n,t}\!\in\!\{0,1\}$
-(1\,=\,visible) in per-frame camera coordinates; predictions are
-$\hat{\mathbf{X}}_{n,t}$ and $\hat{v}_{n,t}$.
-Define the within-threshold indicator at level $\alpha$:
-\begin{equation}
-  w^{(\alpha)}_{n,t}
-  = \mathbf{1}\!\left[\lVert\hat{\mathbf{X}}_{n,t}-\mathbf{X}^*_{n,t}\rVert
-    < \delta^{(\alpha)}_{n,t}\right],
-  \label{eq:within}
-\end{equation}
-where the threshold $\delta^{(\alpha)}_{n,t}$ differs between the two protocols below.
-
-\paragraph{3D Average Jaccard (3D-AJ).}
-For each level $\alpha\in\{1,2,4,8,16\}$, define
-\begin{align}
-  \mathrm{TP}(\alpha) &= \textstyle\sum_{n,t} v^*_{n,t}\,\hat{v}_{n,t}\,w^{(\alpha)}_{n,t},
-  \label{eq:tp}\\
-  \mathrm{FN}(\alpha) &= \textstyle\sum_{n,t} v^*_{n,t}\!\left(1-\hat{v}_{n,t}\,w^{(\alpha)}_{n,t}\right),
-  \label{eq:fn}\\
-  \mathrm{FP}(\alpha) &= \textstyle\sum_{n,t} \hat{v}_{n,t}\!\left(1-v^*_{n,t}\,w^{(\alpha)}_{n,t}\right).
-  \label{eq:fp}
-\end{align}
-The per-level Jaccard is $J(\alpha)=\mathrm{TP}/(\mathrm{TP}+\mathrm{FN}+\mathrm{FP})$, and
-the headline metric averages over all five levels:
-\begin{equation}
-  \text{3D-AJ} = \tfrac{1}{5}\!\sum_{\alpha\in\{1,2,4,8,16\}}\!J(\alpha).
-  \label{eq:3daj}
-\end{equation}
-We additionally report \textbf{Average Percentage of points within Distance 3D (APD3D)}
-(fraction of visible GT points within threshold, regardless of predicted visibility):
-\begin{equation}
-  \text{APD3D} = \tfrac{1}{5}\!\sum_{\alpha}
-  \frac{\sum_{n,t} v^*_{n,t}\,w^{(\alpha)}_{n,t}}{\sum_{n,t} v^*_{n,t}},
-  \label{eq:apd3d}
-\end{equation}
-and \textbf{OA} (occlusion accuracy):
-$\text{OA}=\frac{1}{NT}\sum_{n,t}\mathbf{1}[\hat{v}_{n,t}=v^*_{n,t}]$.
-
-\paragraph{Normalized (scale-invariant) protocol.}
-The official 3D-AJ is \emph{scale-invariant twice over}.
-First, the predicted cloud is rescaled globally by
-\begin{equation}
-  s = \frac{\operatorname{median}_{(n,t)\in\mathcal{V}}
-            \lVert\mathbf{X}^*_{n,t}\rVert}
-           {\operatorname{median}_{(n,t)\in\mathcal{V}}
-            \lVert\hat{\mathbf{X}}_{n,t}\rVert},
-  \qquad
-  \mathcal{V}=\{(n,t): v^*_{n,t}=1,\;\hat{v}_{n,t}=1\},
-  \label{eq:scale}
-\end{equation}
-setting $\hat{\mathbf{X}}\leftarrow s\hat{\mathbf{X}}$ before~\eqref{eq:within}.
-Second, the threshold in~\eqref{eq:within} is depth-relative:
-\begin{equation}
-  \delta^{(\alpha)}_{n,t}(\text{norm})
-  = \frac{\alpha\cdot(\mathbf{X}^*_{n,t})_z}{\sqrt{f_x f_y}},
-  \label{eq:thresh_norm}
-\end{equation}
-where $(\mathbf{X}^*_{n,t})_z$ is the GT depth at frame $t$ and $\sqrt{f_x f_y}$ is the
-geometric-mean focal length.
-Geometrically, \eqref{eq:thresh_norm} equals the world-space radius subtended by
-$\alpha$\,pixels at that point's depth.
-Both~\eqref{eq:scale} and~\eqref{eq:thresh_norm} discard absolute depth ---
-exactly the quantity that matters for metric 3D reconstruction.
-
-\paragraph{Absolute-metric protocol.}
-We additionally report an \textbf{absolute-metric} version: no median scaling ($s=1$) and
-fixed metric thresholds
-\begin{equation}
-  \delta^{(\alpha)}(\text{abs})
-  \;\in\;
-  \{1,\;4,\;16,\;64,\;256\}\,\text{cm}
-  \quad\text{for}\quad
-  \alpha\in\{1,2,4,8,16\},
-  \label{eq:thresh_abs}
-\end{equation}
-giving \textbf{metric-AJ} and \textbf{metric-APD3D} from~\eqref{eq:3daj}--\eqref{eq:apd3d},
-plus mean/median 3D error in metres.
-Our pipeline reproduces the official scale-invariant metric exactly
-(we recover SpatialTracker's published drivetrack 3D-AJ of $0.058$ to three decimals
-once the $256$-px intrinsics convention is applied), so the absolute variant is a
-faithful, scale-sensitive extension rather than a re-implementation.
 
 \subsection{Leaderboard (scale-invariant) results}
 Table~\ref{tab:median} reports median-scaled 3D-AJ.
@@ -3068,1306 +4422,5 @@ Combined with the accuracy advantage on the absolute metric
 see \S\ref{sec:trackcraft3r}),
 our pipeline is competitive on both quality and efficiency axes.
 
-\section{The WAFT-trained arms v57--v62, and what the regression turned out to be}
-\label{sec:waft-trained-arms}
-
-v57--v60 hold the flow front-end fixed at WAFT for \emph{both} training and evaluation, which is the
-configuration \S\ref{sec:searaft-trained-waft-eval} called for. All completed 2026-08-21 over all
-$25814$ minival frames with zero failures. v62, added later, is the arm that identified the cause.
-
-\begin{center}
-\begin{tabular}{llccccc}
-\toprule
-arm & depth backbone & de-flicker & pools & trained on & mean metric-AJ \\
-\midrule
-v39 & DA3-l & --- & 1 & SEA-RAFT & $0.2459$ \\
-v57 & DA3-l & --- & 1 & WAFT     & $\mathbf{0.2504}$ \\
-v58 & DA3-l & --- & 2 & WAFT     & $0.2507$ \\
-\midrule
-v42 & DA3-g & no  & 1 & SEA-RAFT & $0.2246$ \\
-v45 & DA3-g & yes & 1 & SEA-RAFT & $\mathbf{0.2320}$ \\
-v59 & DA3-g & yes & 1 & WAFT     & $0.2194$ \\
-v60 & DA3-g & yes & 2 & WAFT     & $0.2211$ \\
-v62 & DA3-g & \textbf{no} & 2 & WAFT & $0.2228$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent Every baseline was re-scored on the same evaluation tracks as the arm it is compared
-against, so none of these differences is a track artefact: v45 gave $0.2320$ on both the old and the
-regenerated tracks, and v39 gave $0.2459$ against its published $0.2458$.
-
-\noindent\emph{Superseded as a front-end comparison.} Every row above scores a WAFT-cached
-evaluation, and the SEA-RAFT rows were trained with SEA-RAFT and then scored that way, so those
-comparisons mix front-ends across training and evaluation. The table remains an accurate record of
-what was measured, and the reasoning that follows from it is what located the cause, but the
-front-end question it appears to answer is settled only under the protocol of
-\S\ref{sec:waft-matched-protocol}, where both arms run live at one resolution and one iteration
-count.
-
-\subsection{WAFT training does not hurt the refiner; it costs the de-flicker stage's contribution}
-\label{sec:waft-deflicker-silent}
-
-The first reading of these numbers was that WAFT training makes the pipeline worse, which cannot be
-right for a stronger front-end. Splitting by backbone shows it is not what happens.
-
-\begin{itemize}
-  \item On \textbf{DA3-l}, which has no de-flicker stage, WAFT training \emph{helps}:
-    $0.2459\to0.2504$, $+0.0045$.
-  \item On \textbf{DA3-g without de-flicker}, it is neutral: $0.2246\to0.2228$, $-0.0018$.
-  \item On \textbf{DA3-g with de-flicker}, it appears to hurt: $0.2320\to0.2194$, $-0.0126$.
-\end{itemize}
-
-\noindent The difference is entirely in what the de-flicker stage contributes:
-%
-\[
-  \text{SEA-RAFT-trained: } 0.2246 \to 0.2320 \;(+0.0074), \qquad
-  \text{WAFT-trained: } 0.2228 \to 0.2211 \;(-0.0017).
-\]
-%
-The stage is worth $+0.0074$ when the refiner is trained on SEA-RAFT and nothing at all when it is
-trained on WAFT. It is not harming the pipeline --- removing it entirely (v62) recovers only
-$+0.0017$ --- it has stopped working, and the contribution it used to make is what the $-0.0126$ is
-made of.
-
-A direct measurement of the stage agrees. Run on identical inputs, its per-frame log-scale output is
-$0.0006$ in the WAFT-trained model against $0.0191$ in v45, a thirty-fold reduction: a zero-initialised
-head that has stayed at zero.
-
-\paragraph{A candidate mechanism, not yet established.} The de-flicker estimates one scalar per frame
-by aggregating over the points marked \emph{visible} in that frame. WAFT declares $68.5\%$ of
-point-frames visible against SEA-RAFT's $85.6\%$ --- and is far more accurate in doing so, agreeing
-with ground truth $97.0\%$ of the time against $79.3\%$. The aggregate is therefore built from about
-a fifth fewer points, which is the condition under which a zero-initialised head learns to stay near
-zero. This is consistent with every measurement here but has not been tested.
-
-\subsection{The cause: the cached-track path silently removes an augmentation the live path applies}
-\label{sec:waft-aug-asymmetry}
-
-The reasoning that found this is worth stating first, because it is what made the search finite.
-\emph{At evaluation both models receive the same WAFT input.} The evaluation front-end, its
-positions and its visibility flags are byte-identical for v45 and v59; only the weights differ. So
-no property of WAFT at inference can explain the gap, and every candidate that lived at evaluation
-time --- the track files, the depth distribution, visibility, flicker --- was eliminated in turn
-(\S\ref{sec:waft-eliminated}). What remains is training. And a model trained on the \emph{matched}
-front-end cannot legitimately lose to one trained on a \emph{mismatched} one; if it does, the
-training procedures were not equivalent.
-
-\paragraph{The models disagree about which data is hard.} Running both checkpoints over
-\emph{training} clips, on identical batches, gives the opposite ranking to minival:
-
-\begin{center}
-\begin{tabular}{lcc}
-\toprule
-model & 3-D error on \emph{training} clips & mean metric-AJ on minival \\
-\midrule
-v45 (SEA-RAFT-trained) & $0.8585$\,m & $\mathbf{0.2320}$ \\
-v59 (WAFT-trained)     & $\mathbf{0.7034}$\,m & $0.2194$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent v59 is markedly better on the data it was trained on and worse on data it has not seen.
-That is overfitting, and it points at the training procedure rather than at the front-end.
-
-\paragraph{Where the procedures diverge.} Training runs with \texttt{augment=True}, which applies a
-photometric jitter --- brightness and contrast each drawn from $[0.7,1.3]$ --- to the window's
-images. Both arms receive those recoloured images for the DINOv3 appearance feature. The 2-D track
-is where they part:
-
-\begin{itemize}
-  \item The \textbf{SEA-RAFT} branch runs \texttt{track\_clip} on \texttt{batch.images}, i.e.\ on
-    the \emph{recoloured} frames, at every step. A different colour draw yields a slightly different
-    flow field and therefore a slightly different tracked position.
-  \item The \textbf{WAFT} branch reads a track computed once, offline, from the \emph{original}
-    frames. Recolouring an image today cannot alter a number already written to disk.
-\end{itemize}
-
-\noindent Measured on the same window and the same queries, with only the photometric draw changed:
-
-\begin{center}
-\begin{tabular}{lcccc}
-\toprule
-front-end & median $|\Delta \mathbf{u}|$ & mean & p90 & unchanged \\
-\midrule
-SEA-RAFT & $0.1395$\,px & $1.3003$\,px & $4.0565$\,px & $12.5\%$ \\
-WAFT (cached) & $0.0000$ & $0.0000$ & $0.0000$ & $\mathbf{100\%}$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent The SEA-RAFT arm therefore trains against a 2-D input that is resampled every epoch, and
-the WAFT arm against one that is byte-identical across all $20\,000$ steps. Input noise resampled
-each pass is a regulariser; the cached path removes it.
-
-Nobody wrote that regulariser deliberately. Photometric augmentation exists to vary
-\emph{appearance}; the jitter in the tracked coordinates is a side effect of recomputing flow on
-altered images, and the tell is that the cached path has no equivalent --- had the coordinate jitter
-been a designed part of training, the cached path would have needed its own version of it. The
-consequence is that ``SEA-RAFT-trained'' and ``WAFT-trained'' were never the same experiment with one
-variable changed.
-
-\paragraph{Why not simply add random jitter to the cached tracks.} It would reproduce the
-\emph{symptom} --- input that moves each epoch --- without reproducing its cause, and the two are not
-the same distribution: the flow's response to a colour change is structured, concentrated where the
-image is low-contrast, and correlated along a track, whereas independent Gaussian noise is none of
-those. The comparison being made here is between two front-ends under one protocol, so the protocol
-has to match in mechanism, not merely in variance.
-
-\paragraph{The correction.} Setting \texttt{flow.source: waft\_live} runs WAFT inside the training
-loop on the augmented images, exactly as the SEA-RAFT path runs SEA-RAFT. It is a model swap rather
-than a new code path: both front-ends are consumed by the same \texttt{track\_clip}, so once the
-cache is out of the picture the flow network is the only difference between the two arms.
-
-The first version of this correction was itself misconfigured, in a way that took a reader's
-scepticism to expose, and \S\ref{sec:waft-matched-protocol} records what was wrong and what the arm
-measures once it is fixed.
-
-
-\subsection{Removing the cache exposed two further asymmetries, and only then does the arm measure the front-end}
-\label{sec:waft-matched-protocol}
-
-Running WAFT live removed the augmentation asymmetry of \S\ref{sec:waft-aug-asymmetry}, and in doing
-so made two others visible. Both had been present all along, hidden behind the cache; both made the
-two arms differ in something other than the flow network, which is the one thing the comparison is
-supposed to isolate.
-
-\paragraph{Resolution: each front-end was running at its own config's default.} Both wrappers take a
-base-2 exponent \texttt{scale} and apply it to the input images, \texttt{scale\_factor} $= 2^{\text{scale}}$,
-undoing it afterwards on both the flow field and the flow vectors. SEA-RAFT's
-\texttt{spring-M.json} sets $-1$; WAFT's \texttt{tar-c-t.json} sets $0$. Neither was ever passed
-explicitly; on a $896 \times 896$ input SEA-RAFT therefore ran at $448 \times 448$ and WAFT at the
-full $896 \times 896$:
-
-\begin{center}\small
-\begin{tabular}{lrrr}
-\toprule
-front-end & \texttt{scale} & runs at & ViT tokens \\
-\midrule
-SEA-RAFT (\texttt{spring-M})  & $-1$ & $448\times448$ & $1\,024$ \\
-WAFT (\texttt{tar-c-t})       & $0$  & $896\times896$ & $4\,096$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Four times the pixels and four times the tokens, into a backbone that is itself two Vision
-Transformers, and $1.9\times$ even WAFT's own $432 \times 960$ training resolution. This is what
-produced the claim, recorded here because it was wrong and was repeated more than once, that WAFT is
-roughly ten times heavier per step than SEA-RAFT. It is not a property of WAFT; it is a measurement
-of two different operating points. WAFT's own paper reports SEA-RAFT~(L) at $108$\,ms against
-WAFT-DAv2-a2 at $240$\,ms at matched iterations, and its headline ``up to $4.1\times$ faster'' is an
-accuracy-matched claim against other methods, not a latency claim against SEA-RAFT. With
-\texttt{flow.scale} set to $-1$ for both, the training rate rose from $3.9$ to $12.5$ steps per
-minute on the DA3-g arm, and on the lighter DA3-l arm WAFT runs at $40$ steps per minute, which is
-SEA-RAFT's own rate. Even the residual $3.2\times$ is therefore specific to the DA3-g
-configuration and does not generalise.
-
-\paragraph{Refinement steps: the config's value reached only one of the two.} The configs set
-\texttt{iters: 4}, which was passed to SEA-RAFT and not to WAFT, leaving WAFT on
-\texttt{tar-c-t.json}'s default of $5$. The WAFT arm was therefore given $25\%$ more refinement than
-the baseline it was being measured against. \texttt{flow.iters} now reaches whichever front-end
-\texttt{flow.source} selects.
-
-\paragraph{The evaluator could not run WAFT at all, which is why a cache existed anywhere.} Caching
-was never a protocol decision; \texttt{eval\_metric3d} had no WAFT path, and the cache was the way
-around that. Regenerating it at the corrected resolution would only have relocated the defect, since
-nothing checks a cache against what training saw. The evaluator now builds WAFT through the same
-\texttt{build\_flow} and consumes it through the same \texttt{track\_clip} as SEA-RAFT, running it
-live on the evaluation frames, and reads \texttt{flow.source}, \texttt{flow.scale} and
-\texttt{flow.iters} from the \texttt{cfg.json} written beside the checkpoint. A run is therefore
-scored with the front-end it was trained with, at the same resolution and iteration count, without
-anyone having to remember to say so.
-
-\paragraph{A protocol defect introduced by editing the code mid-run.} The \texttt{flow.iters}
-plumbing landed while the DA3-g arm was training. Training had started before it and therefore used $5$;
-the evaluation at the end of the same job started afterwards, read the config, and used $4$. The
-run's \texttt{cfg.json} recorded $4$ --- the intention, not the run. It has been corrected to $5$
-with a note, and the arm re-evaluated consistently. The difference turned out to be immaterial,
-which is worth recording alongside the defect: \texttt{drivetrack} $0.1628 \to 0.1631$,
-\texttt{pstudio} $0.2032 \to 0.2027$, \texttt{adt} $0.3053 \to 0.3056$, and the mean unchanged at
-$0.2238$. The mismatched run is kept rather than deleted.
-
-\paragraph{What the corrected arm measures.} With WAFT live on both sides at
-\texttt{scale}~$=-1$, over all $25\,814$ frames with no failures:
-
-\begin{center}\small
-\begin{tabular}{lccc}
-\toprule
-DA3-g $+$ de-flicker $+$ VSSD-2pool & flow at train & flow at eval & mean metric-AJ \\
-\midrule
-v60 & WAFT cached, full-res & WAFT cached, full-res & $0.2211$ \\
-v63 & WAFT live, half-res   & WAFT live, half-res   & $\mathbf{0.2238}$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Removing the cache is worth $+0.0027$ on this arm. That is a small gain, and smaller than the
-$-0.0126$ the cached WAFT arms had fallen behind by; the augmentation asymmetry of
-\S\ref{sec:waft-aug-asymmetry} therefore accounts for part of that gap but not all of it.
-
-\paragraph{Every arm, with the resolution each front-end actually ran at.} Resolution is the column
-that reconciles the results, and it was absent from every earlier version of this comparison. A
-\texttt{scale} of $0$ means the flow network saw the full $896 \times 896$ input; $-1$ means it saw
-$448 \times 448$, a quarter of the pixels. At evaluation time there is no augmentation; a cached
-track and a live run at the same scale and iteration count are therefore the same thing --- ``cached'' matters
-only on the training side, where the images are augmented and the cache is not recomputed.
-
-\begin{center}\small
-\begin{tabular}{llccll r}
-\toprule
-& & & & \multicolumn{1}{c}{train flow} & \multicolumn{1}{c}{eval flow} & \\
-arm & depth & pools & de-fl. & \multicolumn{1}{c}{net / res / iters} & \multicolumn{1}{c}{net / res / iters} & mean \\
-\midrule
-v39 & DA3-l & 1 & ---  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $0.2458$ \\
-v57 & DA3-l & 1 & ---  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2504$ \\
-v58 & DA3-l & 2 & ---  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2507$ \\
-v51 & DA3-l & 2 & ---  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $\mathbf{0.2560}$ \\
-v50 & DA3-l & 2 & ---  & SEA-RAFT $\;448\;$ i4 live   & SEA-RAFT $\;448\;$ i4 & $0.2350$ \\
-v64 & DA3-l & 2 & ---  & WAFT $\;448\;$ i4 live       & WAFT $\;448\;$ i4 & $0.2547$ \\
-\midrule
-v42 & DA3-g & 1 & no   & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $0.2246$ \\
-v45 & DA3-g & 1 & yes  & SEA-RAFT $\;448\;$ i4 live   & WAFT $\;896\;$ i5 & $\mathbf{0.2320}$ \\
-v59 & DA3-g & 1 & yes  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2194$ \\
-v60 & DA3-g & 2 & yes  & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2211$ \\
-v62 & DA3-g & 2 & no   & WAFT $\;896\;$ i5 \emph{cached} & WAFT $\;896\;$ i5 & $0.2228$ \\
-v63 & DA3-g & 2 & yes  & WAFT $\;448\;$ i5 live       & WAFT $\;448\;$ i5 & $0.2238$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{What the table shows once resolution is visible.} Three separate effects had been
-running together, and each is isolated by holding the other columns fixed.
-
-\emph{Cached versus live training, at one resolution and one network.} This is the augmentation
-asymmetry of \S\ref{sec:waft-aug-asymmetry}, and it is worth a few thousandths:
-
-\begin{center}\small
-\begin{tabular}{lccc}
-\toprule
-& cached training & live training & $\Delta$ \\
-\midrule
-DA3-l, 2 pools, eval $448$              & v58$^{\dagger}$ $0.2507$ & v64 $0.2547$ & $+0.0040$ \\
-DA3-g, 2 pools, de-flicker, eval $448$  & v60$^{\dagger}$ $0.2211$ & v63 $0.2238$ & $+0.0027$ \\
-\bottomrule
-\end{tabular}
-\\[2pt]
-{\footnotesize $^{\dagger}$Evaluated at $896$ rather than $448$. These two rows are therefore not a clean
-isolation either; they bound the effect rather than measure it exactly.}
-\end{center}
-
-\emph{Evaluation resolution.} Every arm scored at $896$ sits above the comparable arm scored at
-$448$, and this is the comparison that had been hidden. v64 reaches $0.2547$ against v51's
-$0.2560$. However, v64 is scored from a $448$ front-end and v51 from an $896$ one, which means
-v64 is not merely behind: it is behind while being handicapped in a way the earlier tables did not
-show.
-
-\emph{The evaluation front-end is not a free choice.} v50 and v51 are the \emph{same trained model},
-differing only in what scored it: SEA-RAFT at $448$ gives $0.2350$, WAFT at $896$ gives $0.2560$.
-That $+0.0210$ is the evaluation front-end alone, with training held fixed --- larger than any
-training-side effect measured anywhere in this investigation.
-
-\paragraph{A comparison I drew and had to withdraw.} v64 was reported here as beating v50 and hence
-as showing WAFT the better front-end. That is wrong, and the table above is what makes it obvious:
-v50 is scored with SEA-RAFT at $448$, the weakest evaluation in the table; beating it therefore
-says nothing. The standing best is v51 at $0.2560$, and v64 is below it. The pairing was chosen because
-both arms were live at one resolution, which made it look like the controlled comparison; the
-control it lacked was the evaluation front-end, which the previous version of this table did not
-have a column for.
-
-\paragraph{What is actually being asked, and the arms that answer it.} The best configuration known
-is SEA-RAFT-trained at $448$ and evaluated with WAFT at $896$. To displace it, a fully-WAFT arm has
-to be evaluated at $896$ too --- otherwise it is competing from a weaker front-end. v65 and v66
-therefore run WAFT live at $896$ on both sides, everything else held to v64 and v63 respectively:
-
-\begin{center}\small
-\begin{tabular}{lllc}
-\toprule
-arm & configuration & train/eval flow & target \\
-\midrule
-v65 & DA3-l, 2 pools               & WAFT $896$ i4 live, both sides & v51 $0.2560$ \\
-v66 & DA3-g, 2 pools, de-flicker   & WAFT $896$ i4 live, both sides & v45 $0.2320$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent These cost four times the pixels of the $448$ arms, whose measured training rates were
-$40$ steps per minute on DA3-l and $12.5$ on DA3-g. Until they land, the honest statement is that no
-fully-WAFT arm has yet been evaluated at the resolution the best result uses, and therefore that
-nothing here shows WAFT beating SEA-RAFT as a front-end.
-
-\paragraph{Half-resolution WAFT really is the weaker front-end, measured directly.} The claim that
-the $448$ arms are handicapped should not rest on the metric-AJ gap it is meant to explain, and was
-therefore measured on the front-end alone: WAFT's 2-D track error against ground truth, no refiner and no
-depth involved, on a balanced sample of twelve minival clips. Ground truth comes from projecting
-each clip's \texttt{tracks\_XYZ} with its own intrinsics, and only points the dataset marks visible
-at that frame are scored.
-
-\begin{center}\small
-\begin{tabular}{lrrr}
-\toprule
-& \multicolumn{1}{c}{$896$ (scale $0$)} & \multicolumn{1}{c}{$448$ (scale $-1$)} & \multicolumn{1}{c}{$\Delta$} \\
-\midrule
-median 2-D error over clips & $3.12$\,px & $3.60$\,px & $+0.49$\,px \\
-relative degradation        & ---        & $+15.7\%$  & \\
-clips where $448$ is worse  & ---        & $12/12$    & \\
-worst single clip           & $39.55$\,px & $57.97$\,px & $+18.42$\,px \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Every clip degrades, which makes this a property of the resolution rather than a few unlucky
-sequences,
-and the degradation is worst exactly where tracking is already hardest: the two \texttt{drivetrack}
-clips with errors in the tens of pixels lose $5.60$ and $18.42$\,px, against roughly a pixel on the
-well-behaved clips. An arm evaluated at $448$ is therefore fed a measurably worse 2-D track than one
-evaluated at $896$, before its refiner sees anything. This is what disqualifies the v64-versus-v51
-comparison, and it is independent of anything about training.
-
-\paragraph{The refiner must be VSSD-2pool on both sides of any comparison.} Two pools is the better
-refiner and is what the pipeline uses. A comparison against a one-pool arm therefore understates
-the baseline rather than testing the front-end. This is satisfied on DA3-l and is not on DA3-g:
-
-\begin{center}\small
-\begin{tabular}{llcccl}
-\toprule
-comparison & configuration & pools match & res.\ match & baseline & status \\
-\midrule
-v65 vs.\ v51 & DA3-l                      & yes ($2$ vs.\ $2$) & yes ($896$) & $0.2560$ & valid \\
-v66 vs.\ v45 & DA3-g $+$ de-flicker       & \textbf{no} ($2$ vs.\ $1$) & yes ($896$) & $0.2320$ & not pool-matched \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent v45 is a one-pool arm, and no SEA-RAFT-trained DA3-g arm was ever built with two pools ---
-that configuration was deliberately not run, being of no interest on its own. \textbf{v65 against
-v51 is therefore the only comparison in this investigation that is matched on all four axes} --- flow network
-aside: same depth backbone, same pool count, same evaluation resolution, same iteration count, live
-on both sides. It is the one that decides the question. v66 measures whether full-resolution WAFT
-lifts the DA3-g arm above $0.2320$, which is worth knowing, though a win there would be confounded by
-the extra pool and could not be attributed to the front-end.
-
-\subsection{The rebuilt table: every row self-consistent}
-\label{sec:waft-rebuilt}
-
-Every arm below trains and evaluates with the same front-end, WAFT run live at
-\texttt{image\_size}~$896$, \texttt{scale}~$=-1$ and \texttt{iters}~$=4$, and every one uses
-VSSD-2pool where a refiner is present. The rows they replace were trained on SEA-RAFT tracks and
-scored on WAFT tracks.
-
-\begin{center}\small
-\begin{tabular}{lllrrr}
-\toprule
-arm & depth & configuration & paper & rebuilt & $\Delta$ \\
-\midrule
-v67 & DA3-l & vmamba3, one pool            & $0.246$ & $0.2485$ & $+0.0025$ \\
-v64 & DA3-l & vmamba3-2pool                & $0.256$ & $\mathbf{0.2547}$ & $-0.0013$ \\
-\midrule
-v68 & DA3-g & vmamba3-2pool                & $0.216$ & $0.2218$ & $+0.0058$ \\
-v70 & DA3-g & \quad $+$ per-frame scale head & $0.229$ & $0.2212$ & $-0.0078$ \\
-v69 & DA3-g & de-flicker, standalone       & $0.203$ & $0.1998$ & $-0.0032$ \\
-v63 & DA3-g & de-flicker $+$ vmamba3-2pool & $0.232$ & $0.2238$ & $-0.0082$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{The correction was worth making and changed little.} Every row moves by less than
-$0.009$, and no ordering changes within either backbone: DA3-l with two pools remains the best
-configuration, and de-flicker alone remains harmful. The train/eval mismatch was therefore a real
-defect in how the numbers were produced rather than a distortion of what they say --- which is the
-outcome one hopes for but cannot assume, and is only knowable by rebuilding.
-
-\paragraph{VSSD-2pool, measured with one variable changed.} v67 and v64 differ in
-\texttt{two\_pool} and nothing else --- same depth backbone, same front-end, same resolution,
-same iteration count, live on both sides:
-
-\begin{center}\small
-\begin{tabular}{lc}
-\toprule
-DA3-l refiner & mean metric-AJ \\
-\midrule
-one pool               & $0.2485$ \\
-VSSD-2pool             & $\mathbf{0.2547}$ \\
-\midrule
-gain from the second pool & $+0.0062$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{The per-frame scale head does nothing at two pools.} Against v68, which differs only in
-that head, the mean moves $0.2218 \to 0.2212$, i.e.\ $-0.0007$. On a single seed that is not a
-demonstrated regression; the honest reading is no measurable effect. It is consistent with the
-de-flicker stage being what addresses DA3-g's per-frame scale drift, and it means the scale head
-should be reported for completeness rather than as a contribution. Note that the paper's $0.229$ for
-this row was a one-pool arm, so the $-0.0078$ against it is confounded by the pool change; the v68
-comparison is the clean one.
-
-\paragraph{One conclusion did change, and it is in the paper's DA3-g table.} With the DA3-g rows
-rebuilt, the best DA3-g configuration ($0.2238$) now sits \emph{below} DELTA$+$DA3-g ($0.227$),
-where the previous $0.232$ sat above it. The paper's claim that our DA3-g pipeline leads the
-external DA3-g methods does not survive, and has been withdrawn. The claim the DA3-g table exists to
-support --- that no DA3-g configuration reaches the DA3-l ceiling --- is unaffected.
-
-\subsection{Four hypotheses for the DA3-g gap, and what killed each}
-\label{sec:deflicker-signal}
-
-Under a self-consistent protocol the DA3-g arm reaches $0.2238$ (v63) against $0.2320$ for v45,
-which was trained on SEA-RAFT tracks and evaluated on WAFT ones. A model evaluated on the front-end
-it trained with should not lose to one that was not, so the gap was treated as a defect and
-searched for. It localises entirely in the de-flicker stage:
-
-\begin{center}\small
-\begin{tabular}{lccc}
-\toprule
-training front-end & no de-flicker & $+$ de-flicker & de-flicker's gain \\
-\midrule
-SEA-RAFT (v42 $\to$ v45)      & $0.2246$ & $0.2320$ & $+0.0074$ \\
-WAFT cached (v62 $\to$ v59)   & $0.2228$ & $0.2194$ & $-0.0034$ \\
-WAFT live (v68 $\to$ v63)     & $0.2218$ & $0.2238$ & $+0.0020$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Everything else in the pipeline matches; only what the de-flicker stage learns differs. Four
-explanations were proposed and each was measured rather than argued:
-
-\begin{center}\small
-\begin{tabular}{p{5.4cm}p{6.4cm}l}
-\toprule
-hypothesis & measurement & verdict \\
-\midrule
-The two arms were scored from different-quality tracks &
-Both cached track sets against ground truth, from disk: $-0.0014$ overall, medians identical at
-$0.743$\,m &
-dead \\
-WAFT training taught a weaker correction &
-The WAFT-trained de-flicker's weights are uniformly \emph{larger} ($\texttt{out.weight}$ $0.035$ vs
-$0.027$) &
-dead \\
-WAFT's track is too clean, so the stage trains on a weaker instability signal &
-Injected $2.72$\,px of AR(1) positional noise, derived to match SEA-RAFT's measured error. Result
-got \emph{worse}: $0.2238 \to 0.2200$ (v71) &
-dead \\
-WAFT's error is less \emph{structured}, so less of it is per-frame-correctable &
-Per-frame scale spread over 16 clips: SEA-RAFT $0.0294$, WAFT $0.0294$, ratio $0.998\times$ &
-dead \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{The noise result is worth keeping.} Adding positional noise pushed de-flicker's
-contribution negative again, $+0.0020 \to -0.0018$ against the same no-de-flicker baseline. The
-hypothesis predicted the opposite, so the mechanism is not that the stage needs a harder training
-signal. Recorded because the noise level was derived rather than guessed --- $\sqrt{5.20^2-4.10^2}
-= 3.20$\,px of displacement from the two front-ends' measured 2-D error, a per-component
-$\sigma$ of $2.72$\,px, verified back at $3.25$\,px median with AR(1) correlation $+0.90$ --- and it
-still failed, which makes it evidence rather than a failed guess.
-
-\subsection{What the search actually found: the stage is supervised by almost nothing}
-\label{sec:deflicker-supervision}
-
-The fourth measurement returned a number that reframes the question. Alongside the per-frame scale
-spread it reports the fraction of the depth error that a \emph{single per-frame scalar} can explain
---- which is precisely and only what the de-flicker can remove, since it emits one scalar per frame
-and applies it to every point:
-
-\begin{center}\small
-\begin{tabular}{lcc}
-\toprule
-over 16 minival clips & SEA-RAFT sampling & WAFT sampling \\
-\midrule
-per-frame scale spread (std of log-scale over frames) & $0.0294$ & $0.0294$ \\
-fraction a per-frame scalar explains                  & $0.0025$ & $0.0055$ \\
-clips where that fraction exceeds $5\%$               & \multicolumn{2}{c}{$4/16$} \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{Roughly $99.5\%$ of the stage's gradient is noise from its own point of view.} There is
-no de-flicker-specific loss. The stage is trained only through the tracking loss,
-$L = vis\cdot|xyz_{\text{pred}}-xyz_{\text{gt}}|_1/\text{scale}_{\text{gt}} + \lambda_{uv}\,vis\,
-|\Delta uv|^2$, which sums per-point 3-D error over ${\sim}900$ points and $F$ frames. Of that
-error, $0.3$--$0.6\%$ is the per-frame-scalar component the stage can act on; the rest is per-point
-error it is architecturally incapable of changing.
-
-That explains the observations the four hypotheses could not. If the learning signal is
-overwhelmingly irrelevant, what the stage converges to is high-variance: v45's $+0.0074$ against
-v63's $+0.0020$ is then variance rather than mechanism, which is why no mechanism reproduced it;
-perturbing the front-end moves a noise-dominated optimisation unpredictably, in either direction;
-and injecting further noise made it worse because the signal was already noise-dominated.
-
-\paragraph{The stage also cannot see what it is meant to correct.}
-Fig.~\ref{fig:deflicker-coupling} traces its inputs. DA3-g's per-frame global scale drift is a
-property of the depth model --- the nested model re-fits a least-squares scalar independently each
-frame --- but the stage never reads the depth map. Its four inputs are the ray (from the flow's
-$uv$), the depth \emph{sampled at} that $uv$, the visibility from the flow's forward--backward
-check, and a normaliser taken from those same samples. It therefore observes a property of the
-depth model through a biased sample of $98$--$901$ points chosen by the tracker, which is what couples
-it to the front-end at all.
-
-\input{figs/fig_deflicker_coupling}
-
-\paragraph{The ceiling, and a correction to what the variance figure means.} The
-$0.3$--$0.6\%$ above is a share of log-error \emph{variance}, and it was briefly read here as
-meaning the stage had nothing to gain. Against the metric actually reported it means no such thing.
-Taking the per-frame scale from ground truth --- an oracle correction, the bound on every possible
-design of this stage --- gives:
-
-\begin{center}\small
-\begin{tabular}{lcccc}
-\toprule
-& as-is & $+$ per-clip constant & $+$ per-frame (full oracle) & flicker alone \\
-\midrule
-drivetrack & $0.0078$ & $0.2455$ & $0.3492$ & $+0.1037$ \\
-pstudio    & $0.2706$ & $0.5402$ & $0.5925$ & $+0.0522$ \\
-adt        & $0.4667$ & $0.5121$ & $0.5683$ & $+0.0561$ \\
-\midrule
-ALL        & $0.2484$ & $0.4326$ & $\mathbf{0.5033}$ & $\mathbf{+0.0707}$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Variance-explained and a threshold-based metric are not interchangeable: a small systematic scale
-error moves points across fixed-metre thresholds while contributing little variance. The headroom is
-large, $+0.2549$ in total, and the stage delivers $+0.0020$ --- about $3\%$ of the flicker component
-alone. The gradient dilution is therefore a real loss rather than a reason to abandon the stage.
-
-\paragraph{The split says which problem is which.} Of that $+0.2549$, only $+0.0707$ is
-frame-to-frame wobble; $+0.1842$ is a per-clip \emph{constant} offset, which is a calibration
-problem and not flicker at all. The correction needed is dominated by that constant ($|$median$|$
-p50 $0.294$) rather than the wobble around it (p50 $0.027$), and the old stage's output bound of
-$0.5$ clipped $17.4\%$ of frames outright. The stage was therefore misnamed, under-ranged,
-unsupervised and fed through the tracker --- four separate defects, and \S\ref{sec:depth-scale-refiner} is what
-replaces it.
-
-\subsection{Mamba-3 depth scale refiner}
-\label{sec:depth-scale-refiner}
-
-\texttt{Mamba3DepthScaleRefiner} replaces the de-flicker stage. The temporal model, the bounded
-output and the zero-initialised head are unchanged; it remains an exact identity at
-initialisation and a strict add-on to the no-refiner baseline. Four things differ, one per defect:
-
-\begin{center}\small
-\begin{tabular}{p{4.2cm}p{4.6cm}p{4.6cm}}
-\toprule
-defect & evidence & change \\
-\midrule
-Trained only through per-point 3-D error; the one scalar it emits is a few percent of that &
-Delivers $+0.0020$ against a $+0.0707$ ceiling &
-$L_{\text{dsr}}$, a direct target from ground-truth depth \\
-Every input arrives through the flow &
-Couples it to the front-end; biased ${\sim}900$-point sample &
-Reads the depth map \\
-\texttt{max\_scale\_correction} $=0.5$ &
-Clips $17.4\%$ of frames; needed $|\Delta s|$ reaches $2.44$ &
-$2.5$, which clips none \\
-Named for frame-to-frame wobble &
-The constant term is $10\times$ larger at the median &
-Renamed; the per-frame scale is unconstrained \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{Algorithm.} Per frame the depth map is taken in log space, pooled to $64\times64$,
-normalised by \emph{fixed} dataset constants and encoded by a small convolutional stack into one
-token. The token sequence goes through the same time-axis Mamba-3 as before, and a zero-initialised
-head emits $\Delta s_f = 2.5\tanh(\cdot)$, applied as $z = z_{\text{raw}}\exp(\Delta s_f)$ along the
-frozen ray.
-
-The normalisation constants are fixed rather than per-clip deliberately: subtracting a per-clip
-median would remove exactly the absolute-scale cue that predicting the constant offset depends on,
-and that offset is ten elevenths of the available gain.
-
-\paragraph{Loss.}
-\[
-  \Delta s^{*}_f = \mathrm{median}_{n \in \text{visible}}\!\left[\log z_{\text{gt}}(f,n) - \log
-  z_{\text{raw}}(f,n)\right], \qquad
-  L_{\text{dsr}} = \frac{\sum_f w_f\,|\Delta s_f - \Delta s^{*}_f|}{\sum_f w_f},
-\]
-added to the tracking loss as $\lambda_{\text{dsr}} L_{\text{dsr}}$. The median resists the handful
-of badly tracked points whose log-ratios are orders of magnitude out. The weight $w_f =
-\sqrt{n_{\text{visible}}(f)}$ follows the standard error of a median; an earlier version required
-eight visible points per frame and silently discarded every clip with fewer than eight
-\emph{tracks} in total, which was a third of batches and the small clips rather than the occluded
-ones.
-
-$\lambda_{\text{dsr}} = 1$ is a starting value, not a derived one: $L_{\text{dsr}}$ runs $0.05$ to
-$0.24$ on typical batches against a tracking loss of $0.01$ to $0.66$, which puts the two at the
-same order.
-It is the first thing to sweep if the arm disappoints.
-
-\subsection{Explanations that were proposed and eliminated}
-\label{sec:waft-eliminated}
-
-Recorded because each cost real time, and because the pattern --- a plausible mechanism supported by
-two measurements, then refuted by a third --- recurred often enough to be worth warning about.
-
-\begin{center}
-\begin{tabular}{lll}
-\toprule
-proposed cause & test & result \\
-\midrule
-evaluation tracks differ    & v45 re-scored on the new tracks & $0.2320\to0.2320$ \\
-2-D input quality           & both branches, identical batches & WAFT better, $0.69$ vs $0.80$\,px \\
-arms not comparable         & config diff, code equivalences   & no mechanism; $\sim$$5\times10^{-6}$ \\
-visibility gate erases input& GT visibility at inference       & closes part, not the gap \\
-depth distribution differs  & $z$ sampled at each uv           & identical; $z_{\mathrm{ref}}$ ratio $0.9998$ \\
-systematic scale bias       & end-to-end $\log(z/z^{*})$       & both $\approx1.018\times$ \\
-temporal flicker            & error variance across frames     & WAFT smoother, $0.79\times$ \\
-de-flicker actively harmful & v62, stage removed               & $+0.0017$ only \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent The flicker test deserves its own note, since it was the closest structural analogy
-available: if WAFT were better per frame but noisier across frames, a per-track refiner mixing along
-time could not see or repair that, exactly as \S\ref{sec:v44} describes for DA3-g's depth scale.
-Measured on tracks visible through a whole $24$-frame window, WAFT's 2-D error is not only smaller
-but moves less between frames --- flicker $0.79\times$ and frame-to-frame jerk $0.74\times$
-SEA-RAFT's, against a ground-truth motion of $3.21$\,px per frame. The analogy does not hold. One
-gap remains in that test: it uses only never-occluded tracks, so flicker localised at occlusion
-boundaries, where the two front-ends disagree most, would not appear in it.
-
-\section{History: the SEA-RAFT-trained, WAFT-evaluated rows}
-\label{sec:searaft-trained-waft-eval}
-
-Every WAFT row recorded before v57 was \emph{trained} with the SEA-RAFT front-end and only
-\emph{evaluated} on WAFT. The refiner sees flow during training --- \texttt{track\_clip} runs inside
-the training loop --- so it learns one front-end's error characteristics and is then scored on a
-different one. That is a train/test mismatch, and those numbers are superseded by the WAFT-trained
-arms v57--v62. They are kept here, and only here: the paper carries the corrected numbers alone,
-because a manuscript reports what the method does, not the order in which it was measured.
-
-\begin{center}
-\begin{tabular}{llcc}
-\toprule
-row & front-end at train / eval & mean metric-AJ & status \\
-\midrule
-v35 & SEA-RAFT / SEA-RAFT & $0.225$ & matched, superseded by v57 \\
-v39 & SEA-RAFT / WAFT     & $0.2458$ & \emph{mismatched} \\
-v50 & SEA-RAFT / SEA-RAFT & $0.235$ & matched, superseded by v58 \\
-v51 & SEA-RAFT / WAFT     & $0.2560$ & \emph{mismatched} \\
-\midrule
-v45 & SEA-RAFT / WAFT     & $0.2320$ & \emph{mismatched}; see \S\ref{sec:waft-deflicker-silent} \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent The mismatched rows score \emph{higher} than their matched counterparts --- $0.2458$
-against $0.225$ for one pool, $0.2560$ against $0.235$ for two --- which is why the defect was not
-obvious from the numbers. WAFT is the stronger front-end, and swapping it in at evaluation time
-improves the input the refiner is given without the refiner having been trained for it. The gain is
-real but it is not the gain a WAFT pipeline would deliver, and it cannot be attributed to the
-refiner: the arm changed two things at once. v57--v62 hold the front-end fixed at WAFT for both
-training and evaluation, which is the only configuration that answers ``how good is this pipeline
-on WAFT''.
-
-\paragraph{Two further defects in the same rows.} They were also produced on the token-level
-attention path (\S\ref{sec:collapse-reeval}), and their evaluation tracks came from a 2026-07-09
-cache built under a different cuDNN configuration. v57--v62 use the collapse path throughout and
-regenerate both the training and the evaluation tracks from one code path.
-
-%% ================================================================
-\section{The refiner ran the quadratic path, and every learned row was re-scored}
-\label{sec:collapse-reeval}
-
-\texttt{Mamba3CrossAttention} has two paths that compute the same function. The \emph{collapse}
-path builds the pooled state $h=\sum_j m_j B_j V_j^{\top}$ of size $(N,d_\mathrm{head})$ and reads
-it with $C$ --- the VSSD collapse as written, linear in $T$. The \emph{token-level} path instead
-materialises the full $T_q\times T_{kv}$ similarity and multiplies it by the expanded mask, at
-$O(T^2)$.
-
-The token-level path was the module default, and all three refiner sites inherited it. Nothing
-required this: \texttt{build\_cross\_mask} computed a per-token \emph{vector} and then expanded it
-across the query axis, its own docstring noting that all $T_q$ rows are identical. The
-bidirectional mask is likewise a vector, $\gamma_j(\mathrm{fwd}+\mathrm{rev})$. That vector is now
-\texttt{build\_cross\_scale} and both paths consume it, so the collapse path handles bidirectional
-directly and no site needs the quadratic one.
-
-\paragraph{What it cost.} Peak memory on the token-level path grows with batch $\times\,T^2$. On
-\texttt{adt} --- $T=300$ frames and $679$--$957$ tracked points, against \texttt{pstudio}'s $150$
-and $223$ --- one such tensor is already $2.4$\,GB, and the second pool's measured $1.58\times$ took
-a $12$\,GB card over. The two-pool arms lost $33$ and $23$ \texttt{adt} clips to out-of-memory
-failures; the one-pool arms never hit it and always covered all $25814$ frames. The published
-$0.2529$ was therefore scored on $18914$ frames against a $25814$-frame baseline, and the exclusion
-was systematic rather than random: every \texttt{adt} clip is $T=300$, so what decided the failure
-was track count, meaning the clips with the most tracked points were the ones lost.
-
-\paragraph{The re-scoring.} Every learned row was re-evaluated on the collapse path. The two paths
-agree to $2.8$--$3.1\times10^{-6}$ relative across $\{$bidirectional$\}\times\{$two-pool$\}$, and
-through the trained v50 weights to $5.1\times10^{-6}$ at $T=300$, so the checkpoints transfer
-unchanged. Nothing was retrained; this is a change of evaluation cost, not of function.
-
-\begin{center}
-\begin{tabular}{llcc}
-\toprule
-arm & quantity & before & after \\
-\midrule
-v35 SEA-RAFT$+$DA3-l$+$vmamba3 & mean metric-AJ & $0.234$ & $0.225$ \\
-v39 WAFT$+$DA3-l$+$vmamba3     & mean metric-AJ & $0.2458$ & $0.2458$ \\
-v41 WAFT$+$DA3-g$+$vmamba3     & mean metric-AJ & $0.2161$ & $0.2161$ \\
-v42 $+$ pstudio oversample     & mean metric-AJ & $0.2246$ & $0.2246$ \\
-v43 $+$ scale head             & mean metric-AJ & $0.2292$ & $0.2292$ \\
-v44 de-flicker standalone      & mean metric-AJ & $0.2026$ & $0.2026$ \\
-v45 de-flicker $+$ refiner     & mean metric-AJ & $0.2320$ & $0.2320$ \\
-\midrule
-v50 SEA-RAFT$+$2pool & mean metric-AJ (frames) & $0.222$ ($15914$) & $\mathbf{0.235}$ ($25814$) \\
-v51 WAFT$+$2pool     & mean metric-AJ (frames) & $0.253$ ($18914$) & $\mathbf{0.256}$ ($25814$) \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\noindent Six of the seven complete arms reproduce to four decimals, which is the expected result
-and the reason the sweep was worth running rather than assumed. Only the two-pool rows moved, and
-only through \texttt{adt}: \texttt{drivetrack} and \texttt{pstudio} shifted by at most $0.0002$,
-because those subsets never lost a clip.
-
-\paragraph{v35 does not reconcile, and is recorded as measured.} The $0.234$ previously carried for
-v35 is not reproducible. Only four evaluations ever used that checkpoint --- $0.2458$ (WAFT),
-$0.2263$ (the \texttt{v36\_fuse} directory), $0.2255$ (this re-run) and $0.0034$ (drivetrack only)
---- and none yields $0.234$. The disagreement is confined to \texttt{pstudio} ($0.274$ against
-$0.248$); \texttt{drivetrack} and \texttt{adt} match exactly. The re-run used the default
-front-end, which is v35's configuration rather than v36's \texttt{--bidir-fuse}, yet lands on the
-v36 row. The tables now carry the measured $0.225$. This is a flow-chaining provenance gap, not an
-operator one --- every arm that shares the operator reproduced exactly.
-
-\paragraph{Throughput.} On the collapse path the second pool costs nothing measurable. Matched
-protocol, all $25814$ frames: WAFT $41.20$\,fps one-pool against $41.58$ two-pool, SEA-RAFT $6.72$
-against $6.92$ --- against the $1.58\times$ memory and the out-of-memory failures the token-level
-path produced.
-
-% =====================================================================
-\section{The depth-scale-refiner line (v72--v90)}
-\label{sec:dsr-line}
-
-Every arm here attacks one number: on DA3-g our best self-consistent 2-pool arm, v63, scores
-$0.2238$ absolute metric-AJ against DELTA's $0.2274$. The deficit is $0.0036$, and it is not spread
-across the benchmark.
-
-\subsection{The gap is adt, and only adt}
-\label{sec:dsr-where}
-
-\begin{center}\small
-\begin{tabular}{lrrr}
-\toprule
-subset & v63 (ours) & DELTA & gap \\
-\midrule
-drivetrack & $0.1631$ & $0.1641$ & $-0.0009$ \\
-pstudio    & $0.2027$ & $0.1936$ & $\mathbf{+0.0091}$ \\
-adt        & $0.3056$ & $0.3244$ & $\mathbf{-0.0188}$ \\
-\midrule
-mean       & $0.2238$ & $0.2274$ & $-0.0036$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-We already beat DELTA on pstudio and tie on drivetrack. Recovering $56\%$ of the adt gap would flip
-the mean. The oracle decomposition (\texttt{result/adt\_error.log}, APD3D after an oracle fix, so
-each column is a ceiling) says where the headroom is:
-
-\begin{center}\small
-\begin{tabular}{lrrrrr}
-\toprule
-subset & as-is & $+$bias & $+$scale & $+$GT ray & vis.\ agree \\
-\midrule
-drivetrack & $0.0078$ & $0.2455$ & $0.3492$ & $0.3953$ & $0.7828$ \\
-pstudio    & $0.2706$ & $0.5402$ & $0.5925$ & $0.6458$ & $0.6949$ \\
-adt        & $0.4667$ & $0.5121$ & $0.5683$ & $0.6124$ & $0.7849$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-v63 reaches $0.4837$ APD3D on adt against a per-frame-scale ceiling of $0.5683$, so $0.0846$ APD3D
-is unclaimed --- roughly $0.053$ metric-AJ on adt at the $\approx 0.63\times$ conversion, or
-$0.018$ on the mean. The gap to DELTA is $0.0036$. Capturing a fifth of what we already leave on
-adt would be enough, which is what motivated a scale estimator that reads the whole depth map
-(\S\ref{sec:depth-scale-refiner}) rather than only the tracked points.
-
-\subsection{The arms}
-\label{sec:dsr-arms}
-
-\begin{center}\small
-\begin{tabular}{llrrrrl}
-\toprule
-arm & configuration & dtrack & pstudio & adt & mean & status \\
-\midrule
---     & DELTA DA3-g (target)               & $0.1641$ & $0.1936$ & $0.3244$ & $0.2274$ & baseline \\
-v63    & de-flicker $+$ v35, 20k            & $0.1631$ & $0.2027$ & $0.3056$ & $0.2238$ & \textbf{best clean} \\
-v84    & composite from scratch, step $1000$& $0.1541$ & $0.1940$ & $0.2810$ & $0.2097$ & contaminated \\
-v72    & scale refiner as the tracker       & $0.1430$ & $0.1958$ & $0.2787$ & $0.2058$ & clean \\
-v76    & composite from scratch             & $0.1411$ & $0.1988$ & $0.2707$ & $0.2035$ & contaminated \\
-v77    & v76 in metre space                 & $0.1160$ & $0.1979$ & $0.2862$ & $0.2000$ & contaminated \\
-v78a   & lr $3\mathrm{e}{-}5$               & $0.1371$ & $0.1916$ & $0.2647$ & $0.1978$ & contaminated \\
-v75    & warm start from v63                & $0.0983$ & $0.2005$ & $0.2724$ & $0.1904$ & duplicate of v76 \\
-v74    & scale refiner as preprocessing     & $0.1042$ & $0.1990$ & $0.2345$ & $0.1792$ & never loaded it \\
-v81    & lr $1\mathrm{e}{-}5$, no oversample& $0.0744$ & $0.1911$ & $0.2530$ & $0.1728$ & contaminated \\
-v82    & lr $3\mathrm{e}{-}6$, no oversample& $0.0010$ & $0.1596$ & $0.1339$ & $0.0982$ & contaminated \\
-\midrule
-\multicolumn{7}{l}{\emph{swap: the scale refiner replaces the de-flicker (buggy stage 1)}}\\
-v87\,ws& untrained                          & $0.1590$ & $0.0642$ & $0.1322$ & $0.1184$ & \\
-v87a   & stage 1 frozen, v35 adapts         & $0.1447$ & $0.2017$ & $0.2359$ & $0.1941$ & \\
-v87b   & both joint                         & $0.1532$ & $0.2102$ & $0.2793$ & $0.2142$ & \\
-\midrule
-\multicolumn{7}{l}{\emph{reference points}}\\
-v88\,ws& add behind a zero gate ($\equiv$ v63)& $0.1628$ & $0.2032$ & $0.3053$ & $0.2238$ & \\
-v89$^{-}$& scale refiner alone, buggy stage 1& $0.1398$ & $0.1450$ & $0.1456$ & $0.1435$ & see \S\ref{sec:dsr-target} \\
---     & untrained composite                & $0.0006$ & $0.1427$ & $0.1094$ & $0.0843$ & \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-Nothing in this line beats v63. Most of it cannot be interpreted at all, for four separate reasons.
-
-\subsection{Defect 1: a DA3-l-trained stage fed DA3-g depth}
-\label{sec:dsr-contam}
-
-Every composite from v73 to v85 loads \texttt{model.scale\_init} pointing at a scale refiner trained
-by \texttt{train\_scale\_standalone.py}, which read \texttt{DA3\_ROOT} --- hardcoded to DA3-l. The
-tracker itself reads DA3-g. \texttt{doc/plan\_da3g\_reeval.md} had already excluded exactly this for
-the DA3-l-trained refiners v33/v35/v39, on the grounds that feeding them DA3-g zero-shot ``only
-shows the over-correction collapse''. It was reintroduced anyway, because nothing enforced it.
-
-Only v63, v72 and the v88 warm start are free of it.
-
-\subsection{Defect 2: the scale refiner was trained against another dataset's error}
-\label{sec:dsr-target}
-
-\texttt{build\_cache} computed its regression target as
-$r=\log z_{\mathrm{gt}}-\log z_{\mathrm{pr}}$, where $z_{\mathrm{pr}}$ is the \emph{WAFT
-prediction's} own $z$. That prediction set was unprojected with DA3-l depth, while the model's input
-is the DA3-g map. The refiner therefore learned to read a DA3-g map and emit the DA3-l correction.
-DA3-l under-estimates drivetrack depth ($\approx 0.55\times$) so its correction is positive; DA3-g
-over-estimates and needs a negative one. Measured on minival, against its own target
-$ds^{*}=\mathrm{median}_n[\log z_{\mathrm{gt}}-\log z_{\mathrm{raw}}]$:
-
-\begin{center}\small
-\begin{tabular}{lrrrrr}
-\toprule
-subset & $|ds^{*}|$ before & after & change & true $ds^{*}$ & predicted \\
-\midrule
-drivetrack & $0.0879$ & $0.5725$ & $+551.3\%$ & $+0.014$ & $+0.586$ \\
-pstudio    & $0.2393$ & $0.2536$ & $+6.0\%$   & $+0.231$ & $+0.250$ \\
-adt        & $0.0726$ & $0.0676$ & $-6.8\%$   & $+0.035$ & $+0.009$ \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-The failure is a gross \emph{over-correction}, not an inverted sign: on drivetrack the stage emits
-$+0.586$ where the truth is $+0.014$, roughly forty times too large, because $+0.586$ is the
-correction DA3-\emph{l} needs. It therefore worsens the very quantity it exists to fix.
-This explains the whole downstream pattern at once: v89$^{-}$ (the stage alone) scores $0.1435$
-where applying no correction scores $0.208$; substituting it for the de-flicker peaks at $0.2142$;
-and when the same stage is added behind a learnable gate the optimiser drives that gate
-\emph{negative} ($-0.0054$ after $500$ steps), an attempt to shrink a signal that is too large.
-
-Retraining against the correct target exposes the deeper point. The error to be fixed is half what
-the buggy target implied --- emitting zero costs $0.1632$ on DA3-g against $0.3260$ on the DA3-l
-residual --- and of that, the model recovers only $2.3\%$, against $73.3\%$ before. The per-frame
-scale error on DA3-g is both small and largely \emph{unpredictable from the depth map}. The premise
-of the module holds on DA3-l, whose $\approx 0.55\times$ far-field bias is a large systematic
-signal, and very nearly fails on DA3-g.
-
-Two lessons. A module's own training objective is not evidence that it helps: the $73.3\%$ was
-honest and meaningless. And a diagnostic is only as good as its calibration --- an earlier version
-of this measurement used invented intrinsics ($f_x=f_y=500$, principal point at the image centre)
-and reported a true $ds^{*}$ of $-0.927$ on drivetrack, which made the defect look like a sign
-inversion. With the clip's real \texttt{fx\_fy\_cx\_cy} the truth is $+0.014$.
-\texttt{scripts/check\_scale\_on\_minival.py} now uses the recorded intrinsics and reports signed
-means alongside the error, so both the magnitude and the direction are visible.
-
-\subsection{Defect 3: the validation signal measured nothing}
-\label{sec:dsr-val}
-
-Two independent faults, both in the monitoring path:
-
-\begin{itemize}
-\item \texttt{val\_clips} was sampled \emph{from} \texttt{train\_clips} and \texttt{train\_clips} was
-never reduced, so the ``VAL'' loss was a training loss on training clips.
-\item \texttt{TAPVid3DDataset} redraws a random temporal window and a random query subset on every
-\texttt{\_\_getitem\_\_}; \texttt{augment=False} disables only photometric augmentation. Consecutive
-validation passes therefore measured different data.
-\end{itemize}
-
-The second dominates. v82, at $\mathrm{lr}=3\mathrm{e}{-}6$ where the weights barely move, produced
-validation values spanning $0.49$ to $1.14$ --- a $2.3\times$ noise floor at an essentially fixed
-model. Every curve comparison in v73--v82 was smaller than that. Both are fixed
-(\texttt{data.split.holdout\_val}, and the dataset RNG re-seeded per validation pass), and
-\texttt{train.val\_at\_step0} now records each run's own starting point.
-
-With a correct signal the loss behaves: v84 went from validation $0.5615$ / metric-AJ $0.0843$ at
-step $0$ to $0.1197$ / $0.2097$ at step $1000$ --- both moving together, which is what undertraining
-looks like and what the broken signal had made impossible to see.
-
-\subsection{Defect 4: three settings that silently did nothing}
-\label{sec:dsr-noop}
-
-\begin{itemize}
-\item \texttt{train.init\_ckpt} was read only from a \texttt{--init-ckpt} CLI flag. v75 set it in
-YAML, trained without it, and silently became a duplicate of v76 --- their validation matches to
-four decimals. The run's \texttt{cfg.json} recorded the warm start that never happened.
-\item \texttt{model.freeze\_scale} lived inside the \texttt{scale\_init} branch, so an arm
-warm-started through \texttt{init\_ckpt} was never frozen while the log implied it was.
-\item The best-checkpoint save was gated on \texttt{early\_stop\_patience > 0}, and
-\texttt{\_save\_ckpt} prunes all but the newest checkpoint, so the best point on a curve was
-unrecoverable. v78a's step-$750$ weights, its best, were lost this way.
-\end{itemize}
-
-All three are now read from the config and applied however the weights arrived, and the best
-checkpoint is saved unconditionally.
-
-\subsection{Substituting the de-flicker, and adding it}
-\label{sec:dsr-swap}
-
-The de-flicker and the depth-scale refiner are duplicates: both \texttt{per\_frame\_logscale}
-methods return one bounded $(B,F,1)$ log-scale per frame, the first from the tracked points, the
-second from the whole depth map. Two stages estimating the same quantity is not a pipeline, so the
-scale refiner replaces the de-flicker.
-
-Measured with the buggy stage 1, substitution is expensive: untrained it costs pstudio
-$0.2027\!\to\!0.0642$ and adt $0.3056\!\to\!0.1322$. Freezing stage 1 and re-adapting v35 recovers
-pstudio entirely ($0.2017$) but only $77\%$ of adt, and \emph{loses} drivetrack
-($0.1590\!\to\!0.1447$); unfreezing reaches $0.2142$, still short of v63.
-
-As a control, \texttt{Mamba3V88} \emph{adds} the stage to v63 behind a zero-initialised gate, so
-$ds=\mathrm{gate}\cdot ds_{\mathrm{scale}}+ds_{\mathrm{deflicker}}$ and the model is numerically
-identical to \texttt{Mamba3V45} at initialisation --- verified directly,
-$\max|xyz_{V45}-xyz_{V88}|=0$. Its warm start scores $0.2238$, reproducing v63 to four decimals and
-confirming both the identity and that the iters-4/5 protocol difference is below $0.001$.
-
-\subsection{v89 and v90: the line rerun on a corrected stage 1}
-\label{sec:dsr-v8990}
-
-With defect 2 fixed --- the target is now the residual against DA3-g depth sampled at the WAFT $uv$,
-and the cache key carries a \texttt{TARGET\_VERSION} so the old targets cannot be reused --- the
-two arms that matter are rebuilt and renumbered, because a corrected stage 1 makes them different
-models rather than reruns:
-
-\begin{center}\small
-\begin{tabular}{ll}
-\toprule
-arm & configuration \\
-\midrule
-v89   & the corrected DA3-g scale refiner \emph{alone} (stage 2 zero-init, i.e.\ the identity) \\
-v90a  & WAFT $+$ (DA3-g $+$ v89's refiner) $+$ vmamba3-2pool, stage 1 frozen \\
-v90b  & the same, both stages joint, continued from v90a's best \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-v89 isolates what the depth-scale stage contributes by itself, against two references on the same
-protocol: no correction at all is $0.208$, and the same arm with the \emph{buggy} stage 1 scored
-$0.1435$ --- worse than doing nothing, which is what exposed the over-correction. The corrected
-stage 1 clears the gate at $2/3$ subsets improved (pstudio $-4.7\%$, adt $-9.4\%$, drivetrack
-$+4.1\%$), and \textbf{v89 scores $0.2100$} (drivetrack $0.1496$, pstudio $0.1807$, adt $0.2996$)
---- recovering $+0.0665$ over v89$^{-}$ and landing marginally above the $0.208$ that no correction
-gives. Its predictions are nearly constant at $+0.016$ and it removes only $2.3\%$ of the DA3-g
-scale error, so this is a correct module measuring a genuinely small effect, not a broken one. That
-also bounds what v90 can gain from stage 1: the de-flicker and v35 together add $+0.016$ over no
-correction, of which stage 1 here contributes about $+0.002$. v90 is the swap:
-stage 1 replaces the de-flicker, stage 2 is warm-started from v63's v35.
-
-Two gates run before any training, because the previous attempt failed silently in exactly these
-two places. First, stage 1 must reduce the minival scale error on at least two of three subsets ---
-its own held-out objective is explicitly not accepted as evidence, having improved $73.3\%$ while
-inverting the sign. Second, the untrained v90 warm start must beat $0.15$, the buggy arm having
-scored $0.1184$ there. Either gate failing stops the run rather than spending hours on a stage that
-worsens the quantity it exists to fix.
-
-\subsection{One registry for the depth choice}
-\label{sec:dsr-registry}
-
-The DA3-l/DA3-g choice was made four ways --- a \texttt{DA3\_ROOT} env var, a
-\texttt{--da3-depth-root} flag, a \texttt{data.da3\_depth\_root} key, and hardcoded paths --- with
-the loader copy-pasted into six scripts, fourteen scripts defaulting to DA3-l silently, and no
-derived artifact recording which depth produced it. That is what allowed defects 1 and 2, and what
-made both invisible.
-
-The choice now lives in one module, \texttt{mamba3\_tracker/data/depth\_source.py}: one
-registry, one loader; \texttt{resolve()} identifies a raw path instead of trusting it, \texttt{stamp()} writes provenance
-beside an artifact and \texttt{verify()} refuses a mismatch. Verification is deliberately
-use-dependent --- a track's $uv$ is invariant to scaling along the ray (verified,
-$\max|\Delta uv| = 2.3\mathrm{e}{-}13$), so a DA3-l track set is a valid $uv$ source for a DA3-g
-run, while its $z$ is not. All seven existing WAFT caches are retro-stamped \texttt{da3l}.
-
-% Force all deferred floats before the bibliography
-\clearpage
-% =====================================================================
-\bibliographystyle{unsrt}
-\bibliography{refs}
-
-
-\section{Where the adt gap to DELTA actually is}
-\label{sec:adt-gap}
-adt is the subset to attack. It is where the DA3-g deficit lives ($-0.0182$ metric-AJ against
-DELTA$+$DA3-g), and on pstudio we are already ahead by $+0.0159$. Splitting adt's 50 clips into the
-two things metric-AJ multiplies together --- how close the predicted point is, and whether it is
-called visible --- shows they point in opposite directions.
-
-\begin{figure*}[!tb]
-\centering
-\includegraphics[width=\textwidth]{figs/adt_gap.png}
-\caption{\textbf{adt, 50 clips, v91 against DELTA$+$DA3-g, paired per clip.} Points above the
-diagonal are clips where we are better (below, for the error panel). Our 3D positions are the
-closer ones on two thirds of clips --- points within threshold on $33/50$, median error on $32/50$
---- and metric-AJ is still worse on $34/50$, because occlusion accuracy is worse on $41/50$. The
-deficit is entirely in the visibility channel.}
-\label{fig:adt-gap}
-\end{figure*}
-
-\begin{table}[h]
-\centering
-\caption{adt, mean over 50 clips. Every position measure favours us; the headline does not.}
-\label{tab:adt-split}
-\begin{tabular}{lccc}
-\toprule
- & DELTA$+$DA3-g & v91 & \\
-\midrule
-points within threshold      & 0.4688 & \textbf{0.4831} & we win, 33/50 clips \\
-median 3D error (m)          & 0.2406 & \textbf{0.2037} & we win, 32/50 clips \\
-mean 3D error (m)            & 0.6844 & \textbf{0.3911} & we win by a wide margin \\
-occlusion accuracy           & \textbf{0.8257} & 0.7849 & we lose, 41/50 clips \\
-\midrule
-\textbf{metric-AJ}           & \textbf{0.3244} & 0.3062 & we lose \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{The visibility we are scored on was never predicted.}
-\texttt{eval\_metric3d.py} returns the visibility it was handed, which is the optical-flow
-front-end's forward--backward consistency mask. It is not learned and not refined; the refiner's own
-\texttt{vis\_logits} were a zero placeholder that nothing consumed. DELTA predicts visibility.
-
-\paragraph{What the channel is worth.}
-Scoring the \emph{same} predicted positions against ground-truth visibility
-(\texttt{-{}-oracle-vis}; a ceiling, not a result) gives the following. Points-within-threshold is
-unchanged to four decimals, so the positions really are identical and the whole difference is the
-visibility channel.
-
-\begin{table}[h]
-\centering
-\caption{adt with the visibility channel replaced by an oracle. The gap to DELTA is $0.0196$; the
-channel is worth $+0.1146$, six times that.}
-\label{tab:adt-oracle}
-\begin{tabular}{lccc}
-\toprule
-adt & metric-AJ & pts within thresh & occlusion acc. \\
-\midrule
-DELTA$+$DA3-g               & 0.3244 & 0.4688 & 0.8257 \\
-v91, flow visibility        & 0.3048 & 0.4831 & 0.7846 \\
-v91, \emph{oracle} visibility & \textbf{0.4194} & 0.4829 & 1.0000 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Why the visibility head could not be trained as the pipeline stands}
-\label{sec:vis-head-blocked}
-Adding a zero-initialised \texttt{vis\_head} to the v35 refiner, freezing everything else, and
-supervising it with a BCE against ground-truth visibility is a four-tensor change and was
-implemented (v92). It cannot learn, for a reason that turned out to matter far more than the head:
-
-\begin{quote}
-\textbf{The training batches do not contain the supervision the configuration asks for.} With
-\texttt{num\_tracks: 256} and an $8$-frame window, the median number of tracks actually supervised
-per item is \textbf{8} on pstudio, \textbf{8} on adt and \textbf{35} on drivetrack, with a minimum
-of \textbf{3}.
-\end{quote}
-
-The cause is in \texttt{TAPVid3DDataset.\_\_getitem\_\_}: after a random $8$-frame window is cropped
-from a $300$-frame clip, only queries whose \emph{anchor frame} falls inside that window are kept.
-Roughly $8/300$ of them do. Every optimiser step is therefore supervised by about $8\times8 = 64$
-point-observations rather than the $256\times8 = 2048$ the config specifies --- about $3\%$.
-
-This is the most plausible explanation yet for the three findings that preceded it, and it sits
-upstream of all of them:
-\begin{itemize}
-  \item the per-clip loss CV of $2.7$ --- a mean over $\sim$8 points is bound to
-        be violently noisy;
-  \item v91d's training-loss slope of $-0.00025\pm0.00257$ per 100 steps over 4244 clips, i.e.\ no
-        measurable learning at any rate from $5\times10^{-6}$ to $5\times10^{-4}$;
-  \item and directly for the head at hand, $38$--$62\%$ of items have \emph{every} point visible,
-        so the visibility BCE starts at $-\log(1-\epsilon)\approx0.001$ with no negatives to learn
-        from. That is exactly what v92 printed at step 0.
-\end{itemize}
-
-The fix is a data change, not a model one: re-anchor every query to the sampled window (the branch
-that already runs when \emph{no} anchor falls inside it), or sample the window around a query's
-anchor. It changes what every previous number in this report means, so it is recorded here rather
-than applied.
-
-
-\section{v93/v93b: the DA3-g arm that reaches DELTA, and what produced it}
-\label{sec:v93}
-This is where the DA3-g line stops. \textbf{v93b matches DELTA$+$DA3-g on absolute metric-AJ}
-($0.22744$ against $0.22737$), and the entire gain comes from one repair to the training data
-sampler --- not from the optimiser, the loss, or the architecture, all of which were tried and
-excluded first.
-
-\subsection{Protocol}
-Two runs forming one trajectory: v93b resumes v93 from its last checkpoint with the optimiser and
-scheduler state intact, so the pair is a single $8297$-step run rather than two fine-tunes.
-
-\begin{table}[h]
-\centering
-\caption{v93/v93b. Everything but the sampler matches v91, so the sampler is the only difference
-from the arms that preceded it.}
-\label{tab:v93-protocol}
-\begin{tabular}{ll}
-\toprule
-architecture & WAFT $+$ (DA3-g $+$ Mamba-3 depth scale refiner) $+$ vmamba3-2pool (\texttt{v73}) \\
-initialisation & \texttt{result/v73fix\_warmstart/ckpt\_0.pt}, whose \emph{v35} is bit-identical
-                 to v63's \texttt{ckpt\_20000} \\
-trainable & \emph{v35} only, $0.621$\,M; the scale refiner ($0.575$\,M) is frozen \\
-learning rate & $5\times10^{-5}$, no warmup, cosine over the last $20\%$ of steps \\
-batch / window & $1$ / $8$ frames \\
-\textbf{sampler} & \texttt{data.reanchor\_window: true} \\
-steps & $3191$ (v93) $+$ $5106$ (v93b) $=$ $8297$ \\
-wall clock & $\approx$3.7\,s/step, about 8.5\,h in total on one 12\,GB GPU \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Result}
-\begin{table}[h]
-\centering
-\caption{TAPVid-3D minival, absolute metric-AJ, DA3-g depth, one evaluation protocol. v93b matches
-DELTA overall, beats it on pstudio and loses on adt.}
-\label{tab:v93-result}
-\begin{tabular}{lcccc}
-\toprule
-arm & mean & drivetrack & pstudio & adt \\
-\midrule
-DELTA $+$ DA3-g              & 0.22737 & \textbf{0.16407} & 0.19363 & \textbf{0.32440} \\
-\textbf{v93b} \texttt{ckpt\_8297} & \textbf{0.22744} & 0.16309 & \textbf{0.20918} & 0.31004 \\
-v93 \texttt{ckpt\_3191}      & 0.22531 & 0.15891 & 0.20929 & 0.30774 \\
-v93b \texttt{best/ckpt\_5500}& 0.22310 & 0.15670 & 0.20530 & 0.30740 \\
-v63 seed 1                   & 0.22384 & 0.16314 & 0.20275 & 0.30563 \\
-v93 step 0 (the initialisation) & 0.21886 & 0.16069 & 0.19714 & 0.29875 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Report it as a tie, not a win.} The margin over DELTA is $+0.00007$, three orders of
-magnitude inside the $0.0056$ seed-to-seed spread measured from v63's two seeds ($0.2238$ vs
-$0.2182$). On one seed each the two are indistinguishable. The number that does survive is the
-\emph{paired} gain over its own initialisation, $+0.00858$, which carries no seed noise because
-both sides are the same run.
-
-\subsection{What produced it: the sampler, and nothing else}
-\label{sec:v93-sampler}
-\texttt{TAPVid3DDataset} cropped a random $8$-frame window from a $\sim$300-frame clip and then
-kept only the queries whose \emph{anchor frame} fell inside it. Anchors are spread across the
-whole clip, so $8$ frames catch about $2.7\%$ of them: after \texttt{max\_queries} had already cut
-$824$ to $256$, a \textbf{median of 8 tracks} survived per item on adt and pstudio, minimum 3.
-Every optimiser step was supervised by roughly $64$ point-observations instead of $2048$.
-
-The anchor marks which frame is the \emph{question}, not a different kind of annotation --- every
-point is labelled in every frame, and measurably the anchor is the point's first visible frame
-only $1$--$3\%$ of the time and frame 0 only $0.4\%$, while the point is visible at its anchor
-$100\%$ of the time. A point anchored outside the window is therefore a valid query inside it,
-asked from a frame where it is visible, and its query pixel is its own 3-D position projected
-there --- which reproduces the released \texttt{queries\_xyt} to under a pixel for $97$--$99\%$ of
-points. With \texttt{reanchor\_window} the median rises from $9$ to $121$ tracks on adt and $6$ to
-$114$ on pstudio.
-
-This is a \emph{training-data} change only. \texttt{eval\_metric3d} loads whole clips with every
-query and no anchor filter, so no measured number --- ours or any baseline's --- is affected by
-it. Configs that produced an already-published number pin \texttt{reanchor\_window: false} in
-their own file so they still reproduce.
-
-\subsection{Three levers that did nothing, on this same arm}
-Each was measured before the sampler was suspected, and each is a negative result worth keeping:
-
-\begin{itemize}
-  \item \textbf{Learning rate.} An overfit ladder at $5\times10^{-6}$, $5\times10^{-5}$,
-        $1.5\times10^{-4}$ and $5\times10^{-4}$, then v91d overnight at the best of them with
-        4-clip gradient accumulation: training-loss slope $-0.00025\pm0.00257$ per 100 steps
-        ($0.1\sigma$) over $4244$ clips, validation $0.1877\to0.1884$, metric-AJ
-        $0.2235\to0.2231$. The run was stationary, not diverging, so no smaller rate helps either.
-  \item \textbf{Gradient noise.} \texttt{batch>1} is unavailable --- clips carry depth maps of
-        different resolutions (drivetrack $280\times504$, adt $504\times504$) and collate stacks
-        them --- so accumulation was used instead, giving the same $\sqrt{4}$ reduction. No effect.
-  \item \textbf{A learned visibility head} (\S\ref{sec:vis-head-blocked}), four attempts, closed
-        below.
-\end{itemize}
-
-\subsection{Neither loss curve is usable here: 7 of 7}
-\label{sec:v93-curves}
-Figure~\ref{fig:v93-curve} is the point of this section as much as the result is. Across all
-$8297$ steps the training loss sits flat at $\approx$0.2 with no trend, and the held-out
-validation wanders $0.131$--$0.138$ and never falls below its own step-0 value --- while metric-AJ
-rises $+0.0086$. Validation's own pick, \texttt{best/ckpt\_5500}, scores $0.2231$ against
-\texttt{ckpt\_8297}'s $0.2274$: it selected the worst of the three scored checkpoints.
-
-Counting every occasion in this line, \textbf{validation has mispredicted the direction of
-metric-AJ seven times out of seven}. Two nights of this work were spent concluding ``it is not
-learning'' from curves that could not have shown learning --- at \texttt{batch: 1} the per-clip
-loss spans $21\times$, and the logger was printing a single clip's loss per 50 steps. The
-practical rule for this pipeline is to score checkpoints and not to read curves.
-
-\begin{figure*}[!tb]
-\centering
-\includegraphics[width=\textwidth]{figs/v93_curve.png}
-\caption{\textbf{v93 and v93b as one trajectory.} \emph{Top:} training loss, flat throughout.
-\emph{Middle:} held-out validation, also flat, with its minimum at step $5500$ --- the checkpoint
-that scored worst. \emph{Bottom:} metric-AJ on the four scored checkpoints, the only signal that
-moved, against DELTA's $0.22737$. The fitted trend is $+0.00090\pm0.00038$ per 1000 steps
-($2.4\sigma$), but it rests on four non-monotonic points and the final leg contains the
-end-of-schedule learning-rate anneal, which a longer run gets only once.}
-\label{fig:v93-curve}
-\end{figure*}
-
-\subsection{Whether more steps would go further}
-The trend on the scored checkpoints is $+0.00090\pm0.00038$ per 1000 steps, which extrapolates to
-$\approx$0.232 at 14k steps. Three things argue against taking that at face value: only four
-points and non-monotonic (step $5500$ fell $0.0022$ below step $3191$); the last leg mixes real
-progress with the cosine anneal from $5\times10^{-5}$ to $5\times10^{-6}$ over steps
-$6638$--$8297$, which is not repeatable per 1000 steps; and at $+0.0009$ per 1000 steps it takes
-$\sim$6000 steps to move by one seed spread. Settling it needs a longer run with the anneal placed
-at the end of the longer horizon, scored every 2000 steps, before repeat seeds are worth spending.
-
-\subsection{The visibility head, closed after four attempts}
-adt is where the remaining deficit to DELTA lives, and \S\ref{sec:adt-gap} showed it is entirely
-the visibility channel: our 3-D positions are the closer ones, and scoring them against
-ground-truth visibility gives $0.4194$ on adt against $0.3048$, so the channel is worth $+0.1146$
-where the gap to DELTA is $0.0196$. Four attempts failed to claim any of it.
-
-\begin{enumerate}
-  \item \textbf{A residual on the flow mask's logit.} Unusable by construction: the mask must be
-        clamped away from 0 and 1 to keep the logit finite, putting the base at $\pm6.9$, and the
-        head moved $\pm0.057$ in 400 steps. No point crossed the $0.5$ threshold and adt scored
-        $0.2995/0.4766/0.7849$ identically with the head on and off.
-  \item \textbf{Direct prediction, 8-frame windows.} Trained where $94.6\%$ of observations are
-        visible and evaluated where $39$--$75\%$ are. Per-subset damage tracked that gap exactly:
-        pstudio $+0.0238$ (closest to the training rate), drivetrack $-0.0081$, adt $-0.0653$,
-        with adt's occlusion accuracy collapsing $0.7849\to0.5482$.
-  \item \textbf{Whole-clip features, cached.} The trunk is frozen, so its per-point feature is a
-        constant of the data: caching it (280 clips, 3\,M observations per subset, 2.0\,GB) turns
-        the fit into an MLP over a fixed array and removes the distribution mismatch. The head
-        still lost to the flow mask on adt, $0.6051$ against $0.7666$, predicting ``visible''
-        $81\%$ of the time where the truth is $57\%$.
-  \item \textbf{Class weighting}, the last untried knob, swept against the cached features:
-\end{enumerate}
-
-\begin{table}[h]
-\centering
-\caption{Held-out visibility accuracy against the flow mask. No setting beats it on adt, the
-subset the work is aimed at.}
-\label{tab:vis-posweight}
-\begin{tabular}{lccc}
-\toprule
- & adt & drivetrack & pstudio \\
-\midrule
-flow mask (the bar) & \textbf{0.7666} & 0.7790 & \textbf{0.7551} \\
-\midrule
-\texttt{pos\_weight} 0.3 & 0.5942 & 0.6627 & 0.6651 \\
-\texttt{pos\_weight} 0.5 & 0.6176 & 0.7619 & 0.7592 \\
-\texttt{pos\_weight} 1.0 & 0.6051 & 0.7971 & 0.7477 \\
-\texttt{pos\_weight} 2.0 & 0.5604 & \textbf{0.8209} & 0.7464 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-The trunk features do not carry enough occlusion evidence for a small head to beat a
-forward--backward flow check, and \texttt{-{}-vis-source flow} remains the default. The $+0.1146$
-headroom on adt is real and unclaimed.
 
 \end{document}

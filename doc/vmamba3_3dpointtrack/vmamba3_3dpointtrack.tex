@@ -4146,4 +4146,181 @@ that already runs when \emph{no} anchor falls inside it), or sample the window a
 anchor. It changes what every previous number in this report means, so it is recorded here rather
 than applied.
 
+
+\section{v93/v93b: the DA3-g arm that reaches DELTA, and what produced it}
+\label{sec:v93}
+This is where the DA3-g line stops. \textbf{v93b matches DELTA$+$DA3-g on absolute metric-AJ}
+($0.22744$ against $0.22737$), and the entire gain comes from one repair to the training data
+sampler --- not from the optimiser, the loss, or the architecture, all of which were tried and
+excluded first.
+
+\subsection{Protocol}
+Two runs forming one trajectory: v93b resumes v93 from its last checkpoint with the optimiser and
+scheduler state intact, so the pair is a single $8297$-step run rather than two fine-tunes.
+
+\begin{table}[h]
+\centering
+\caption{v93/v93b. Everything but the sampler matches v91, so the sampler is the only difference
+from the arms that preceded it.}
+\label{tab:v93-protocol}
+\begin{tabular}{ll}
+\toprule
+architecture & WAFT $+$ (DA3-g $+$ Mamba-3 depth scale refiner) $+$ vmamba3-2pool (\texttt{v73}) \\
+initialisation & \texttt{result/v73fix\_warmstart/ckpt\_0.pt}, whose \emph{v35} is bit-identical
+                 to v63's \texttt{ckpt\_20000} \\
+trainable & \emph{v35} only, $0.621$\,M; the scale refiner ($0.575$\,M) is frozen \\
+learning rate & $5\times10^{-5}$, no warmup, cosine over the last $20\%$ of steps \\
+batch / window & $1$ / $8$ frames \\
+\textbf{sampler} & \texttt{data.reanchor\_window: true} \\
+steps & $3191$ (v93) $+$ $5106$ (v93b) $=$ $8297$ \\
+wall clock & $\approx$3.7\,s/step, about 8.5\,h in total on one 12\,GB GPU \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Result}
+\begin{table}[h]
+\centering
+\caption{TAPVid-3D minival, absolute metric-AJ, DA3-g depth, one evaluation protocol. v93b matches
+DELTA overall, beats it on pstudio and loses on adt.}
+\label{tab:v93-result}
+\begin{tabular}{lcccc}
+\toprule
+arm & mean & drivetrack & pstudio & adt \\
+\midrule
+DELTA $+$ DA3-g              & 0.22737 & \textbf{0.16407} & 0.19363 & \textbf{0.32440} \\
+\textbf{v93b} \texttt{ckpt\_8297} & \textbf{0.22744} & 0.16309 & \textbf{0.20918} & 0.31004 \\
+v93 \texttt{ckpt\_3191}      & 0.22531 & 0.15891 & 0.20929 & 0.30774 \\
+v93b \texttt{best/ckpt\_5500}& 0.22310 & 0.15670 & 0.20530 & 0.30740 \\
+v63 seed 1                   & 0.22384 & 0.16314 & 0.20275 & 0.30563 \\
+v93 step 0 (the initialisation) & 0.21886 & 0.16069 & 0.19714 & 0.29875 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Report it as a tie, not a win.} The margin over DELTA is $+0.00007$, three orders of
+magnitude inside the $0.0056$ seed-to-seed spread measured from v63's two seeds ($0.2238$ vs
+$0.2182$). On one seed each the two are indistinguishable. The number that does survive is the
+\emph{paired} gain over its own initialisation, $+0.00858$, which carries no seed noise because
+both sides are the same run.
+
+\subsection{What produced it: the sampler, and nothing else}
+\label{sec:v93-sampler}
+\texttt{TAPVid3DDataset} cropped a random $8$-frame window from a $\sim$300-frame clip and then
+kept only the queries whose \emph{anchor frame} fell inside it. Anchors are spread across the
+whole clip, so $8$ frames catch about $2.7\%$ of them: after \texttt{max\_queries} had already cut
+$824$ to $256$, a \textbf{median of 8 tracks} survived per item on adt and pstudio, minimum 3.
+Every optimiser step was supervised by roughly $64$ point-observations instead of $2048$.
+
+The anchor marks which frame is the \emph{question}, not a different kind of annotation --- every
+point is labelled in every frame, and measurably the anchor is the point's first visible frame
+only $1$--$3\%$ of the time and frame 0 only $0.4\%$, while the point is visible at its anchor
+$100\%$ of the time. A point anchored outside the window is therefore a valid query inside it,
+asked from a frame where it is visible, and its query pixel is its own 3-D position projected
+there --- which reproduces the released \texttt{queries\_xyt} to under a pixel for $97$--$99\%$ of
+points. With \texttt{reanchor\_window} the median rises from $9$ to $121$ tracks on adt and $6$ to
+$114$ on pstudio.
+
+This is a \emph{training-data} change only. \texttt{eval\_metric3d} loads whole clips with every
+query and no anchor filter, so no measured number --- ours or any baseline's --- is affected by
+it. Configs that produced an already-published number pin \texttt{reanchor\_window: false} in
+their own file so they still reproduce.
+
+\subsection{Three levers that did nothing, on this same arm}
+Each was measured before the sampler was suspected, and each is a negative result worth keeping:
+
+\begin{itemize}
+  \item \textbf{Learning rate.} An overfit ladder at $5\times10^{-6}$, $5\times10^{-5}$,
+        $1.5\times10^{-4}$ and $5\times10^{-4}$, then v91d overnight at the best of them with
+        4-clip gradient accumulation: training-loss slope $-0.00025\pm0.00257$ per 100 steps
+        ($0.1\sigma$) over $4244$ clips, validation $0.1877\to0.1884$, metric-AJ
+        $0.2235\to0.2231$. The run was stationary, not diverging, so no smaller rate helps either.
+  \item \textbf{Gradient noise.} \texttt{batch>1} is unavailable --- clips carry depth maps of
+        different resolutions (drivetrack $280\times504$, adt $504\times504$) and collate stacks
+        them --- so accumulation was used instead, giving the same $\sqrt{4}$ reduction. No effect.
+  \item \textbf{A learned visibility head} (\S\ref{sec:vis-head-blocked}), four attempts, closed
+        below.
+\end{itemize}
+
+\subsection{Neither loss curve is usable here: 7 of 7}
+\label{sec:v93-curves}
+Figure~\ref{fig:v93-curve} is the point of this section as much as the result is. Across all
+$8297$ steps the training loss sits flat at $\approx$0.2 with no trend, and the held-out
+validation wanders $0.131$--$0.138$ and never falls below its own step-0 value --- while metric-AJ
+rises $+0.0086$. Validation's own pick, \texttt{best/ckpt\_5500}, scores $0.2231$ against
+\texttt{ckpt\_8297}'s $0.2274$: it selected the worst of the three scored checkpoints.
+
+Counting every occasion in this line, \textbf{validation has mispredicted the direction of
+metric-AJ seven times out of seven}. Two nights of this work were spent concluding ``it is not
+learning'' from curves that could not have shown learning --- at \texttt{batch: 1} the per-clip
+loss spans $21\times$, and the logger was printing a single clip's loss per 50 steps. The
+practical rule for this pipeline is to score checkpoints and not to read curves.
+
+\begin{figure*}[!tb]
+\centering
+\includegraphics[width=\textwidth]{figs/v93_curve.png}
+\caption{\textbf{v93 and v93b as one trajectory.} \emph{Top:} training loss, flat throughout.
+\emph{Middle:} held-out validation, also flat, with its minimum at step $5500$ --- the checkpoint
+that scored worst. \emph{Bottom:} metric-AJ on the four scored checkpoints, the only signal that
+moved, against DELTA's $0.22737$. The fitted trend is $+0.00090\pm0.00038$ per 1000 steps
+($2.4\sigma$), but it rests on four non-monotonic points and the final leg contains the
+end-of-schedule learning-rate anneal, which a longer run gets only once.}
+\label{fig:v93-curve}
+\end{figure*}
+
+\subsection{Whether more steps would go further}
+The trend on the scored checkpoints is $+0.00090\pm0.00038$ per 1000 steps, which extrapolates to
+$\approx$0.232 at 14k steps. Three things argue against taking that at face value: only four
+points and non-monotonic (step $5500$ fell $0.0022$ below step $3191$); the last leg mixes real
+progress with the cosine anneal from $5\times10^{-5}$ to $5\times10^{-6}$ over steps
+$6638$--$8297$, which is not repeatable per 1000 steps; and at $+0.0009$ per 1000 steps it takes
+$\sim$6000 steps to move by one seed spread. Settling it needs a longer run with the anneal placed
+at the end of the longer horizon, scored every 2000 steps, before repeat seeds are worth spending.
+
+\subsection{The visibility head, closed after four attempts}
+adt is where the remaining deficit to DELTA lives, and \S\ref{sec:adt-gap} showed it is entirely
+the visibility channel: our 3-D positions are the closer ones, and scoring them against
+ground-truth visibility gives $0.4194$ on adt against $0.3048$, so the channel is worth $+0.1146$
+where the gap to DELTA is $0.0196$. Four attempts failed to claim any of it.
+
+\begin{enumerate}
+  \item \textbf{A residual on the flow mask's logit.} Unusable by construction: the mask must be
+        clamped away from 0 and 1 to keep the logit finite, putting the base at $\pm6.9$, and the
+        head moved $\pm0.057$ in 400 steps. No point crossed the $0.5$ threshold and adt scored
+        $0.2995/0.4766/0.7849$ identically with the head on and off.
+  \item \textbf{Direct prediction, 8-frame windows.} Trained where $94.6\%$ of observations are
+        visible and evaluated where $39$--$75\%$ are. Per-subset damage tracked that gap exactly:
+        pstudio $+0.0238$ (closest to the training rate), drivetrack $-0.0081$, adt $-0.0653$,
+        with adt's occlusion accuracy collapsing $0.7849\to0.5482$.
+  \item \textbf{Whole-clip features, cached.} The trunk is frozen, so its per-point feature is a
+        constant of the data: caching it (280 clips, 3\,M observations per subset, 2.0\,GB) turns
+        the fit into an MLP over a fixed array and removes the distribution mismatch. The head
+        still lost to the flow mask on adt, $0.6051$ against $0.7666$, predicting ``visible''
+        $81\%$ of the time where the truth is $57\%$.
+  \item \textbf{Class weighting}, the last untried knob, swept against the cached features:
+\end{enumerate}
+
+\begin{table}[h]
+\centering
+\caption{Held-out visibility accuracy against the flow mask. No setting beats it on adt, the
+subset the work is aimed at.}
+\label{tab:vis-posweight}
+\begin{tabular}{lccc}
+\toprule
+ & adt & drivetrack & pstudio \\
+\midrule
+flow mask (the bar) & \textbf{0.7666} & 0.7790 & \textbf{0.7551} \\
+\midrule
+\texttt{pos\_weight} 0.3 & 0.5942 & 0.6627 & 0.6651 \\
+\texttt{pos\_weight} 0.5 & 0.6176 & 0.7619 & 0.7592 \\
+\texttt{pos\_weight} 1.0 & 0.6051 & 0.7971 & 0.7477 \\
+\texttt{pos\_weight} 2.0 & 0.5604 & \textbf{0.8209} & 0.7464 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The trunk features do not carry enough occlusion evidence for a small head to beat a
+forward--backward flow check, and \texttt{-{}-vis-source flow} remains the default. The $+0.1146$
+headroom on adt is real and unclaimed.
+
 \end{document}

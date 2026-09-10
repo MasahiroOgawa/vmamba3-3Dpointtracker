@@ -18,7 +18,14 @@
 # Same start and rate as v91, 400 steps -- which also recreates the checkpoint v91/ckpt_400.pt,
 # our best DA3-g result at 0.2251, that the trainer's rotation deleted.
 #
-# Read: metric-AJ on adt with --vis-source model, against 0.3062 (flow mask) and the 0.4194 ceiling.
+# data.reanchor_window is ON. Without it a random 8-frame window keeps only the queries the
+# benchmark anchored inside it -- ~2.7% -- leaving a median of 8 tracks of the 256 sampled, and
+# 17-67% of items with every point visible, so the visibility BCE had no negatives at all.
+# With it: 121 tracks on adt, 114 on pstudio, and no all-visible items.
+#
+# Read: metric-AJ on adt with --vis-source model (head ON) against --vis-source flow (head OFF).
+# The same checkpoint serves both: everything but vis_head is frozen, so the 3D positions are
+# bit-identical and the difference is the head alone. Bars: DELTA 0.3244, oracle ceiling 0.4194.
 data:
   da3_depth_root: ~/data/tapvid3d_da3nested
   image_size: 896
@@ -34,6 +41,7 @@ data:
   - pstudio
   - drivetrack
   - adt
+  reanchor_window: true
 flow:
   cfg: third_party/SEA-RAFT/config/eval/spring-M.json
   fb_alpha: 0.05

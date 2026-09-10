@@ -702,6 +702,10 @@ def main() -> int:
             f"{dict(Counter(p.parent.name for p in train_clips))} via {oversample}"
         )
 
+    reanchor_window = bool(data_cfg.get("reanchor_window", False))
+    if reanchor_window:
+        print("[train] reanchor_window: every point visible in the window is a query, "
+              "asked from a frame where it is visible", flush=True)
     train_ds = TAPVid3DDataset(
         train_clips,
         window_size=int(train_cfg["window"]),
@@ -710,6 +714,7 @@ def main() -> int:
         max_queries=int(data_cfg["num_tracks"]),
         image_size=image_size,
         da3_depth_root=da3_depth_root,
+        reanchor_window=reanchor_window,
     )
     val_ds = TAPVid3DDataset(
         val_clips,
@@ -719,6 +724,7 @@ def main() -> int:
         max_queries=int(data_cfg["num_tracks"]),
         image_size=image_size,
         da3_depth_root=da3_depth_root,
+        reanchor_window=reanchor_window,
     )
     loader = DataLoader(
         train_ds,

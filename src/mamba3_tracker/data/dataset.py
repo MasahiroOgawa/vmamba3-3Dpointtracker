@@ -54,6 +54,7 @@ class TAPVid3DDataset(Dataset):
         augment: bool = False,
         image_size: int = 448,
         da3_depth_root: str | Path | None = None,
+        reanchor_window: bool = False,
     ) -> None:
         self.clip_paths = list(clip_paths)
         self.window_size = window_size
@@ -63,6 +64,7 @@ class TAPVid3DDataset(Dataset):
         self.da3_depth_root = (
             Path(da3_depth_root).expanduser() if da3_depth_root is not None else None
         )
+        self.reanchor_window = bool(reanchor_window)
         self._rng = random.Random(seed)
 
     def __len__(self) -> int:
@@ -124,15 +126,47 @@ class TAPVid3DDataset(Dataset):
         # queries whose anchor frame falls inside [start, end). If the cropped
         # window contains zero anchors, re-cast every query's anchor to
         # frame 0 of the window so we still have GT supervision.
-        keep = (queries[:, 2].long() >= start) & (queries[:, 2].long() < end)
-        if keep.sum().item() == 0:
-            queries = queries.clone()
-            queries[:, 2] = float(start)
-        else:
-            queries = queries[keep].clone()
-            tracks = tracks[:, keep]
-            orig_idx = orig_idx[keep]
-            vis = vis[:, keep]
+        reanchored = False
+        if self.reanchor_window:
+            # The anchor frame marks which frame is the QUESTION, not a different kind of
+            # annotation: every point is labelled in every frame, and measurably the anchor is
+            # neither the first visible frame (1-3% of the time) nor frame 0 (0.4%) -- it is an
+            # arbitrary frame at which the point happens to be visible (100%). So a point the
+            # benchmark anchored outside this window is still a valid query inside it, asked from
+            # a frame where it is visible. Keeping only in-window anchors discarded ~97% of the
+            # supervision: 8 frames of ~300 catch ~2.7% of anchors, leaving a median of 8 tracks
+            # of the 256 sampled.
+            in_win = vis.any(dim=0)
+            if bool(in_win.any()):
+                sel = torch.nonzero(in_win, as_tuple=True)[0]
+                first = vis[:, sel].float().argmax(dim=0)  # first visible frame, per point
+                tracks = tracks[:, sel]
+                vis = vis[:, sel]
+                orig_idx = orig_idx[sel]
+                # The query pixel is the point's own 3D position projected into that frame; this
+                # reproduces the released queries_xyt to under a pixel for 97-99% of points.
+                xyz0 = tracks[first, torch.arange(sel.numel())]
+                z0 = xyz0[:, 2].clamp_min(1e-6)
+                Kc = clip.K
+                queries = torch.stack(
+                    [
+                        Kc[0, 0] * xyz0[:, 0] / z0 + Kc[0, 2],
+                        Kc[1, 1] * xyz0[:, 1] / z0 + Kc[1, 2],
+                        first.float() + start,
+                    ],
+                    dim=1,
+                )
+                reanchored = True
+        if not reanchored:
+            keep = (queries[:, 2].long() >= start) & (queries[:, 2].long() < end)
+            if keep.sum().item() == 0:
+                queries = queries.clone()
+                queries[:, 2] = float(start)
+            else:
+                queries = queries[keep].clone()
+                tracks = tracks[:, keep]
+                orig_idx = orig_idx[keep]
+                vis = vis[:, keep]
         queries[:, 2] -= start
         # Scale (x, y) into the resized image's pixel coords.
         queries[:, 0] *= sx

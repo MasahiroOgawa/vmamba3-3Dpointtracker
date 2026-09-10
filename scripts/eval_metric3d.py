@@ -240,6 +240,11 @@ def main() -> int:
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--image-size", type=int, default=896)
     ap.add_argument(
+        "--oracle-vis", action="store_true",
+        help="score the predicted positions against ground-truth visibility (a ceiling, not a "
+             "result): our visibility comes from the flow's forward-backward check, unlearned",
+    )
+    ap.add_argument(
         "--url", type=str, default="MemorySlices/Tartan-C-T-TSKH-spring540x960-M"
     )
     ap.add_argument("--iters", type=int, default=None)
@@ -635,6 +640,11 @@ def main() -> int:
                 gt_vis = clip.visibility[:F_, :N_].float().numpy()  # (F,N)
                 gt_NF3 = np.transpose(gt_xyz, (1, 0, 2))
                 gt_vis_NF = np.transpose(gt_vis, (1, 0))
+                if args.oracle_vis:
+                    # Ceiling measurement, not a result: our visibility is the flow's
+                    # forward-backward check and is never learned, so this asks what the same 3D
+                    # positions would score if that one channel were perfect.
+                    pred_vis = gt_vis_NF.copy()
                 K = clip.K.numpy()
                 # TAPVid-3D defines the depth-relative pixel thresholds relative to
                 # 256-px images, so the official evaluator rescales intrinsics by

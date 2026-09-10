@@ -1231,7 +1231,8 @@ def main() -> int:
             print(
                 f"[train] step {step:6d}/{n_steps}  mean{_fmt_loss_row(row, last_dsr)}"
                 f"{'' if lambda_vis <= 0 else f'  Lvis={last_vis:.4f}'}  lr={lr:.2e}  "
-                f"|grad|={gn:.2e}  {_fmt_grad_row(head_grad)}{duv_str}  elapsed={dt:.0f}s",
+                f"|grad|={gn:.2e}  {_fmt_grad_row(head_grad)}{duv_str}  "
+                f"mem={torch.cuda.max_memory_allocated()/2**20:.0f}MiB  elapsed={dt:.0f}s",
                 flush=True,
             )
             history.append(

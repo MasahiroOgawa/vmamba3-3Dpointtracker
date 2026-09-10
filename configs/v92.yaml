@@ -7,6 +7,9 @@
 # vis_logits were zeros nothing consumed. Scoring the same positions against ground-truth
 # visibility gives 0.4194 on adt, so the channel is worth +0.1146 and the gap to DELTA is 0.0196.
 #
+# lr is 1e-3, not the 5e-5 the depth arms use: only vis_head trains, so train.lr is the head's
+# own rate, and it is learning from scratch rather than fine-tuning a converged trunk.
+#
 # WHAT IS TRAINED. Only v35.vis_head, 4 tensors. scale_refiner and v35 are frozen, so every depth
 # and uv prediction is bit-identical to the starting point and any change in the metric belongs to
 # visibility alone. The head predicts a residual on the flow mask's logit and is zero-initialised,
@@ -88,7 +91,7 @@ train:
   grad_clip: 1.0
   init_ckpt: result/v73fix_warmstart/ckpt_0.pt
   log_every: 25
-  lr: 5.0e-05
+  lr: 0.001
   num_workers: 0
   out_dir: result/v92
   seed: 0

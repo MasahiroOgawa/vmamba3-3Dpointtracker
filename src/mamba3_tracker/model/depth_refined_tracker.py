@@ -234,13 +234,20 @@ class Mamba3V35Refiner(nn.Module):
 
         self.dz_head = _mlp(dim, 64, 1)
         self.duv_head = _mlp(dim, 64, 2)
-        # Visibility. The evaluated visibility has always been the flow's forward-backward mask,
-        # passed straight through; on adt that mask is the whole deficit to DELTA (occlusion
-        # accuracy 0.785 vs 0.826, while our points are the closer ones). This head predicts a
-        # RESIDUAL on that mask's logit and is zero-initialised, so at step 0 it reproduces the
-        # flow mask exactly and can only be judged against it.
+        # Visibility, predicted outright. The trunk input already carries the flow's
+        # forward-backward mask as its 4th channel, so the head sees it as evidence alongside
+        # appearance, the depth patch and the temporal context.
+        #
+        # NOT a residual on that mask's logit, which is the tempting form and is unusable: the
+        # mask has to be clamped away from 0 and 1 to keep the logit finite, which puts the base
+        # at about +-6.9, and a head that must travel 6.9 to flip one point moves ~0.06 in a
+        # short fine-tune. Such a head is a no-op by construction, and reports identical metrics
+        # with it on and off.
         self.vis_head = _mlp(dim, 64, 1)
-        zero_heads = [self.dz_head, self.duv_head, self.vis_head]
+        # vis_head is NOT zero-initialised: it predicts visibility outright, and identity at
+        # step 0 is neither achievable nor needed -- the evaluator's --vis-source flow gives
+        # the untouched mask whenever the comparison calls for it.
+        zero_heads = [self.dz_head, self.duv_head]
         # v43: per-frame global-scale head fed by within-frame pooling. Corrects
         # DA3-g's per-frame scale drift (sec:v43); zero-init → starts at v42.
         if self.per_frame_scale:
@@ -460,8 +467,7 @@ class Mamba3V35Refiner(nn.Module):
             dim=-1,
         )
 
-        v_in = vis.clamp(1e-3, 1.0 - 1e-3)
-        vis_logits = torch.log(v_in / (1.0 - v_in)) + self.vis_head(x).squeeze(-1)
+        vis_logits = self.vis_head(x).squeeze(-1)
         return TrackerOutputs(
             xyz=xyz,
             uv=new_uv,

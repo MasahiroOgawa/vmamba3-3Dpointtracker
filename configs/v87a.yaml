@@ -18,6 +18,9 @@
 # scale headroom (v63 reaches 0.4837 APD3D against an oracle ceiling of 0.5683).
 # Its scale multiplies BOTH the per-track sampled depth and the map handed to stage 2.
 data:
+  # Pinned to the pre-2026-09-10 sampler, which kept only the queries anchored inside the
+  # window (~8 tracks per item). This run's published number was produced that way.
+  reanchor_window: false
   da3_depth_root: ~/data/tapvid3d_da3nested
   image_size: 896
   num_tracks: 256

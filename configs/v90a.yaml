@@ -15,6 +15,9 @@
 #
 # Bars: DELTA DA3-g 0.2274 (the goal) | v63 0.2238 | v87b (buggy stage 1) 0.2142.
 data:
+  # Pinned to the pre-2026-09-10 sampler, which kept only the queries anchored inside the
+  # window (~8 tracks per item). This run's published number was produced that way.
+  reanchor_window: false
   da3_depth_root: ~/data/tapvid3d_da3nested
   image_size: 896
   num_tracks: 256

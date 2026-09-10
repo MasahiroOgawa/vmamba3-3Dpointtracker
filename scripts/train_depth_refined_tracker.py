@@ -702,10 +702,17 @@ def main() -> int:
             f"{dict(Counter(p.parent.name for p in train_clips))} via {oversample}"
         )
 
-    reanchor_window = bool(data_cfg.get("reanchor_window", False))
-    if reanchor_window:
-        print("[train] reanchor_window: every point visible in the window is a query, "
-              "asked from a frame where it is visible", flush=True)
+    # Default ON: keeping only the queries the benchmark anchored inside the window discarded
+    # ~97% of the supervision, which is a defect rather than a setting. Runs that produced an
+    # already-published number pin it off in their own config so they still reproduce.
+    reanchor_window = bool(data_cfg.get("reanchor_window", True))
+    print(
+        "[train] reanchor_window: every point visible in the window is a query, asked from a "
+        "frame where it is visible" if reanchor_window else
+        "[train] reanchor_window OFF: only queries anchored inside the window are kept "
+        "(the pre-2026-09-10 sampler; a median of ~8 tracks per item)",
+        flush=True,
+    )
     train_ds = TAPVid3DDataset(
         train_clips,
         window_size=int(train_cfg["window"]),

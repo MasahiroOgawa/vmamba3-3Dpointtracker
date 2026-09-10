@@ -54,7 +54,7 @@ class TAPVid3DDataset(Dataset):
         augment: bool = False,
         image_size: int = 448,
         da3_depth_root: str | Path | None = None,
-        reanchor_window: bool = False,
+        reanchor_window: bool = True,
     ) -> None:
         self.clip_paths = list(clip_paths)
         self.window_size = window_size

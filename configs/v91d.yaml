@@ -5,6 +5,9 @@
 # mean; v91 logged one clip per 50 steps, and that is why its curve looked flat.
 # steps=1061 is what fits before the 06:20 stop at the measured 12 s/step.
 data:
+  # Pinned to the pre-2026-09-10 sampler, which kept only the queries anchored inside the
+  # window (~8 tracks per item). This run's published number was produced that way.
+  reanchor_window: false
   da3_depth_root: ~/data/tapvid3d_da3nested
   image_size: 896
   num_tracks: 256

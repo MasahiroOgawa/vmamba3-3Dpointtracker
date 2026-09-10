@@ -1,6 +1,9 @@
 # Rate probe at lr=5e-05, accum=4: 80 optimiser steps on the full training split,
 # each averaging 4 clips. Scored by the slope of the window-mean loss.
 data:
+  # Pinned to the pre-2026-09-10 sampler, which kept only the queries anchored inside the
+  # window (~8 tracks per item). This run's published number was produced that way.
+  reanchor_window: false
   da3_depth_root: ~/data/tapvid3d_da3nested
   image_size: 896
   num_tracks: 256

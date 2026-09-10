@@ -29,6 +29,9 @@ flow:
   fb_alpha: 0.05
   fb_beta: 1.0
 data:
+  # Pinned to the pre-2026-09-10 sampler, which kept only the queries anchored inside the
+  # window (~8 tracks per item). This run's published number was produced that way.
+  reanchor_window: false
   subsets:
   - pstudio
   - drivetrack

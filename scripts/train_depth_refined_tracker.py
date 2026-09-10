@@ -608,7 +608,14 @@ def main() -> int:
     es_best, es_since, es_best_step = float("inf"), 0, -1
     es_raw_best = float("inf")
     lambda_dsr = float(loss_cfg.get("lambda_dsr", 0.0) or 0.0)
+    # Visibility. Kept out of loss.weights on purpose: those are renormalised to sum to 1, so
+    # adding a term there would silently change pos_3D's share and confound the depth path.
+    # This follows lambda_dsr, which is applied on top for the same reason.
+    lambda_vis = float(loss_cfg.get("lambda_vis", 0.0) or 0.0)
+    if lambda_vis > 0:
+        print(f"[train] L_vis enabled, lambda_vis={lambda_vis:.3f}")
     last_dsr = float("nan")
+    last_vis = float("nan")
     if lambda_dsr > 0:
         print(f"[train] L_dsr enabled, lambda_dsr={lambda_dsr:.3f}")
     track_noise_px = float(data_cfg.get("track_noise_px", 0.0) or 0.0)
@@ -1049,6 +1056,20 @@ def main() -> int:
             _held += prm.numel()
         _mod.eval()
         print(f"[train] FROZEN {_name}: {_held/1e6:.3f}M params held", flush=True)
+
+    # Re-enable specific parameters after freezing, by name fragment. Training only a new
+    # head inside an otherwise frozen module keeps every other prediction bit-identical, so
+    # any change in the metric is attributable to that head alone.
+    _only = list(model_cfg.get("train_only", []) or [])
+    if _only:
+        _n = 0
+        for _pname, _prm in model.named_parameters():
+            if any(f in _pname for f in _only):
+                _prm.requires_grad_(True)
+                _n += _prm.numel()
+        if _n == 0:
+            raise SystemExit(f"[train] model.train_only={_only} matched no parameter")
+        print(f"[train] train_only {_only}: {_n/1e6:.4f}M params trainable", flush=True)
     _n_train = sum(q.numel() for q in model.parameters() if q.requires_grad)
     _trainable_names = sorted({n.split(".")[0] for n, q in model.named_parameters() if q.requires_grad})
     print(f"[train] trainable after freezing: {_n_train/1e6:.3f}M across {_trainable_names}", flush=True)
@@ -1140,6 +1161,23 @@ def main() -> int:
             )
             total = total + lambda_dsr * l_dsr
             last_dsr = float(l_dsr.detach())
+        if lambda_vis > 0:
+            gt_v = batch.visibility.to(device, non_blocking=True).float()
+            if step == start_step and micro == 0:
+                # Whether the head has anything to learn. The input visibility is the front-end's
+                # forward-backward mask and the target is the dataset's; if they already agree the
+                # loss starts at -log(1-eps) ~ 0.001 and no amount of training will move it.
+                _ag = ((vis > 0.5) == (gt_v > 0.5)).float().mean().item()
+                print(f"[train] visibility: input(flow) vs target(GT) agree on {_ag:.4f} of "
+                      f"points; input mean {vis.mean().item():.4f}, target mean "
+                      f"{gt_v.mean().item():.4f}", flush=True)
+            qm_v = qmask.unsqueeze(1).expand_as(gt_v).float()
+            l_vis = (
+                Fn.binary_cross_entropy_with_logits(pred.vis_logits, gt_v, reduction="none")
+                * qm_v
+            ).sum() / qm_v.sum().clamp_min(1.0)
+            total = total + lambda_vis * l_vis
+            last_vis = float(l_vis.detach())
         for _k, _v in _loss_to_dict(loss_out).items():
             win_sum[_k] = win_sum.get(_k, 0.0) + _v
         win_n += 1
@@ -1175,7 +1213,8 @@ def main() -> int:
             if pred.delta_uv is not None:
                 duv_str = f"  |Δuv|={float(pred.delta_uv.abs().mean().item()):.3f}px"
             print(
-                f"[train] step {step:6d}/{n_steps}  mean{_fmt_loss_row(row, last_dsr)}  lr={lr:.2e}  "
+                f"[train] step {step:6d}/{n_steps}  mean{_fmt_loss_row(row, last_dsr)}"
+                f"{'' if lambda_vis <= 0 else f'  Lvis={last_vis:.4f}'}  lr={lr:.2e}  "
                 f"|grad|={gn:.2e}  {_fmt_grad_row(head_grad)}{duv_str}  elapsed={dt:.0f}s",
                 flush=True,
             )

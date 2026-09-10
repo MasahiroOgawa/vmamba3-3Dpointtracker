@@ -77,8 +77,14 @@ def _infer(
     bidir_fuse=False,
     waft_pred_dir=None,
     z_source="depth_map",
+    vis_source="flow",
 ):
-    """Return (pred_tracks (N,F,3) camera-frame XYZ, pred_vis (N,F))."""
+    """Return (pred_tracks (N,F,3) camera-frame XYZ, pred_vis (N,F)).
+
+    vis_source "flow" returns the front-end's forward-backward mask, which is what every number
+    in this repo up to now was scored with. "model" returns the refiner's own vis_head instead.
+    """
+    out_vis_logits = None
     F_ = (
         int(clip.images.shape[0])
         if not max_frames
@@ -165,9 +171,11 @@ def _infer(
                 align_corners=False,
             ).view(1, F_, -1)
         images_b = images.unsqueeze(0).to(device)  # (1,F,3,H,W) in [0,1]
-        xyz = model(
+        _out = model(
             ray, z_raw, vis.unsqueeze(0).to(device), uv_d, depth_t, images_b, K_t
-        ).xyz[0]
+        )
+        xyz = _out.xyz[0]
+        out_vis_logits = _out.vis_logits[0]
     else:  # v33
         ray = _ray_from_uv(uv_d, K_t)
         grid = (2.0 * uv_d / image_size - 1.0).view(F_, 1, -1, 2)
@@ -183,7 +191,26 @@ def _infer(
             xyz = model(ray, z_raw, vis.unsqueeze(0).to(device), depth_t).xyz[0]
         else:
             xyz = model(ray, z_raw, vis.unsqueeze(0).to(device)).xyz[0]  # (F,N,3)
+    if vis_source == "model" and out_vis_logits is not None:
+        vis = torch.sigmoid(out_vis_logits).float().cpu()
     return xyz.transpose(0, 1).cpu().numpy(), vis.transpose(0, 1).numpy()
+
+
+def _load_ckpt_into(model, sd: dict) -> None:
+    """Load a checkpoint that may predate a head this model now has.
+
+    Not strict: `vis_head` was added after every checkpoint under result/ was written, and it is
+    zero-initialised, so a checkpoint that lacks it reproduces the previous behaviour exactly.
+    Anything else missing is a real mismatch and is reported rather than swallowed.
+    """
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    unrelated = [k for k in missing if "vis_head" not in k]
+    if unrelated or unexpected:
+        print(f"[eval] checkpoint mismatch: missing={unrelated[:4]} unexpected={unexpected[:4]}",
+              flush=True)
+    elif missing:
+        print(f"[eval] checkpoint predates vis_head ({len(missing)} tensors); it stays "
+              "zero-initialised, so visibility is unchanged", flush=True)
 
 
 def _metric_err(pred_NF3, gt_NF3, vis_NF):
@@ -239,6 +266,11 @@ def main() -> int:
     ap.add_argument("--max-clips-per-subset", type=int, default=0)
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--image-size", type=int, default=896)
+    ap.add_argument(
+        "--vis-source", choices=("flow", "model"), default="flow",
+        help="which visibility to score: the front-end's forward-backward mask (flow, the "
+             "default, and what every existing number used) or the refiner's vis_head (model)",
+    )
     ap.add_argument(
         "--oracle-vis", action="store_true",
         help="score the predicted positions against ground-truth visibility (a ceiling, not a "
@@ -369,7 +401,7 @@ def main() -> int:
             max_log_correction=float(mc.get("max_log_correction", 2.0)),
             two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(f"[metric3d] v33 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v44":
@@ -387,7 +419,7 @@ def main() -> int:
             max_scale_correction=float(mc.get("max_scale_correction", 0.5)),
             two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(f"[metric3d] v44 ckpt {args.ckpt} (step={state.get('step', '?')})")
     import sys as _sys
@@ -431,7 +463,7 @@ def main() -> int:
             log_ref=float(mc.get("log_ref", 2.0)),
             log_std=float(mc.get("log_std", 1.5)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(f"[metric3d] v88 ckpt {args.ckpt} (step={state.get('step', '?')}, "
               f"scale_gate={float(model.scale_gate.detach()):.4f})")
@@ -457,7 +489,7 @@ def main() -> int:
             patch_size=int(mc.get("patch_size", 5)),
             d_proj=int(mc.get("d_proj", 64)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(f"[metric3d] v73 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v72":
@@ -478,7 +510,7 @@ def main() -> int:
             log_ref=float(mc.get("log_ref", 2.0)),
             log_std=float(mc.get("log_std", 1.5)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(f"[metric3d] v72 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v45":
@@ -505,7 +537,7 @@ def main() -> int:
             image_size=int(mc.get("image_size", 896)),
             two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(f"[metric3d] v45 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method == "v47":
@@ -533,7 +565,7 @@ def main() -> int:
             pose_head=True,
             two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(f"[metric3d] v47 ckpt {args.ckpt} (step={state.get('step', '?')})")
     if args.method in ("v35", "v46"):
@@ -567,7 +599,7 @@ def main() -> int:
             vmamba3_grid=int(mc.get("vmamba3_grid", 32)),
             two_pool=bool(mc.get("two_pool", False)),
         ).to(device)
-        model.load_state_dict(state["model"])
+        _load_ckpt_into(model, state["model"])
         model.eval()
         print(
             f"[metric3d] {args.method} ckpt {args.ckpt} (step={state.get('step', '?')})"
@@ -624,6 +656,7 @@ def main() -> int:
                         bidir_fuse=args.bidir_fuse,
                         waft_pred_dir=args.waft_pred_dir,
                         z_source=args.z_source,
+                        vis_source=args.vis_source,
                     )
                 # Align frame/point counts (released preds may truncate frames).
                 Fg = int(clip.tracks_XYZ.shape[0])

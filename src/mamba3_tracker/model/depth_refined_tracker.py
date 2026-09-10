@@ -234,7 +234,13 @@ class Mamba3V35Refiner(nn.Module):
 
         self.dz_head = _mlp(dim, 64, 1)
         self.duv_head = _mlp(dim, 64, 2)
-        zero_heads = [self.dz_head, self.duv_head]
+        # Visibility. The evaluated visibility has always been the flow's forward-backward mask,
+        # passed straight through; on adt that mask is the whole deficit to DELTA (occlusion
+        # accuracy 0.785 vs 0.826, while our points are the closer ones). This head predicts a
+        # RESIDUAL on that mask's logit and is zero-initialised, so at step 0 it reproduces the
+        # flow mask exactly and can only be judged against it.
+        self.vis_head = _mlp(dim, 64, 1)
+        zero_heads = [self.dz_head, self.duv_head, self.vis_head]
         # v43: per-frame global-scale head fed by within-frame pooling. Corrects
         # DA3-g's per-frame scale drift (sec:v43); zero-init → starts at v42.
         if self.per_frame_scale:
@@ -454,7 +460,8 @@ class Mamba3V35Refiner(nn.Module):
             dim=-1,
         )
 
-        vis_logits = x.new_zeros(B, F_, N)
+        v_in = vis.clamp(1e-3, 1.0 - 1e-3)
+        vis_logits = torch.log(v_in / (1.0 - v_in)) + self.vis_head(x).squeeze(-1)
         return TrackerOutputs(
             xyz=xyz,
             uv=new_uv,

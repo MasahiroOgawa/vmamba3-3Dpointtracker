@@ -4047,4 +4047,103 @@ run, while its $z$ is not. All seven existing WAFT caches are retro-stamped \tex
 \bibliographystyle{unsrt}
 \bibliography{refs}
 
+
+\section{Where the adt gap to DELTA actually is}
+\label{sec:adt-gap}
+adt is the subset to attack. It is where the DA3-g deficit lives ($-0.0182$ metric-AJ against
+DELTA$+$DA3-g), and on pstudio we are already ahead by $+0.0159$. Splitting adt's 50 clips into the
+two things metric-AJ multiplies together --- how close the predicted point is, and whether it is
+called visible --- shows they point in opposite directions.
+
+\begin{figure*}[!tb]
+\centering
+\includegraphics[width=\textwidth]{figs/adt_gap.png}
+\caption{\textbf{adt, 50 clips, v91 against DELTA$+$DA3-g, paired per clip.} Points above the
+diagonal are clips where we are better (below, for the error panel). Our 3D positions are the
+closer ones on two thirds of clips --- points within threshold on $33/50$, median error on $32/50$
+--- and metric-AJ is still worse on $34/50$, because occlusion accuracy is worse on $41/50$. The
+deficit is entirely in the visibility channel.}
+\label{fig:adt-gap}
+\end{figure*}
+
+\begin{table}[h]
+\centering
+\caption{adt, mean over 50 clips. Every position measure favours us; the headline does not.}
+\label{tab:adt-split}
+\begin{tabular}{lccc}
+\toprule
+ & DELTA$+$DA3-g & v91 & \\
+\midrule
+points within threshold      & 0.4688 & \textbf{0.4831} & we win, 33/50 clips \\
+median 3D error (m)          & 0.2406 & \textbf{0.2037} & we win, 32/50 clips \\
+mean 3D error (m)            & 0.6844 & \textbf{0.3911} & we win by a wide margin \\
+occlusion accuracy           & \textbf{0.8257} & 0.7849 & we lose, 41/50 clips \\
+\midrule
+\textbf{metric-AJ}           & \textbf{0.3244} & 0.3062 & we lose \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The visibility we are scored on was never predicted.}
+\texttt{eval\_metric3d.py} returns the visibility it was handed, which is the optical-flow
+front-end's forward--backward consistency mask. It is not learned and not refined; the refiner's own
+\texttt{vis\_logits} were a zero placeholder that nothing consumed. DELTA predicts visibility.
+
+\paragraph{What the channel is worth.}
+Scoring the \emph{same} predicted positions against ground-truth visibility
+(\texttt{-{}-oracle-vis}; a ceiling, not a result) gives the following. Points-within-threshold is
+unchanged to four decimals, so the positions really are identical and the whole difference is the
+visibility channel.
+
+\begin{table}[h]
+\centering
+\caption{adt with the visibility channel replaced by an oracle. The gap to DELTA is $0.0196$; the
+channel is worth $+0.1146$, six times that.}
+\label{tab:adt-oracle}
+\begin{tabular}{lccc}
+\toprule
+adt & metric-AJ & pts within thresh & occlusion acc. \\
+\midrule
+DELTA$+$DA3-g               & 0.3244 & 0.4688 & 0.8257 \\
+v91, flow visibility        & 0.3048 & 0.4831 & 0.7846 \\
+v91, \emph{oracle} visibility & \textbf{0.4194} & 0.4829 & 1.0000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Why the visibility head could not be trained as the pipeline stands}
+\label{sec:vis-head-blocked}
+Adding a zero-initialised \texttt{vis\_head} to the v35 refiner, freezing everything else, and
+supervising it with a BCE against ground-truth visibility is a four-tensor change and was
+implemented (v92). It cannot learn, for a reason that turned out to matter far more than the head:
+
+\begin{quote}
+\textbf{The training batches do not contain the supervision the configuration asks for.} With
+\texttt{num\_tracks: 256} and an $8$-frame window, the median number of tracks actually supervised
+per item is \textbf{8} on pstudio, \textbf{8} on adt and \textbf{35} on drivetrack, with a minimum
+of \textbf{3}.
+\end{quote}
+
+The cause is in \texttt{TAPVid3DDataset.\_\_getitem\_\_}: after a random $8$-frame window is cropped
+from a $300$-frame clip, only queries whose \emph{anchor frame} falls inside that window are kept.
+Roughly $8/300$ of them do. Every optimiser step is therefore supervised by about $8\times8 = 64$
+point-observations rather than the $256\times8 = 2048$ the config specifies --- about $3\%$.
+
+This is the most plausible explanation yet for the three findings that preceded it, and it sits
+upstream of all of them:
+\begin{itemize}
+  \item the per-clip loss CV of $2.7$ --- a mean over $\sim$8 points is bound to
+        be violently noisy;
+  \item v91d's training-loss slope of $-0.00025\pm0.00257$ per 100 steps over 4244 clips, i.e.\ no
+        measurable learning at any rate from $5\times10^{-6}$ to $5\times10^{-4}$;
+  \item and directly for the head at hand, $38$--$62\%$ of items have \emph{every} point visible,
+        so the visibility BCE starts at $-\log(1-\epsilon)\approx0.001$ with no negatives to learn
+        from. That is exactly what v92 printed at step 0.
+\end{itemize}
+
+The fix is a data change, not a model one: re-anchor every query to the sampled window (the branch
+that already runs when \emph{no} anchor falls inside it), or sample the window around a query's
+anchor. It changes what every previous number in this report means, so it is recorded here rather
+than applied.
+
 \end{document}

@@ -1,0 +1,65 @@
+\begin{figure*}[!tb]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  box/.style={draw, rounded corners=2pt, minimum height=7mm, inner xsep=4pt, align=center},
+  data/.style={box, fill=cInput!18, draw=cInput!70!black},
+  learn/.style={box, fill=cTrain!18, draw=cTrain!70!black},
+  flowb/.style={box, fill=black!8, draw=black!55},
+  ar/.style={-{Latex[length=2mm]}, draw=black!70},
+  lbl/.style={anchor=north west, text width=0.97\textwidth, align=left},
+]
+
+% ---- path A: the flow's forward-backward mask (the default, and the one that wins) ----
+\node[data]  (img)  at (0,0)      {video\\frames};
+\node[flowb] (flow) at (2.3,0)    {optical\\flow};
+\node[flowb] (fb)   at (5.0,0)    {forward--backward\\consistency};
+\node[box, fill=black!4, draw=black!45] (mask) at (8.6,0) {visibility mask\\(not learned)};
+
+\draw[ar] (img) -- (flow);
+\draw[ar] (flow) -- (fb);
+\draw[ar] (fb) -- (mask);
+
+% ---- path B: the learned head ----
+\node[flowb] (trunk) at (2.3,-1.9) {v35 trunk\\(frozen)};
+\node[box, fill=black!4, draw=black!45] (feat) at (5.0,-1.9)
+      {per-point feature\\$x\in\mathbb{R}^{128}$};
+\node[learn] (head) at (8.6,-1.9) {\texttt{vis\_head}\\$128\to64\to1$};
+\node[learn] (sig)  at (11.4,-1.9) {$\sigma(\cdot)$};
+
+\draw[ar] (trunk) -- (feat);
+\draw[ar] (feat) -- (head);
+\draw[ar] (head) -- (sig);
+% the flow mask is itself one of the trunk's four input channels
+\draw[ar, dashed, draw=black!45] (fb.south) -- ++(0,-0.55) -| (trunk.north)
+      node[pos=0.25, above, font=\scriptsize, text=black!60]
+      {the mask is also the trunk's 4th input channel};
+
+% ---- the switch ----
+\node[box, fill=cTrain!8, draw=black!60, minimum height=10mm] (sw) at (12.6,-0.95)
+      {\texttt{-{}-vis-source}};
+\draw[ar] (mask.east) -- ++(0.5,0) |- (sw.west);
+\draw[ar] (sig.east) -- ++(0.4,0) |- (sw.west);
+\node[anchor=west, font=\scriptsize, text=black!70] at (13.6,-0.6) {\texttt{flow} (default)};
+\node[anchor=west, font=\scriptsize, text=black!70] at (13.6,-1.3) {\texttt{model}};
+
+\node[lbl] at (0,-3.1)
+  {\textbf{Two sources of visibility, and the switch between them.} Every number in this report
+   is scored with the \emph{upper} path: the optical flow's forward--backward consistency mask,
+   passed through unchanged. It is never learned. The \emph{lower} path is \texttt{vis\_head}, a
+   two-layer MLP on the frozen trunk's per-point feature, added so the channel could be learned
+   instead. Because everything but the head is frozen, one checkpoint serves both settings and
+   the predicted 3-D positions are bit-identical between them, so the difference measured is the
+   visibility channel alone. Note the dashed arrow: the flow mask is already the fourth channel
+   of the trunk's per-point input, so the head does not lack that evidence --- it sees the mask
+   \emph{and} appearance, the depth patch and the temporal context, and still loses to the mask
+   on adt (\S\ref{sec:vis-head}).};
+
+\end{tikzpicture}
+\caption{\textbf{The visibility head (v92) beside the flow mask it was meant to replace.}
+  adt's entire deficit to DELTA is this channel: our 3-D positions are the closer ones, and
+  scoring them against ground-truth visibility raises adt from $0.3048$ to $0.4194$, a headroom of
+  $+0.1146$ where the gap to DELTA is $0.0196$. Four attempts at claiming it failed
+  (\S\ref{sec:vis-head}), and \texttt{-{}-vis-source flow} remains the default.}
+\label{fig:vis-head}
+\end{figure*}

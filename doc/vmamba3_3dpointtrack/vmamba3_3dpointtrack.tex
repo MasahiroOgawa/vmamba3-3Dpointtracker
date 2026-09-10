@@ -87,7 +87,7 @@ A module is \emph{Vision-Mamba-3} when it runs this operator on vision input, an
 geometry alone. The operator's full derivation --- SSD $\equiv$ linear attention, the self/cross forms,
 2-D RoPE, and the non-causal (VSSD) variant --- is the companion note \texttt{mamba3\_attention}.
 
-\subsection{v1--v32: prior direct-regression attempts (prehistory)}
+\subsection{Direct regression, and why it was abandoned (v1--v32)}
 \label{sec:prehistory}
 The freeze-flow-and-refine-depth design below is the product of a long line of direct-regression trackers
 (v1--v32) that mostly \emph{failed}; those failures motivate it, so we summarise them briefly. (The numbers
@@ -126,7 +126,7 @@ frozen and just the depth is refined (v33 onward, \S\ref{sec:v33}) does a learne
 \label{fig:early-tracker-aj}
 \end{figure}
 
-\subsection{v1--v32 architecture: within-frame $+$ across-frame Vision-Mamba-3 (early tracker)}
+\subsection{Within-frame and across-frame Vision-Mamba-3 (v1--v32 architecture)}
 \label{sec:early-tracker}
 (The VSSD self-attention and cross-SSD operators used here are derived in the companion note \texttt{mamba3\_attention}; this subsection records the early v1--v32 tracker built on them.)
 
@@ -565,7 +565,7 @@ frozen ray and unprojects to 3D, so the 2D reprojection is invariant by construc
 \label{fig:pipeline}
 \end{figure}
 
-\subsection{2D track: SEA-RAFT flow-chaining (baseline, frozen)}
+\subsection{The 2-D track: SEA-RAFT flow-chaining (frozen front-end)}
 We precompute dense forward/backward flow for consecutive frames with a frozen SEA-RAFT model,
 $\mathbf{f}^{\rightarrow}_t,\mathbf{f}^{\leftarrow}_t$. Each query is propagated outward from its
 anchor by bilinearly sampling the flow at the current position,
@@ -597,7 +597,7 @@ Eq.~\eqref{eq:unproject} with $z_t$ taken directly from DA3-l.
 
 % (v1--v32 prehistory relocated to the start of Method, right after the terminology subsection.)
 
-\subsection{v33: Mamba-3 depth-along-ray refiner (the method)}
+\subsection{The depth-along-ray refiner (v33)}
 \label{sec:v33}
 DA3-l metric depth is accurate in \emph{relative} structure but carries a global scale bias
 (e.g.\ $\sim$40\% on far-field driving scenes). v33 learns a small temporal correction to the
@@ -711,7 +711,7 @@ correctness band. v33 therefore freezes the 2D track entirely and refines depth 
 that actually carries the error.
 
 % -----------------------------------------------------------------------
-\subsection{v35: image-conditioned joint 2D--depth refiner}
+\subsection{The image-conditioned joint 2-D and depth refiner (v35)}
 \label{sec:v35}
 
 v35 revisits the joint 2D--depth correction that failed in v32, but removes its root cause.
@@ -1128,7 +1128,7 @@ into the operator      & $(BN,F,128)$          & one sequence per point \\
 \end{center}
 
 
-\subsection{v36: bidirectional flow}
+\subsection{Bidirectional flow (v36)}
 \label{sec:v36}
 
 v36 uses the same v35 architecture; only the 2D front-end changes. It additionally runs SEA-RAFT
@@ -1191,7 +1191,7 @@ Evaluating the genuinely-different per-hop fusion variant separately gives mean 
 absolute AJ of $0.099$ / $0.226$ --- again indistinguishable from v35 ($0.096$ / $0.234$),
 confirming that no flow-chaining bidirectional scheme improves this pipeline.
 
-\subsection{v37--v39: WAFT optical-flow front-end}
+\subsection{The WAFT optical-flow front-end (v37--v39)}
 \label{sec:waft}
 WAFT~\cite{waft} (Warping-Alone Field Transforms, princeton-vl) is a stronger optical-flow
 network than SEA-RAFT. We swap it in as the 2D front-end, keeping everything downstream identical,
@@ -1213,7 +1213,7 @@ pipeline as every other row):
     below WAFT$+$DA3-l (v37, $0.123$).
 \end{itemize}
 
-\subsection{v40: WAFT $+$ DA3-g metric depth (no refiner)}
+\subsection{WAFT with DA3-g metric depth, no refiner (v40)}
 \label{sec:v40}
 \emph{Pipeline: WAFT flow $+$ \texttt{DA3Nested-Giant-Large} metric depth, unprojected directly (no
 learned refiner). A pure depth-backbone swap on the training-free baseline.}
@@ -1316,7 +1316,7 @@ the swap barely moves any method (median rescaling removes the global scale it f
 drivetrack ``collapse'' is a property of the DA3-l depth model shared across the field, not of any one
 tracker, and the bigger DA3-g backbone fixes it for all of them.
 
-\subsection{v41: DA3-g depth $+$ vmamba3 refiner}
+\subsection{DA3-g depth with the vmamba3 refiner (v41)}
 \label{sec:v41}
 v41 puts the v35 DINOv3-conditioned refiner back on top of the v40 baseline, but the refiner is
 \textbf{retrained on DA3-g depth}. The v39 refiner was trained on the $0.55\times$-biased
@@ -1391,7 +1391,7 @@ DA3-g & $0.777$ (v40) & $0.734$ (v41) & $\phantom{0}-6\%$ \\
 \end{tabular}
 \end{table}
 
-\subsection{v41b: pstudio-only retrain (systematic-vs-noise check)}
+\subsection{The pstudio-only retrain, a systematic-versus-noise check (v41b)}
 \label{sec:v41b}
 \S\ref{sec:v41} left one alternative open: DA3-g's stubborn pstudio error might be intrinsic noise, or
 merely under-weighted in training (pstudio is only ${\sim}2.4\%$ of training clips). To decide, we fine-tune
@@ -1435,7 +1435,7 @@ for a single method}; only the per-domain hybrid (\S\ref{sec:v41}) beats it. The
 lever, not a route to a single SOTA pipeline; beating v39 everywhere needs DA3-g's per-frame scale to be as
 temporally stable as DA3-l's (\S\ref{sec:da3lg}), which the per-frame-cached nested model is not.
 
-\subsection{v42: near-field boost by pstudio oversampling}
+\subsection{Near-field boost by pstudio oversampling (v42)}
 \label{sec:v42}
 \S\ref{sec:v41b} showed DA3-g's pstudio error is \emph{partly} systematic --- a pstudio-only retrain lifts
 metric-AJ $0.198\!\to\!0.225$ --- and projected that an optimally near-weighted \emph{single} DA3-g pipeline
@@ -1632,7 +1632,7 @@ $+$ DA3-l scale profile (GT-free)    & 0.043 & \textbf{0.227} & \textbf{0.584} \
 \end{tabular}
 \end{table}
 
-\subsection{v43: in-model per-frame scale head}
+\subsection{The in-model per-frame scale head (v43)}
 \label{sec:v43}
 \S\ref{sec:da3lg} localised DA3-g's near-field defect to a \emph{per-frame global scale} that drifts over
 time; removing it offline (even by borrowing DA3-l's scale profile) lifts pstudio on both metrics. v43
@@ -1729,7 +1729,7 @@ mean       & 0.086 & \textbf{0.092} & 0.225 & \textbf{0.229} \\
 \end{tabular}
 \end{table}
 
-\subsection{v44: the DA3-g de-flicker stage --- what it reads, and what it emits}
+\subsection{The de-flicker stage: what it reads and what it emits (v44)}
 \label{sec:v44}
 v43 applied its per-frame scale correction \emph{after} the v35 refiner, so the refiner still ingested the
 flickering depth (\S\ref{sec:v43}). v44 fixes the ordering and factors the de-flicker out as a
@@ -1818,7 +1818,7 @@ mean       & 0.093 & 0.093 & 0.208 & 0.203 \\
 \end{tabular}
 \end{table}
 
-\subsection{v45: v44 de-flicker $+$ v35 refiner}
+\subsection{De-flicker followed by the refiner (v45)}
 \label{sec:v45}
 v45 is the two-stage pipeline \S\ref{sec:v43} argued for --- \textbf{de-flicker first, then refine}.
 Stage~1 is v44: it produces a stabilised depth $z^{\text{stab}}=z_{\text{raw}}\,e^{\Delta s_f}$ (and the
@@ -1861,7 +1861,7 @@ v45 (deflicker $+$ refiner) & 0.029 & 0.088 & \textbf{0.226} & \textbf{0.232} \\
 \end{tabular}
 \end{table}
 
-\subsection{v46: world-frame tracking with ego-motion/object-motion decomposition (proposed)}
+\subsection{World-frame tracking by ego- and object-motion decomposition (v46, proposed)}
 \label{sec:v46}
 \emph{Status: \textbf{deferred}. The first-experiment gate was run (below) and revealed that the drivetrack
 far-field error is dominated by a monocular metric-depth \emph{scale} bias --- fixed directly by v40's
@@ -2046,7 +2046,7 @@ per-stage error but an architectural one}: our adt error is already small ($0.37
 adt's static scene, a cross-track constraint our per-track refiner --- and, as v46 showed, a naive per-point
 within-frame mixer --- does not capture.
 
-\subsection{v47: refinements targeting the localised errors}
+\subsection{Refinements targeting the localised errors (v47)}
 \label{sec:v47}
 The error analysis of \S\ref{sec:error-analysis} points to three concrete refinements, grouped here as
 \textbf{v47}, each naming the dominant error it targets:
@@ -2119,7 +2119,7 @@ architectural, and closing it needs a stronger mechanism than a self-supervised 
 supervision on drivetrack and explicit parallax triangulation (refinements~2--3), not a bolt-on pose head.
 \textbf{v45 remains the best DA3-g pipeline} (absolute mean $0.232$).
 
-\subsection{v48/v49: genuine Vision-Mamba-3 appearance features (no DINOv3)}
+\subsection{Vision-Mamba-3 appearance features without DINOv3 (v48/v49)}
 \label{sec:v4849}
 Every refiner so far (v33--v47) draws its per-point appearance features from a \emph{frozen, off-the-shelf}
 DINOv3 ViT-S backbone; the Vision-Mamba-3 contribution lived only in the SSM refiner core, never in the
@@ -2177,7 +2177,7 @@ shape is nearly preserved). Genuine Vision-Mamba-3 features are therefore a viab
 either a larger or pretrained Vision-Mamba-3 encoder, or joint (rather than from-scratch) feature training.
 \textbf{The DINOv3-feature pipelines --- v39 on DA3-l, v45 on DA3-g --- remain best on the absolute metric.}
 
-\subsection{v50/v51: VSSD-2pool mixer in the refiner}
+\subsection{The VSSD-2pool mixer in the refiner (v50/v51)}
 \label{sec:v50-twopool}
 
 The refiner mixes each track over time with \texttt{Mamba3CrossAttention(variant="B")}, whose
@@ -2268,6 +2268,53 @@ per-frame increment is independent of $T$.
 
 \paragraph{v52.} The same swap on v45 (DA3-g $+$ de-flicker $+$ vmamba3, reported $0.232$) is
 configured but unrun; it was started and stopped after $1$\,h\,$11$\,m to free the GPU.
+
+\subsection{The visibility head (v92)}
+\label{sec:vis-head}
+Every metric-AJ number in this report is scored with a visibility that was never predicted.
+\texttt{eval\_metric3d} returns the visibility it was handed, which is the optical-flow
+front-end's forward--backward consistency mask; the refiner emitted a zero placeholder that
+nothing consumed. DELTA predicts visibility, and on adt that difference is the whole deficit
+(\S\ref{sec:adt-gap}): our points are the closer ones, and only the occlusion term separates us.
+
+\paragraph{The module.} \texttt{v35.vis\_head} is a two-layer MLP, $128\to64\to1$, $8321$
+parameters, applied to the same per-point feature $x$ the depth and $\Delta uv$ heads read. It
+emits a logit per point per frame, and $\sigma(\cdot)$ of that is the predicted visibility.
+Figure~\ref{fig:vis-head} places it beside the mask it was meant to replace.
+
+\paragraph{It predicts outright, not as a residual.} The tempting form is a correction to the
+flow mask's logit, and it is unusable: the mask must be clamped away from $0$ and $1$ to keep the
+logit finite, which puts the base at $\pm6.9$, so a head that must travel $6.9$ to flip one point
+moves about $0.06$ in a short fine-tune. Such a head is a no-op by construction and reports
+\emph{identical} metrics with it on and off --- which is exactly what the first attempt did.
+Predicting the logit directly removes that ceiling; at initialisation the logits span
+$[-0.31,+0.26]$, so either decision is reachable from step~0. It is consequently \emph{not}
+zero-initialised: identity at step~0 is neither achievable nor needed, because
+\texttt{-{}-vis-source flow} supplies the untouched mask whenever the comparison calls for it.
+
+\paragraph{The head does not lack the mask's evidence.} The trunk's per-point input is
+$[\,\mathbf{r},\,z/z_{\text{ref}},\,v\,]$ plus the depth patch and the DINOv3 feature, so the flow
+mask $v$ is already its fourth channel. The head sees that mask \emph{and} appearance, depth and
+temporal context. That it still loses to the mask alone on adt is therefore a statement about the
+trunk's features, not about missing information.
+
+\paragraph{Supervision.} A binary cross-entropy against ground-truth visibility, weighted by
+\texttt{loss.lambda\_vis} and applied \emph{on top of} the normalised loss weights rather than
+inside them: \texttt{loss.weights} is renormalised to sum to one, so adding a term there would
+silently change \texttt{pos\_3D}'s share and confound the depth path. This follows
+\texttt{lambda\_dsr}.
+
+\paragraph{Switching it on and off costs nothing.} With everything but the head frozen, one
+checkpoint serves both arms: \texttt{-{}-vis-source flow} ignores the head, \texttt{model} uses
+it, and the predicted 3-D positions are bit-identical between them. The comparison therefore
+isolates the visibility channel exactly, with no second training run.
+
+\paragraph{Outcome.} Four attempts, all negative; the measurements are in \S\ref{sec:v93}. The
+head loses to the flow mask on adt under every class weighting tried, and
+\texttt{-{}-vis-source flow} remains the default. The $+0.1146$ oracle headroom on adt is real and
+unclaimed.
+
+\input{figs/fig_vis_head}
 
 \subsection{Training}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and

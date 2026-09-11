@@ -3,7 +3,7 @@
 \begin{tikzpicture}[
   font=\footnotesize,
   % Rounded = a processing step, square-cornered = a data object that flows between steps.
-  bx/.style={draw, minimum height=7mm, inner xsep=5pt, align=center},
+  bx/.style={draw, minimum height=8mm, inner xsep=5pt, align=center},
   proc/.style={bx, rounded corners=2pt},
   obj/.style={bx, sharp corners},
   objin/.style={obj, fill=cInput!18, draw=cInput!70!black},
@@ -15,46 +15,36 @@
 ]
 
 % ---- shared front-end ----
-\node[objin]  (img)  at (0,-0.8)   {video\\frames};
-\node[frozen] (waft) at (2.2,-0.8) {WAFT\\optical flow};
-\node[objout] (fl)   at (5.4,-0.8) {for each point, each frame:\\
-                                    where it goes next, $f_t$\\
-                                    where it came from, $b_t$};
+\node[objin]  (img)  at (0,-1.0)   {video\\frames};
+\node[frozen] (waft) at (2.4,-1.0) {WAFT\\optical flow};
+\node[objout] (fl)   at (5.0,-1.0) {forward $f_t$\\backward $b_t$};
 \draw[ar] (img) -- (waft);
 \draw[ar] (waft) -- (fl);
 
-% ---- upper: the fixed rule used by v93b and everything before it ----
-\node[frozen] (rule) at (10.2,0.7)
-      {\textbf{a fixed rule}\\
-       walk forward then back.\\
-       missed the start by more\\
-       than a set distance? hidden};
-\node[objout] (mask) at (14.1,0.7) {\textbf{hidden or visible}\\one bit, $0$ or $1$};
-\draw[ar] (rule) -- (mask);
+% ---- upper: the rule v93b and everything before it used ----
+\node[frozen] (chk)  at (8.6,0.5)  {forward--backward\\check};
+\node[frozen] (lat)  at (11.6,0.5) {latch:\\never recovers};
+\node[objout] (mask) at (14.4,0.5) {mask\\$\in\{0,1\}$};
+\draw[ar] (chk) -- (lat);
+\draw[ar] (lat) -- (mask);
 
 % ---- lower: v94 ----
-\node[learn] (net) at (10.2,-2.3)
-      {\textbf{a small network}\\
-       reads the same two arrows\\
-       and scores every frame\\
-       on its own evidence};
-\node[objout] (prob) at (14.1,-2.3) {\textbf{how likely it is visible}\\any value from $0$ to $1$};
-\draw[ar] (net) -- (prob);
+\node[learn]  (mlp)  at (8.6,-2.5)  {MLP\\$8 \to 64$};
+\node[learn]  (mam)  at (11.6,-2.5) {Mamba-3\\over frames};
+\node[objout] (prob) at (14.4,-2.5) {$P(\text{visible})$\\$\in[0,1]$};
+\draw[ar] (mlp) -- (mam);
+\draw[ar] (mam) -- (prob);
 
-% one fork: both paths are handed exactly the same two arrows
-\draw[ar] (fl.east) -- ++(0.4,0) |- (rule.west);
-\draw[ar] (fl.east) -- ++(0.4,0) |- (net.west);
-\node[anchor=south west, font=\scriptsize, text=black!60]  at (8.0,1.85) {v93b and everything before it};
-\node[anchor=north west, font=\scriptsize, text=cTrain!60!black] at (8.0,-3.45) {v94};
+% one fork, through a corridor clear of every box so no arrow crosses one
+\coordinate (corr) at (6.6,-1.0);
+\draw[ar] (fl.east) -- (corr) |- (chk.west);
+\draw[ar] (fl.east) -- (corr) |- (mlp.west);
+\node[anchor=south, font=\scriptsize, text=black!60]        at (8.6,1.25)  {v93b and earlier};
+\node[anchor=north, font=\scriptsize, text=cTrain!60!black] at (8.6,-3.25) {v94};
 
-% the latch, called out on the path that has it
-\draw[{Latex[length=2mm]}-, draw=black!55, dashed] (mask.south) -- ++(0,-0.45)
-      node[below, font=\scriptsize, text=black!70, align=center]
-      {and once it says hidden, it stays\\hidden for the rest of the clip};
-
-% ---- what that costs: one point that is hidden and comes back ----
-\begin{scope}[shift={(0.4,-5.6)}]
-  \foreach \y/\name in {0/{truth}, -0.62/{the fixed rule}, -1.24/{the network}}
+% ---- one point, hidden and back again ----
+\begin{scope}[shift={(0.6,-5.3)}]
+  \foreach \y/\name in {0/{truth}, -0.62/{mask}, -1.24/{$P>0.5$}}
     \node[anchor=east, font=\scriptsize] at (-0.15,\y) {\name};
   \foreach \a/\b in {0/2.3, 3.6/6.2} \fill[cInput!35, draw=black!40] (\a,-0.18) rectangle (\b,0.18);
   \fill[black!12, draw=black!40] (0,-0.80) rectangle (2.3,-0.44);
@@ -62,36 +52,35 @@
   \draw[->, black!55] (0,-1.72) -- (6.5,-1.72) node[right, font=\scriptsize, black!70] {frame};
   \draw[dashed, black!35] (2.3,-1.68) -- (2.3,0.34);
   \draw[dashed, black!35] (3.6,-1.68) -- (3.6,0.34);
-  \node[anchor=south, font=\scriptsize, text=black!60] at (2.95,0.36) {hidden behind something};
-  \node[anchor=west, font=\scriptsize, text=black!70, align=left] at (7.0,-0.62)
-        {the bar never restarts --- this is the\\
-         limitation, and no threshold fixes it};
-  \node[anchor=west, font=\scriptsize, text=cTrain!55!black] at (7.0,-1.24)
-        {the network can say ``visible'' again};
+  \node[anchor=south, font=\scriptsize, text=black!60] at (2.95,0.36) {occluded};
+  \node[anchor=west, font=\scriptsize, text=black!70]        at (7.0,-0.62) {never returns};
+  \node[anchor=west, font=\scriptsize, text=cTrain!55!black] at (7.0,-1.24) {returns};
 \end{scope}
 
-\node[lbl] at (0,-8.2)
-  {\textbf{Two ways to decide whether a point is visible, from exactly the same evidence.}
-   Both paths see one pair of arrows per point per frame and nothing else --- no depth, no
-   appearance, nothing from the depth refiner. The upper path is a hand-written rule: follow the
-   point forward one frame and back again, and if it fails to land where it started, call it
-   hidden. Two things about it matter. The distance it allows is a constant, the same for a point
-   drifting slowly and one crossing the frame; and the answer is \emph{latched}, so a point called
-   hidden once is hidden for every later frame. The lower path hands the same two arrows to a small
-   network, which can learn a distance that depends on how fast the point is moving, and which
-   judges each frame separately, so a point that disappears behind something can be called visible
-   again when it reappears. The two outputs differ in kind: the rule emits one bit, visible or not;
-   the network emits a probability, counted as visible above $0.5$. The re-appearance the sketch
-   shows is not a corner case --- $63\%$, $52\%$ and $66\%$ of adt, drivetrack and pstudio points
-   come back after being hidden, and the fixed rule recovers none of them.};
+\node[lbl] at (0,-7.6)
+  {\textbf{Both paths read the same two flow vectors and nothing else} --- no depth, no
+   appearance, nothing from the depth refiner. \emph{forward--backward check}: follow the point
+   one frame forward by $f_t$ and back again by $b_{t+1}$; if it misses its start by more than
+   $\alpha(\lVert f_t\rVert + \lVert b_{t+1}\rVert) + \beta$, call it occluded. The tolerance is a
+   constant, identical for a point drifting slowly and one crossing the frame.
+   \emph{latch}: the result is carried forward, $v_{t+1} = v_t \wedge ok_t$, so a point called
+   occluded once stays occluded for every later frame --- which is why the middle bar in the
+   sketch never restarts, at any threshold.
+   \emph{MLP $8\to64$}: eight scalars per point per frame, all of them functions of $f_t$ and
+   $b_t$ --- the two vectors, their lengths, and the two forward--backward errors --- embedded to
+   $64$ dimensions. \emph{Mamba-3 over frames}: two layers mixing along the time axis only, never
+   across points, so each point is judged on its own track. A linear head and a sigmoid follow.
+   The outputs differ in kind: the rule emits one bit, the network a probability, read as visible
+   above $0.5$. $63\%$, $52\%$ and $66\%$ of adt, drivetrack and pstudio points reappear after
+   being occluded, and the latched rule recovers none of them.};
 
 \end{tikzpicture}
-\caption{\textbf{The v94 visibility head.} It replaces the hand-written visibility rule that every
-  number up to v93b was scored with, and touches nothing else in the pipeline: the tracked
-  positions are identical either way, so any change in score is the visibility channel alone.
-  It also differs from the earlier v92 attempt (\S\ref{sec:vis-head}), which read the depth
-  refiner's own feature --- a feature that already contains the rule's answer, so copying that
-  answer was the easiest thing for it to learn, and it did.
+\caption{\textbf{The v94 visibility head.} It replaces the forward--backward rule every number up
+  to v93b was scored with, and changes nothing else: the tracked positions are identical either
+  way, so any change in score is the visibility channel alone. It also differs from v92
+  (\S\ref{sec:vis-head}), which read the depth refiner's own per-point feature --- a feature that
+  already carries the rule's answer as one of its input channels, so reproducing that answer was
+  the cheapest thing for it to learn, and head-on and head-off scored identically.
   Rounded boxes are processing steps; square-cornered boxes are the data passed between them.}
 \label{fig:v94-head}
 \end{figure*}

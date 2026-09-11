@@ -3759,6 +3759,122 @@ forward--backward flow check, and \texttt{-{}-vis-source flow} remains the defau
 headroom on adt is real and unclaimed.
 
 
+\subsection{Visibility from flow alone (v94)}
+\label{sec:v94}
+
+Every number up to and including v93b is scored with the front-end's forward--backward
+consistency mask. v92 (\S\ref{sec:vis-head}) tried to learn a replacement from the refiner's
+trunk feature and failed. v94 is the same objective attacked from the other side: a head whose
+only input is the optical flow itself, independent of the depth refiner by construction
+(Fig.~\ref{fig:v94-head}).
+
+\subsubsection{Why v92 could not work}
+Two defects, and the second is the one that makes a flow-only head the right shape.
+
+\textbf{v92 could satisfy its loss by copying its own input.} The trunk's per-point token is
+$[\mathbf{r},\,z/z_{\text{ref}},\,v]$ plus the depth patch and the DINOv3 feature, and $v$ is
+the forward--backward mask. A head reading that token therefore had the answer it was being
+trained to reproduce available as one of its inputs, and echoing it is a near-zero-loss
+solution. The measurement is consistent with exactly that: head on and head off returned
+$0.2995$, $0.4766$ and $0.7849$ for adt metric-AJ, point accuracy and occlusion accuracy --
+identical to four decimals on all three.
+
+\textbf{The mask cannot express what the ground truth contains.} In
+\texttt{searaft\_flow.flow\_tracker}, one cycle residual per hop is compared against a fixed
+tolerance, and the result is \emph{latched} along each sweep:
+\begin{equation}
+v_{t+1} = v_t \wedge \big(\lVert d_t + b_t\rVert \le \alpha(\lVert d_t\rVert + \lVert b_t\rVert) + \beta\big).
+\label{eq:latch}
+\end{equation}
+By \eqref{eq:latch}, $v_t$ is monotone non-increasing: a point marked invisible once can never
+be marked visible again, at any threshold. Ground truth does not behave that way
+(Table~\ref{tab:reappear}).
+
+\begin{table}[h]
+\centering
+\caption{Points whose visibility returns after an occlusion, on the $150$ minival clips. The mask
+cannot produce a single one, by construction; the majority of ground-truth points are one.
+\emph{visible} is the mean fraction of (point, frame) pairs marked visible.}
+\label{tab:reappear}
+\begin{tabular}{lrrrrr}
+\toprule
+ & points & \multicolumn{2}{c}{re-appearing} & \multicolumn{2}{c}{visible} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+subset & & ground truth & mask & ground truth & mask \\
+\midrule
+adt        & $34\,851$ & $21\,952$ \ ($63.0\%$) & $0$ \ ($0.0\%$) & $0.572$ & $0.521$ \\
+drivetrack & $12\,800$ & $6\,694$ \ ($52.3\%$)  & $0$ \ ($0.0\%$) & $0.793$ & $0.731$ \\
+pstudio    & $14\,041$ & $9\,206$ \ ($65.6\%$)  & $0$ \ ($0.0\%$) & $0.751$ & $0.543$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This is the mechanism behind adt's oracle headroom of $+0.1146$ (\S\ref{sec:adt-gap}): scoring the
+same 3-D positions against ground-truth visibility raises adt from $0.3048$ to $0.4194$, and a
+mask that can only ever turn points off is structurally unable to recover most of that.
+
+\subsubsection{Architecture}
+Per point per frame the head reads two vectors --- $f_t$, the flow from $t$ to $t+1$ sampled at
+the point's tracked position, and $b_t$, the flow from $t$ to $t-1$ at the same place --- and
+forms eight scalars from them: $f_t/32$, $b_t/32$, $\log(1+\lVert f_t\rVert)$,
+$\log(1+\lVert b_t\rVert)$, and the two cycle residuals $\log(1+\lVert f_t+b_{t+1}\rVert)$ and
+$\log(1+\lVert f_{t-1}+b_t\rVert)$. The residuals are the quantity \eqref{eq:latch} thresholds;
+they are supplied explicitly because a product of two inputs is awkward for an MLP, and they add
+no information the two vectors do not already carry. An MLP embeds the eight to $64$, two
+Mamba-3 layers mix \emph{along frames only} --- non-causal, because an occlusion is bracketed in
+time and a point is known to have been occluded partly by the fact that it returns --- and a
+linear head with a sigmoid gives $P(\text{visible})$ per frame. There is no latch.
+
+\input{figs/fig_v94_head}
+
+The head is $0.173$\,M parameters and sees no depth, no appearance and no refiner state, so it
+trains standalone in minutes rather than inside the refiner's $8.5$\,h run, and retraining the
+refiner cannot invalidate it.
+
+\subsubsection{Protocol}
+The flow is cached with v93's exact front-end settings, and the cache is accepted only if the
+mask it recomputes is identical to the WAFT predictions v93b was scored against --- measured
+over all $150$ minival clips, $0$ clips disagreed. Training and held-out clips are disjoint from
+minival.
+
+\begin{table}[h]
+\centering
+\caption{v94. The refiner is untouched: v93b's weights are loaded unchanged and only the
+visibility channel is swapped, so the predicted 3-D positions are identical between the two
+arms and the comparison isolates visibility exactly.}
+\label{tab:v94-protocol}
+\begin{tabular}{ll}
+\toprule
+input & $f_t$, $b_t$ (WAFT forward/backward flow at the tracked point); nothing else \\
+target & TAPVid-3D ground-truth visibility, binary cross-entropy \\
+clips & $90$ train, $30$ held out, all disjoint from the $150$ minival clips \\
+learning rate & $1\times10^{-3}$, $100$ warmup, cosine over the last $20\%$ of steps \\
+steps & $3000$, $256$ points per step, whole clips (up to $300$ frames) \\
+refiner & v93b, \textbf{frozen} --- positions unchanged, only \texttt{-{}-vis-source} differs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{Every component of v94, and whether it trains. Nothing upstream of the head moves,
+which is what makes the arm cheap and the comparison exact.}
+\label{tab:v94-freeze}
+\begin{tabular}{llcl}
+\toprule
+stage & component & trains? & note \\
+\midrule
+front-end & WAFT optical flow & \textbf{frozen} & supplies $f_t$ and $b_t$ \\
+front-end & DA3-g metric depth (1.4\,B) & \textbf{frozen} & not read by the head at all \\
+front-end & DINOv3 ViT-S/16 & \textbf{frozen} & not read by the head at all \\
+\midrule
+refiner & v93b stage 1 and stage 2, all heads & \textbf{frozen} & positions bit-identical \\
+\midrule
+v94 & \texttt{FlowVisHead} embed + Mamba-3 $\times2$ + head (0.173\,M) & \textbf{trains} & the only weights that move \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Training setup, common to every arm (all versions)}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
 visibility are frozen, so they carry no gradient):

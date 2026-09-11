@@ -8,8 +8,11 @@ cache:
   out_dir: ~/data/tapvid3d_flowvis
   verify_against: ~/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
   subsets: [adt, drivetrack, pstudio]
-  n_train_per_subset: 30
-  n_heldout_per_subset: 10
+  n_train_per_subset: 12
+  n_heldout_per_subset: 5
+  # minival is cached only once the held-out gate passes: it is 167 min of WAFT and is
+  # needed only for the final score, so a head that loses to the mask must not pay for it.
+  n_minival_per_subset: 0
   seed: 42
 data:
   root: ~/data/tapvid3d

@@ -4126,7 +4126,7 @@ alike, which is the only configuration that answers how good the pipeline is on 
          All numbers are produced by our own evaluation pipeline on the same hardware.
          DA3-g counterpart: Table~\ref{tab:median-g}.}
 \label{tab:median}
-\small
+\footnotesize
 \begin{tabular}{lrrrr}
 \toprule
 Method & drivetrack & pstudio & adt & mean \\
@@ -4153,9 +4153,7 @@ v57, WAFT+DA3-l+vmamba3, cached flow & 0.105 & 0.082 & 0.144 & 0.110 \\
 v58, WAFT+DA3-l+vmamba3-2pool, cached flow & 0.106 & 0.086 & 0.135 & 0.109 \\
 v67, WAFT+DA3-l+vmamba3, live flow & 0.109 & 0.093 & 0.149 & 0.117 \\
 v64, WAFT+DA3-l+vmamba3-2pool, live flow & 0.110 & 0.096 & 0.157 & 0.121 \\
-\midrule
-\multicolumn{5}{l}{\emph{with the v94 visibility head --- recorded, not adopted (\S\ref{sec:v94-result})}} \\
-\quad v64 $+$ v94 visibility head & 0.090 & 0.082 & 0.133 & 0.102 \\
+v94, as v64 $+$ flow-only visibility head & 0.090 & 0.082 & 0.133 & 0.102 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4202,9 +4200,7 @@ v62, WAFT+DA3-g+vmamba3-2pool, cached flow & 0.117 & 0.032 & 0.123 & 0.091 \\
 v68, WAFT+DA3-g+vmamba3-2pool, live flow & 0.116 & 0.032 & 0.129 & 0.093 \\
 v63, WAFT+DA3-g+deflicker+vmamba3-2pool, live flow & 0.115 & 0.034 & 0.126 & 0.092 \\
 v93b, WAFT+DA3-g+Mamba-3 scale refiner+vmamba3-2pool & 0.111 & 0.033 & 0.128 & 0.091 \\
-\midrule
-\multicolumn{5}{l}{\emph{with the v94 visibility head --- recorded, not adopted (\S\ref{sec:v94-result})}} \\
-\quad v93b $+$ v94 visibility head & 0.091 & 0.031 & 0.108 & 0.076 \\
+v94, as v93b $+$ flow-only visibility head & 0.091 & 0.031 & 0.108 & 0.076 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4227,11 +4223,11 @@ version, Fig.~\ref{fig:6method-norm}.}
          v58 and v64.
          TAPVid-3D minival, absolute metric-AJ (no scaling, fixed-metre thresholds 1\,cm--2.56\,m;
 higher better) --- \textbf{DA3-l depth}. Bold = best per column. ``---'' = result unavailable.
-\textbf{Best adopted configuration across all four tables: v64} (DA3-l $+$ refiner with the VSSD-2pool mixer, mean $0.255$; the one-pool v67 is $0.248$). The bolded $0.256$ is v64 scored with the v94 visibility head, which is the highest absolute figure measured but is not adopted, because it costs $15.6\%$ of the normalised metric (\S\ref{sec:v94-result}) --- no DA3-g pipeline
+\textbf{Highest mean: v94} ($0.256$), which is v64 with the flow-only visibility head in place of the front-end's mask; \textbf{v64} itself is $0.255$ and the one-pool v67 is $0.248$. The head buys $+0.6\%$ here and costs $15.6\%$ of the normalised metric in Table~\ref{tab:median} (\S\ref{sec:v94-result}), so which of the two is the better configuration depends on which metric is being optimised --- no DA3-g pipeline
 reaches it (best DA3-g is DELTA$+$DA3-g at $0.227$, Table~\ref{tab:abs-g}).
 All numbers are produced by our own evaluation pipeline on the same hardware.}
 \label{tab:abs}
-\small
+\footnotesize
 \begin{tabular}{lrrrr}
 \toprule
 Method & drivetrack & pstudio & adt & mean \\
@@ -4258,9 +4254,7 @@ v57, WAFT+DA3-l+vmamba3, cached flow & \textbf{0.147} & 0.282 & 0.322 & 0.250 \\
 v58, WAFT+DA3-l+vmamba3-2pool, cached flow & \textbf{0.147} & 0.294 & 0.312 & 0.251 \\
 v67, WAFT+DA3-l+vmamba3, live flow & 0.141 & 0.276 & 0.328 & 0.248 \\
 v64, WAFT+DA3-l+vmamba3-2pool, live flow & 0.141 & 0.285 & 0.338 & 0.255 \\
-\midrule
-\multicolumn{5}{l}{\emph{with the v94 visibility head --- recorded, not adopted (\S\ref{sec:v94-result})}} \\
-\quad v64 $+$ v94 visibility head & 0.132 & \textbf{0.314} & 0.323 & \textbf{0.256} \\
+v94, as v64 $+$ flow-only visibility head & 0.132 & \textbf{0.314} & 0.323 & \textbf{0.256} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4294,7 +4288,7 @@ despite all three ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
          \emph{during training} --- precomputed once, or recomputed on the augmented images each
          step (\S\ref{sec:waft-aug-asymmetry}); it is the only difference between v59/v60/v62 and
          v68/v63, and is worth a few thousandths.
-         \textbf{Best adopted DA3-g mean: our v93b ($0.227$), level with DELTA$+$DA3-g ($0.227$)}; the bolded $0.229$ adds the v94 visibility head, which is not adopted
+         \textbf{Highest DA3-g mean: v94 ($0.229$)}, which is v93b with the flow-only visibility head; \textbf{v93b} itself is $0.227$, level with DELTA$+$DA3-g ($0.227$). The head's cost on the normalised metric is in Table~\ref{tab:median-g}
          --- still below the DA3-l v64 ($0.255$, Table~\ref{tab:abs}). No arm sweeps the columns
          here: DELTA keeps drivetrack ($0.164$) and adt ($0.324$), v62 keeps pstudio ($0.219$), and
          v93b takes the mean by placing second on all three.
@@ -4320,9 +4314,7 @@ v62, WAFT+DA3-g+vmamba3-2pool, cached flow & 0.155 & 0.219 & 0.295 & 0.223 \\
 v68, WAFT+DA3-g+vmamba3-2pool, live flow & 0.152 & 0.207 & 0.307 & 0.222 \\
 v63, WAFT+DA3-g+deflicker+vmamba3-2pool, live flow & 0.163 & 0.203 & 0.306 & 0.224 \\
 v93b, WAFT+DA3-g+Mamba-3 scale refiner+vmamba3-2pool & 0.163 & 0.209 & 0.310 & 0.227 \\
-\midrule
-\multicolumn{5}{l}{\emph{with the v94 visibility head --- recorded, not adopted (\S\ref{sec:v94-result})}} \\
-\quad v93b $+$ v94 visibility head & 0.154 & \textbf{0.234} & 0.299 & \textbf{0.229} \\
+v94, as v93b $+$ flow-only visibility head & 0.154 & \textbf{0.234} & 0.299 & \textbf{0.229} \\
 \bottomrule
 \end{tabular}
 \\[2pt]

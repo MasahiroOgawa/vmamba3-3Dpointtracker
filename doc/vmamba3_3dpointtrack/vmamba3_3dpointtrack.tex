@@ -3875,6 +3875,78 @@ v94 & \texttt{FlowVisHead} embed + Mamba-3 $\times2$ + head (0.173\,M) & \textbf
 \end{tabular}
 \end{table}
 
+
+\begin{table}[h]
+\centering
+\caption{Held-out per-frame visibility accuracy, head against the mask it replaces, on $15$ clips
+disjoint from minival. The head is the better classifier overall and on two subsets of three ---
+and Table~\ref{tab:v94-result} shows that this does not carry over to metric-AJ.}
+\label{tab:v94-gate}
+\begin{tabular}{lrrrrr}
+\toprule
+ & adt & drivetrack & pstudio & mean & vs.\ mask \\
+\midrule
+forward--backward mask & $\mathbf{0.7809}$ & $0.8476$ & $0.7266$ & $0.7850$ & --- \\
+v94, causal (step $1750$) & $0.7301$ & $\mathbf{0.8858}$ & $\mathbf{0.7609}$ & $\mathbf{0.7923}$ & $+0.0072$ \\
+v94, non-causal (step $1250$) & $0.7384$ & $0.8767$ & $0.7565$ & $0.7905$ & $+0.0055$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Result}
+\label{sec:v94-result}
+The head does what it was built to do on one subset, undoes itself on another, and nets out
+to almost nothing (Table~\ref{tab:v94-result}).
+
+\begin{table}[h]
+\centering
+\caption{v94 against the mask it replaces, absolute metric-AJ on TAPVid-3D minival. All three
+rows use \texttt{v93b/ckpt\_8297} unchanged, so the 3-D positions are identical and only the
+visibility channel differs. The comparison to the baseline is therefore \emph{paired} and exact;
+the comparison to DELTA is not.}
+\label{tab:v94-result}
+\begin{tabular}{lrrrrr}
+\toprule
+visibility source & drivetrack & pstudio & adt & mean & vs.\ mask \\
+\midrule
+forward--backward mask (v93b) & $0.1631$ & $0.2092$ & $\mathbf{0.3100}$ & $0.2274$ & --- \\
+v94, causal                   & $0.1538$ & $\mathbf{0.2349}$ & $0.2911$ & $0.2266$ & $-0.0008$ \\
+v94, non-causal               & $0.1539$ & $0.2336$ & $0.2986$ & $\mathbf{0.2287}$ & $+0.0013$ \\
+\midrule
+\multicolumn{6}{l}{\emph{selected per subset on the held-out clips (v94 where it won
+Table~\ref{tab:v94-gate}, mask on adt)}} \\
+hybrid, causal                & $0.1538$ & $0.2349$ & $0.3100$ & $0.2329$ & $+0.0055$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Held-out visibility accuracy did not predict metric-AJ, in both directions.} This is the
+result worth carrying forward. On drivetrack the head is the more accurate classifier by
+$+0.0382$ and yet costs $-0.0093$ AJ; and the causal head, which won the accuracy gate
+($+0.0072$ against $+0.0055$), \emph{lost} the AJ comparison ($0.2266$ against $0.2287$).
+The mechanism is that AJ credits a point only where visibility and position are \emph{both}
+right: marking more points visible exposes more of them to the position test, so a classifier
+that is better in isolation can still lower the score. Visibility accuracy is therefore not a
+usable proxy for this metric, and an ablation that reports only the former is not evidence.
+
+\textbf{Where it works, it works well.} pstudio gains $+0.0257$ ($0.2092 \to 0.2349$), by far the
+largest single-subset movement any arm in this report has produced from one channel. pstudio is
+also where the mask was worst calibrated: it marks $0.543$ of points visible against a ground
+truth of $0.751$ (Table~\ref{tab:reappear}), so it is the subset with the most to give back.
+
+\textbf{adt was not recovered}, as \S\ref{sec:v94} anticipated: $-0.0189$ causal, $-0.0114$
+non-causal. The $+0.1146$ oracle headroom there remains unclaimed, and five attempts have now
+failed to claim it --- four in v92 and this one.
+
+\textbf{What may and may not be concluded.} Against the baseline the comparison is paired --- same
+weights, same positions, deterministic evaluation --- so $+0.0013$ is exact and carries no
+run-to-run noise. It is nonetheless one training draw of the head, whose seed sensitivity is
+unmeasured. Against DELTA$+$DA3-g ($0.22737$) the comparison is \emph{unpaired}, so the
+$0.0056$ seed spread of \S\ref{sec:v93} applies and $0.2287$ remains a tie, not a win. The
+hybrid's $+0.0055$ is a legitimate number --- the per-subset choice was made on held-out clips
+disjoint from minival --- but it is a per-domain switch rather than one model, and we report it
+as such rather than as the method.
+
 \subsection{Training setup, common to every arm (all versions)}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
 visibility are frozen, so they carry no gradient):

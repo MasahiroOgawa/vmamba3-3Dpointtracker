@@ -3,7 +3,7 @@
 # as v93b minus the scale refiner, so v68 -> v93b -> v94 isolates each added stage's cost at a
 # single operating point (896 px, 4 iters, flow live and counted, depth cached).
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source scripts/cudnn_env.sh
 S=result/v94_timing.log
 out=result/timing_v68

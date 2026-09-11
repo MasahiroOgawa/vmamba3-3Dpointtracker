@@ -3953,8 +3953,12 @@ backbones --- including the pstudio that gains most on the absolute metric. The 
 disagree because the normalised one median-scales each prediction before thresholding, which
 makes its thresholds relative and much tighter: mean AJ is $0.09$--$0.12$ rather than
 $0.23$--$0.25$, so the extra points the head marks visible are tested far more severely.
-\textbf{v94 is therefore not adopted as the default}, and \texttt{-{}-vis-source flow} remains
-what every headline number in this report is scored with. The two metrics sit on different
+\textbf{Which of the two is preferable therefore depends on the metric being optimised}, and it
+is not a question the measurements settle. This report keeps \texttt{-{}-vis-source flow} as the
+default, on the reasoning that the exchange gives up a large share of the metric on which the
+method is already behind in order to gain very little on the metric on which it already leads; a
+reader who weighs the absolute metric alone should prefer the head, and Table~\ref{tab:v94-result}
+gives both readings. The two metrics sit on different
 scales, so the raw differences understate how lopsided the exchange is; as fractions of the score
 being traded, on DA3-l it is $+0.6\%$ absolute against $-15.6\%$ normalised, a loss about
 $25\times$ the gain.

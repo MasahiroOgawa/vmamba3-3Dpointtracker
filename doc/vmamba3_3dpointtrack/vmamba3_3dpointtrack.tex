@@ -4126,6 +4126,7 @@ alike, which is the only configuration that answers how good the pipeline is on 
          All numbers are produced by our own evaluation pipeline on the same hardware.
          DA3-g counterpart: Table~\ref{tab:median-g}.}
 \label{tab:median}
+\small
 \begin{tabular}{lrrrr}
 \toprule
 Method & drivetrack & pstudio & adt & mean \\
@@ -4148,10 +4149,10 @@ v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.093 & 0.057 & 0.141 & 0.097 \\
 v50, SEA-RAFT+DA3-l+vmamba3-2pool & 0.101 & 0.083 & 0.132 & 0.105 \\
 v37, WAFT+DA3-l            & 0.115 & 0.116 & 0.137 & 0.123 \\
 v38, WAFTbidir+DA3-l  & 0.116 & 0.120 & 0.141 & 0.126 \\
-v57, WAFT+DA3-l+vmamba3             & 0.105 & 0.082 & 0.144 & 0.110 \\
-v58, WAFT+DA3-l+vmamba3-2pool       & 0.106 & 0.086 & 0.135 & 0.109 \\
-v67, WAFT+DA3-l+vmamba3     & 0.109 & 0.093 & 0.149 & 0.117 \\
-v64, WAFT+DA3-l+vmamba3-2pool & 0.110 & 0.096 & 0.157 & 0.121 \\
+v57, WAFT+DA3-l+vmamba3, cached flow & 0.105 & 0.082 & 0.144 & 0.110 \\
+v58, WAFT+DA3-l+vmamba3-2pool, cached flow & 0.106 & 0.086 & 0.135 & 0.109 \\
+v67, WAFT+DA3-l+vmamba3, live flow & 0.109 & 0.093 & 0.149 & 0.117 \\
+v64, WAFT+DA3-l+vmamba3-2pool, live flow & 0.110 & 0.096 & 0.157 & 0.121 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4178,6 +4179,7 @@ TrackCraft3R's low drivetrack bar reflects an OOD failure (see \S\ref{sec:trackc
          \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
          column. ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:median}.}
 \label{tab:median-g}
+\footnotesize
 \begin{tabular}{lrrrr}
 \toprule
 Method (DA3-g) & drivetrack & pstudio & adt & mean \\
@@ -4191,12 +4193,12 @@ TAPIP3D + DA3-g          & 0.057 & 0.011 & ---   & 0.034 \\
 \multicolumn{5}{l}{\emph{Ours}} \\
 SEA-RAFT + DA3-g (baseline)  & 0.112 & 0.036 & 0.120 & 0.089 \\
 v40, WAFT+DA3-g (no refiner) & 0.118 & 0.039 & 0.123 & 0.093 \\
-v59, WAFT+DA3-g+defl.+vmamba3           & 0.118 & 0.027 & 0.114 & 0.086 \\
-v60, WAFT+DA3-g+defl.+2pool     & 0.118 & 0.034 & 0.115 & 0.089 \\
-v62, WAFT+DA3-g+vmamba3-2pool               & 0.117 & 0.032 & 0.123 & 0.091 \\
-v68, WAFT+DA3-g+vmamba3-2pool       & 0.116 & 0.032 & 0.129 & 0.093 \\
-v63, WAFT+DA3-g+defl.+2pool ($448$) & 0.115 & 0.034 & 0.126 & 0.092 \\
-v93b, WAFT+DA3-g+scale ref.+2pool  & 0.111 & 0.033 & 0.128 & 0.091 \\
+v59, WAFT+DA3-g+deflicker+vmamba3, cached flow & 0.118 & 0.027 & 0.114 & 0.086 \\
+v60, WAFT+DA3-g+deflicker+vmamba3-2pool, cached flow & 0.118 & 0.034 & 0.115 & 0.089 \\
+v62, WAFT+DA3-g+vmamba3-2pool, cached flow & 0.117 & 0.032 & 0.123 & 0.091 \\
+v68, WAFT+DA3-g+vmamba3-2pool, live flow & 0.116 & 0.032 & 0.129 & 0.093 \\
+v63, WAFT+DA3-g+deflicker+vmamba3-2pool, live flow & 0.115 & 0.034 & 0.126 & 0.092 \\
+v93b, WAFT+DA3-g+Mamba-3 scale refiner+vmamba3-2pool & 0.111 & 0.033 & 0.128 & 0.091 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4213,12 +4215,17 @@ version, Fig.~\ref{fig:6method-norm}.}
 
 \begin{table}[!ht]
 \centering
-\caption{TAPVid-3D minival, absolute metric-AJ (no scaling, fixed-metre thresholds 1\,cm--2.56\,m;
+\caption{\emph{cached flow} / \emph{live flow} name how WAFT was run during training
+         (precomputed once, or recomputed on the augmented images each step,
+         \S\ref{sec:waft-aug-asymmetry}); it is the only difference between v57 and v67, and between
+         v58 and v64.
+         TAPVid-3D minival, absolute metric-AJ (no scaling, fixed-metre thresholds 1\,cm--2.56\,m;
 higher better) --- \textbf{DA3-l depth}. Bold = best per column. ``---'' = result unavailable.
 \textbf{Overall winner across all four tables: v64} (DA3-l $+$ refiner with the VSSD-2pool mixer, mean $0.255$; the one-pool v67 is $0.248$) --- no DA3-g pipeline
 reaches it (best DA3-g is DELTA$+$DA3-g at $0.227$, Table~\ref{tab:abs-g}).
 All numbers are produced by our own evaluation pipeline on the same hardware.}
 \label{tab:abs}
+\small
 \begin{tabular}{lrrrr}
 \toprule
 Method & drivetrack & pstudio & adt & mean \\
@@ -4241,10 +4248,10 @@ v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.130 & 0.249 & 0.298 & 0.226 \\
 v50, SEA-RAFT+DA3-l+vmamba3-2pool & 0.135 & 0.271 & 0.299 & 0.235 \\
 v37, WAFT+DA3-l            & 0.005 & 0.181 & 0.289 & 0.159 \\
 v38, WAFTbidir+DA3-l  & 0.005 & 0.181 & 0.292 & 0.159 \\
-v57, WAFT+DA3-l+vmamba3             & \textbf{0.147} & 0.282 & 0.322 & 0.250 \\
-v58, WAFT+DA3-l+vmamba3-2pool       & \textbf{0.147} & \textbf{0.294} & 0.312 & 0.251 \\
-v67, WAFT+DA3-l+vmamba3     & 0.141 & 0.276 & 0.328 & 0.248 \\
-v64, WAFT+DA3-l+vmamba3-2pool & 0.141 & 0.285 & 0.338 & \textbf{0.255} \\
+v57, WAFT+DA3-l+vmamba3, cached flow & \textbf{0.147} & 0.282 & 0.322 & 0.250 \\
+v58, WAFT+DA3-l+vmamba3-2pool, cached flow & \textbf{0.147} & \textbf{0.294} & 0.312 & 0.251 \\
+v67, WAFT+DA3-l+vmamba3, live flow & 0.141 & 0.276 & 0.328 & 0.248 \\
+v64, WAFT+DA3-l+vmamba3-2pool, live flow & 0.141 & 0.285 & 0.338 & \textbf{0.255} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4271,15 +4278,20 @@ despite all three ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \caption{TAPVid-3D minival, absolute metric-AJ (fixed-metre thresholds; higher better) ---
          \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
          column; a bold pair marks a tie at this precision.
-         \emph{defl.} is the de-flicker stage of Fig.~\ref{fig:deflicker-coupling}(a), which pools
-         depth at tracked points; \emph{scale ref.} is the Mamba-3 depth scale refiner of
-         Fig.~\ref{fig:deflicker-coupling}(b), which reads the depth map directly and replaced it.
+         \emph{deflicker} is the stage of Fig.~\ref{fig:deflicker-coupling}(a), which pools depth at
+         tracked points; the \emph{Mamba-3 scale refiner} is Fig.~\ref{fig:deflicker-coupling}(b),
+         which reads the depth map directly and replaced it. They are different stages, and no arm
+         carries both. \emph{cached flow} and \emph{live flow} name how the front-end was run
+         \emph{during training} --- precomputed once, or recomputed on the augmented images each
+         step (\S\ref{sec:waft-aug-asymmetry}); it is the only difference between v59/v60/v62 and
+         v68/v63, and is worth a few thousandths.
          \textbf{Best DA3-g mean: our v93b ($0.227$), level with DELTA$+$DA3-g ($0.227$)}
          --- still below the DA3-l v64 ($0.255$, Table~\ref{tab:abs}). No arm sweeps the columns
          here: DELTA keeps drivetrack ($0.164$) and adt ($0.324$), v62 keeps pstudio ($0.219$), and
          v93b takes the mean by placing second on all three.
          ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:abs}.}
 \label{tab:abs-g}
+\footnotesize
 \begin{tabular}{lrrrr}
 \toprule
 Method (DA3-g) & drivetrack & pstudio & adt & mean \\
@@ -4293,12 +4305,12 @@ TAPIP3D + DA3-g          & 0.110 & 0.148 & ---   & 0.129 \\
 \multicolumn{5}{l}{\emph{Ours}} \\
 SEA-RAFT + DA3-g (baseline)  & 0.136 & 0.175 & 0.269 & 0.193 \\
 v40, WAFT+DA3-g (no refiner) & 0.146 & 0.192 & 0.285 & 0.208 \\
-v59, WAFT+DA3-g+defl.+vmamba3           & 0.156 & 0.213 & 0.289 & 0.219 \\
-v60, WAFT+DA3-g+defl.+2pool     & 0.155 & 0.218 & 0.290 & 0.221 \\
-v62, WAFT+DA3-g+vmamba3-2pool               & 0.155 & \textbf{0.219} & 0.295 & 0.223 \\
-v68, WAFT+DA3-g+vmamba3-2pool       & 0.152 & 0.207 & 0.307 & 0.222 \\
-v63, WAFT+DA3-g+defl.+2pool ($448$) & 0.163 & 0.203 & 0.306 & 0.224 \\
-v93b, WAFT+DA3-g+scale ref.+2pool  & 0.163 & 0.209 & 0.310 & \textbf{0.227} \\
+v59, WAFT+DA3-g+deflicker+vmamba3, cached flow & 0.156 & 0.213 & 0.289 & 0.219 \\
+v60, WAFT+DA3-g+deflicker+vmamba3-2pool, cached flow & 0.155 & 0.218 & 0.290 & 0.221 \\
+v62, WAFT+DA3-g+vmamba3-2pool, cached flow & 0.155 & \textbf{0.219} & 0.295 & 0.223 \\
+v68, WAFT+DA3-g+vmamba3-2pool, live flow & 0.152 & 0.207 & 0.307 & 0.222 \\
+v63, WAFT+DA3-g+deflicker+vmamba3-2pool, live flow & 0.163 & 0.203 & 0.306 & 0.224 \\
+v93b, WAFT+DA3-g+Mamba-3 scale refiner+vmamba3-2pool & 0.163 & 0.209 & 0.310 & \textbf{0.227} \\
 \bottomrule
 \end{tabular}
 \\[2pt]

@@ -52,7 +52,7 @@ parameters) and the pipeline interpretable.
 On the TAPVid-3D~\cite{tapvid3d} minival benchmark, our best configuration (WAFT flow $+$
 Depth-Anything-3 depth $+$ the DINOv3-conditioned refiner, with the two-pool
 VSSD-2pool mixer of \S\ref{sec:v50-twopool}) attains the highest \emph{absolute}
-metric accuracy of all methods evaluated under identical conditions --- mean metric-AJ $0.253$,
+metric accuracy of all methods evaluated under identical conditions --- mean metric-AJ $0.256$,
 ahead of strong feed-forward 3D trackers --- confirming that a targeted depth-only refinement
 recovers real-world 3D structure that scale-invariant training leaves on the table. To measure
 this we introduce an absolute-metric evaluation protocol that scores error at fixed metre
@@ -1303,7 +1303,7 @@ cannot be tracked across the gap in either direction.}
 Consistent with the analysis above, v36 and v35 are effectively identical on all three subsets
 (Table~\ref{tab:median}, Table~\ref{tab:abs}); the reversed-video pass yields no measurable gain.
 Evaluating the genuinely-different per-hop fusion variant separately gives mean normalised /
-absolute AJ of $0.099$ / $0.226$ --- again indistinguishable from v35 ($0.096$ / $0.234$),
+absolute AJ of $0.099$ / $0.226$ --- again indistinguishable from v35 ($0.096$ / $0.225$),
 confirming that no flow-chaining bidirectional scheme improves this pipeline.
 
 \subsection{The WAFT optical-flow front-end (v37--v39)}
@@ -1321,8 +1321,8 @@ pipeline as every other row):
   \item \textbf{v39 (WAFT flow $+$ v35 depth refiner)} --- WAFT's 2D track fed into the v35
     DINOv3-SSM depth refiner. This combines the best 2D front-end with depth-scale correction and
     was our best absolute-metric model until v51: metric-AJ $0.246$, beating the SEA-RAFT-fed v35
-    ($0.234$) on all three subsets (Table~\ref{tab:abs}). Swapping its mixer for the two-pool
-    VSSD-2pool operator raises it further to $0.253$ (\S\ref{sec:v50-twopool}).
+    ($0.225$) on all three subsets (Table~\ref{tab:abs}). Swapping its mixer for the two-pool
+    VSSD-2pool operator raises it further to $0.256$ (\S\ref{sec:v50-twopool}).
     As with v35, the refiner trades
     relative-structure quality for absolute-scale correctness, so v39's normalised AJ ($0.107$) sits
     below WAFT$+$DA3-l (v37, $0.123$).
@@ -4117,7 +4117,7 @@ version, Fig.~\ref{fig:6method-norm}.}
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (no scaling, fixed-metre thresholds 1\,cm--2.56\,m;
 higher better) --- \textbf{DA3-l depth}. Bold = best per column. ``---'' = result unavailable.
-\textbf{Overall winner across all four tables: v51} (DA3-l $+$ refiner with the VSSD-2pool mixer, mean $0.253$; the one-pool v39 is $0.246$) --- no DA3-g pipeline
+\textbf{Overall winner across all four tables: v51} (DA3-l $+$ refiner with the VSSD-2pool mixer, mean $0.256$; the one-pool v39 is $0.246$) --- no DA3-g pipeline
 reaches it (best DA3-g is DELTA$+$DA3-g at $0.227$, Table~\ref{tab:abs-g}).
 All numbers are produced by our own evaluation pipeline on the same hardware.}
 \label{tab:abs}
@@ -4161,7 +4161,7 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 \includegraphics[width=\textwidth]{figs/fig2_absolute_aj}
 \captionof{figure}{Same methods, absolute metric-AJ (fixed-metre thresholds 1\,cm--2.56\,m; higher
 better). v51 (WAFT flow $+$ v35 refiner with the VSSD-2pool mixer) leads all
-methods at $0.253$, ahead of the one-pool v39 ($0.246$) and the SEA-RAFT-fed v35 ($0.234$),
+methods at $0.256$, ahead of the one-pool v39 ($0.246$) and the SEA-RAFT-fed v35 ($0.225$),
 despite all three ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \label{fig:6method-abs}
 \end{table}
@@ -4265,9 +4265,9 @@ configuration this report treats as its best is the same arm with the front-end'
 forward--backward mask, \textbf{v64 at $0.2547$}. Both are well ahead of the older v39
 (WAFT flow $+$ the v35 depth refiner; \S\ref{sec:waft}) at $0.246$, which topped this metric
 before the two-pool refiner and is the arm the comparisons in the rest of this section are
-written against; the SEA-RAFT-fed v35 follows at $0.234$. Taking v35 vs.\ the DA3-l baseline: metric-AJ $+59\%$ ($0.147\!\to\!0.234$),
+written against; the SEA-RAFT-fed v35 follows at $0.225$. Taking v35 vs.\ the DA3-l baseline: metric-AJ $+53\%$ ($0.147\!\to\!0.225$),
 mean error $-55\%$ ($4.29\!\to\!1.91$\,m). Against TAPIP3D$+$DA3-l: metric-AJ
-$+134\%$ ($0.100\!\to\!0.234$). The gain is most concentrated where DA3-l's scale is most
+$+125\%$ ($0.100\!\to\!0.225$). The gain is most concentrated where DA3-l's scale is most
 wrong --- far-field \emph{drivetrack}, metric-AJ $0.005\!\to\!0.130$ ($26\times$) ---
 while near-field \emph{adt} sees moderate improvement. Swapping the SEA-RAFT front-end for
 WAFT (v39) lifts every subset again (drivetrack $0.130\!\to\!0.141$, pstudio $0.274\!\to\!0.279$,
@@ -4431,7 +4431,7 @@ almost exactly: the same adt stronghold and the same far-field drivetrack limit.
 sets the single best \emph{adt} score of \emph{any} method (absolute metric-AJ $0.345$, a hair over DELTA's
 $0.344$), with mean $0.180$ ($\approx$ DELTA $0.183$); on \textbf{DA3-g} it is a touch behind DELTA
 (adt $0.319$ vs $0.324$, mean $0.216$ vs $0.227$). So the DELTA family --- v1 and v2 --- owns adt but nothing
-else: our v51 (DA3-l, mean $0.253$) and v45 (DA3-g, mean $0.232$) still lead the \emph{mean} absolute metric,
+else: our v51 (DA3-l, mean $0.256$) and v45 (DA3-g, mean $0.232$) still lead the \emph{mean} absolute metric,
 and beat both on drivetrack and pstudio. On throughput, DELTAv2 and DELTA are comparable in our $12$\,GB
 external-depth harness (${\approx}6.9$ vs $7.7$\,fps); the paper's $5\times$ speedup is measured on native
 full-resolution \emph{dense} tracking, whereas our sparse-query, precomputed-depth setup is memory-bound and

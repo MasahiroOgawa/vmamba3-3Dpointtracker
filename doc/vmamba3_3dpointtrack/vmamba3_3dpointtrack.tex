@@ -1,5 +1,6 @@
 \documentclass[11pt,a4paper]{article}
 \usepackage{amsmath,amssymb}
+\usepackage{multirow}
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{array}
 \usepackage{bm}
@@ -3911,57 +3912,77 @@ v94, non-causal (step $1250$) & $0.7384$ & $0.8767$ & $0.7565$ & $0.7905$ & $+0.
 
 \subsubsection{Result}
 \label{sec:v94-result}
-The head does what it was built to do on one subset, undoes itself on another, and nets out
-to almost nothing (Table~\ref{tab:v94-result}).
+The head was scored on both depth backbones and both metrics (Table~\ref{tab:v94-result}). Its
+effect replicates almost exactly across the two, which is what should happen to a module that
+never sees depth: the DA3-l arm is a different refiner trained against a different depth model,
+and the head moves it the same way and by nearly the same amount.
 
 \begin{table}[h]
 \centering
-\caption{v94 against the mask it replaces, absolute metric-AJ on TAPVid-3D minival. All three
-rows use \texttt{v93b/ckpt\_8297} unchanged, so the 3-D positions are identical and only the
-visibility channel differs. The comparison to the baseline is therefore \emph{paired} and exact;
-the comparison to DELTA is not.}
+\caption{v94 against the mask it replaces, on both depth backbones and both metrics. Within each
+block the two rows share one checkpoint and therefore have \emph{identical} 3-D positions, so the
+comparison is paired and the difference is the visibility channel alone. The DA3-l arm is
+\mbox{WAFT+DA3-l+vmamba3-2pool} (v64) and the DA3-g arm
+\mbox{WAFT+(DA3-g+deflicker)+vmamba3-2pool} (v93b); DA3-l carries no de-flicker stage, because
+that stage exists to correct DA3-g's per-frame drift. The DA3-l control reproduced v64's recorded
+$0.2547 / 0.1207$ exactly.}
 \label{tab:v94-result}
-\begin{tabular}{lrrrrr}
+\begin{tabular}{llrrrrr}
 \toprule
-visibility source & drivetrack & pstudio & adt & mean & vs.\ mask \\
+metric & visibility & drivetrack & pstudio & adt & mean & vs.\ mask \\
 \midrule
-forward--backward mask (v93b) & $0.1631$ & $0.2092$ & $\mathbf{0.3100}$ & $0.2274$ & --- \\
-v94, causal                   & $0.1538$ & $\mathbf{0.2349}$ & $0.2911$ & $0.2266$ & $-0.0008$ \\
-v94, non-causal               & $0.1539$ & $0.2336$ & $0.2986$ & $\mathbf{0.2287}$ & $+0.0013$ \\
+\multirow{4}{*}{absolute metric-AJ}
+ & DA3-g, mask & $0.1631$ & $0.2092$ & $0.3100$ & $0.2274$ & --- \\
+ & DA3-g, v94  & $0.1539$ & $0.2336$ & $0.2986$ & $0.2287$ & $+0.0013$ \\
+ & DA3-l, mask & $0.1410$ & $0.2852$ & $\mathbf{0.3379}$ & $0.2547$ & --- \\
+ & DA3-l, v94  & $0.1324$ & $\mathbf{0.3139}$ & $0.3226$ & $\mathbf{0.2563}$ & $+0.0016$ \\
 \midrule
-\multicolumn{6}{l}{\emph{selected per subset on the held-out clips (v94 where it won
-Table~\ref{tab:v94-gate}, mask on adt)}} \\
-hybrid, causal                & $0.1538$ & $0.2349$ & $0.3100$ & $0.2329$ & $+0.0055$ \\
+\multirow{4}{*}{normalised 3D-AJ}
+ & DA3-g, mask & $0.1113$ & $0.0332$ & $0.1281$ & $0.0909$ & --- \\
+ & DA3-g, v94  & $0.0910$ & $0.0305$ & $0.1077$ & $0.0764$ & $-0.0145$ \\
+ & DA3-l, mask & $0.1096$ & $0.0959$ & $\mathbf{0.1565}$ & $\mathbf{0.1207}$ & --- \\
+ & DA3-l, v94  & $0.0899$ & $0.0825$ & $0.1332$ & $0.1019$ & $-0.0188$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Held-out visibility accuracy did not predict metric-AJ, in both directions.} This is the
+\textbf{The head helps the absolute metric negligibly and costs the leaderboard metric a great
+deal.} On absolute metric-AJ it gains $+0.0013$ on DA3-g and $+0.0016$ on DA3-l; on normalised
+3D-AJ it loses $-0.0145$ and $-0.0188$, and there it loses on \emph{every} subset of both
+backbones --- including the pstudio that gains most on the absolute metric. The two metrics
+disagree because the normalised one median-scales each prediction before thresholding, which
+makes its thresholds relative and much tighter: mean AJ is $0.09$--$0.12$ rather than
+$0.23$--$0.25$, so the extra points the head marks visible are tested far more severely.
+\textbf{v94 is therefore not adopted as the default}, and \texttt{-{}-vis-source flow} remains
+what every headline number in this report is scored with.
+
+\textbf{Held-out visibility accuracy did not predict metric-AJ, in either direction.} This is the
 result worth carrying forward. On drivetrack the head is the more accurate classifier by
-$+0.0382$ and yet costs $-0.0093$ AJ; and the causal head, which won the accuracy gate
-($+0.0072$ against $+0.0055$), \emph{lost} the AJ comparison ($0.2266$ against $0.2287$).
-The mechanism is that AJ credits a point only where visibility and position are \emph{both}
-right: marking more points visible exposes more of them to the position test, so a classifier
-that is better in isolation can still lower the score. Visibility accuracy is therefore not a
-usable proxy for this metric, and an ablation that reports only the former is not evidence.
+$+0.0382$ (Table~\ref{tab:v94-gate}) and yet costs $-0.0092$ absolute AJ on DA3-g and $-0.0086$
+on DA3-l; and the causal head, which won the accuracy gate ($+0.0072$ against $+0.0055$),
+\emph{lost} the AJ comparison ($0.2266$ against $0.2287$). AJ credits a point only where
+visibility and position are \emph{both} right, so marking more points visible exposes more of
+them to the position test, and a classifier that is better in isolation can still lower the
+score. Visibility accuracy is not a usable proxy for either metric here, and an ablation
+reporting only the former is not evidence.
 
-\textbf{Where it works, it works well.} pstudio gains $+0.0257$ ($0.2092 \to 0.2349$), by far the
-largest single-subset movement any arm in this report has produced from one channel. pstudio is
-also where the mask was worst calibrated: it marks $0.543$ of points visible against a ground
-truth of $0.751$ (Table~\ref{tab:reappear}), so it is the subset with the most to give back.
+\textbf{Where it works, it works well, and it replicates.} pstudio gains $+0.0244$ on DA3-g and
+$+0.0287$ on DA3-l in absolute metric-AJ --- the largest single-subset movement from one channel
+anywhere in this report, twice over. pstudio is also where the mask is worst calibrated: it marks
+$0.543$ of points visible against a ground truth of $0.751$ (Table~\ref{tab:reappear}), so it has
+the most to give back.
 
-\textbf{adt was not recovered}, as \S\ref{sec:v94} anticipated: $-0.0189$ causal, $-0.0114$
-non-causal. The $+0.1146$ oracle headroom there remains unclaimed, and five attempts have now
-failed to claim it --- four in v92 and this one.
+\textbf{adt was not recovered} on either backbone, as \S\ref{sec:v94} anticipated: $-0.0114$ on
+DA3-g and $-0.0153$ on DA3-l. The $+0.1146$ oracle headroom there remains unclaimed after five
+attempts --- four in v92 and this one.
 
-\textbf{What may and may not be concluded.} Against the baseline the comparison is paired --- same
-weights, same positions, deterministic evaluation --- so $+0.0013$ is exact and carries no
-run-to-run noise. It is nonetheless one training draw of the head, whose seed sensitivity is
-unmeasured. Against DELTA$+$DA3-g ($0.22737$) the comparison is \emph{unpaired}, so the
-$0.0056$ seed spread of \S\ref{sec:v93} applies and $0.2287$ remains a tie, not a win. The
-hybrid's $+0.0055$ is a legitimate number --- the per-subset choice was made on held-out clips
-disjoint from minival --- but it is a per-domain switch rather than one model, and we report it
-as such rather than as the method.
+\textbf{What may and may not be concluded.} Within each block the comparison is paired --- same
+weights, same positions, deterministic evaluation --- so the differences are exact and carry no
+run-to-run noise. They are nonetheless one training draw of the head, whose seed sensitivity is
+unmeasured. Against DELTA$+$DA3-g ($0.22737$) the comparison is \emph{unpaired}, so the $0.0056$
+seed spread of \S\ref{sec:v93} applies and $0.2287$ remains a tie, not a win. That the same
+effect appears on two independently trained refiners over two depth models, with the same sign on
+all six subset comparisons of the normalised metric, is stronger evidence than either arm alone.
 
 \subsection{Training setup, common to every arm (all versions)}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and

@@ -1,0 +1,22 @@
+# Flow cache for the v94 visibility head: forward and backward flow sampled at each
+# tracked point. These two vectors are the head's ONLY input, so nothing else is stored.
+#
+# The flow settings must match v93's exactly, or the head would be trained on flow the
+# refiner never sees. minival clips are additionally checked against the cached WAFT
+# predictions v93b was scored with: the run aborts if the recomputed mask disagrees.
+cache:
+  out_dir: ~/data/tapvid3d_flowvis
+  verify_against: ~/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
+  subsets: [adt, drivetrack, pstudio]
+  n_train_per_subset: 30
+  n_heldout_per_subset: 10
+  seed: 42
+data:
+  root: ~/data/tapvid3d
+  image_size: 896
+flow:
+  source: waft_live
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0

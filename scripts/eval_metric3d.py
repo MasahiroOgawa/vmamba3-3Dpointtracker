@@ -78,11 +78,15 @@ def _infer(
     waft_pred_dir=None,
     z_source="depth_map",
     vis_source="flow",
+    vis_head=None,
+    flowvis_dir=None,
 ):
     """Return (pred_tracks (N,F,3) camera-frame XYZ, pred_vis (N,F)).
 
     vis_source "flow" returns the front-end's forward-backward mask, which is what every number
-    in this repo up to now was scored with. "model" returns the refiner's own vis_head instead.
+    in this repo up to now was scored with. "model" returns the refiner's own vis_head; "v94"
+    returns the standalone flow-only head, which reads cached forward/backward flow and never
+    touches the refiner, so the 3-D positions are identical across all three.
     """
     out_vis_logits = None
     F_ = (
@@ -193,6 +197,20 @@ def _infer(
             xyz = model(ray, z_raw, vis.unsqueeze(0).to(device)).xyz[0]  # (F,N,3)
     if vis_source == "model" and out_vis_logits is not None:
         vis = torch.sigmoid(out_vis_logits).float().cpu()
+    elif vis_source == "v94":
+        # Flow cached by cache_flow_vis.py with v93's flow settings; its mask was verified
+        # identical to the WAFT predictions this eval scores, so the point order matches.
+        fp = Path(flowvis_dir).expanduser() / clip.subset / (clip.clip_id + ".npz")
+        with np.load(fp) as fd:
+            ff = torch.from_numpy(fd["flow_fwd"][:F_]).float()
+            fb_ = torch.from_numpy(fd["flow_bwd"][:F_]).float()
+        if ff.shape[1] != vis.shape[1]:
+            raise ValueError(
+                f"{clip.subset}/{clip.clip_id}: flow cache has {ff.shape[1]} points, "
+                f"track has {vis.shape[1]}"
+            )
+        logits = vis_head(ff.unsqueeze(0).to(device), fb_.unsqueeze(0).to(device))
+        vis = torch.sigmoid(logits)[0].float().cpu()
     return xyz.transpose(0, 1).cpu().numpy(), vis.transpose(0, 1).numpy()
 
 
@@ -267,10 +285,16 @@ def main() -> int:
     ap.add_argument("--max-frames", type=int, default=0)
     ap.add_argument("--image-size", type=int, default=896)
     ap.add_argument(
-        "--vis-source", choices=("flow", "model"), default="flow",
+        "--vis-source", choices=("flow", "model", "v94"), default="flow",
         help="which visibility to score: the front-end's forward-backward mask (flow, the "
-             "default, and what every existing number used) or the refiner's vis_head (model)",
+             "default, and what every existing number used), the refiner's vis_head (model), "
+             "or the standalone flow-only head (v94; needs --vis-head-ckpt and --flowvis-dir)",
     )
+    ap.add_argument("--vis-head-ckpt", type=str, default=None,
+                    help="required for --vis-source v94: FlowVisHead checkpoint")
+    ap.add_argument("--flowvis-dir", type=str, default=None,
+                    help="required for --vis-source v94: dir with <subset>/<clip>.npz holding "
+                         "flow_fwd/flow_bwd (built by cache_flow_vis.py)")
     ap.add_argument(
         "--oracle-vis", action="store_true",
         help="score the predicted positions against ground-truth visibility (a ceiling, not a "
@@ -340,6 +364,23 @@ def main() -> int:
 
     flow_model = None
     model = None
+    vis_head = None
+    if args.vis_source == "v94":
+        if not (args.vis_head_ckpt and args.flowvis_dir):
+            raise SystemExit("--vis-source v94 requires --vis-head-ckpt and --flowvis-dir")
+        from mamba3_tracker.model.flow_vis_head import FlowVisHead
+
+        ck = torch.load(args.vis_head_ckpt, map_location="cpu", weights_only=False)
+        mc = ck["cfg"]["model"]
+        vis_head = FlowVisHead(
+            dim=int(mc["dim"]), state_dim=int(mc["state_dim"]),
+            num_heads=int(mc["num_heads"]), num_layers=int(mc["num_layers"]),
+            bidirectional=bool(mc["bidirectional"]),
+        ).to(device)
+        vis_head.load_state_dict(ck["model"])
+        vis_head.eval()
+        print(f"[eval] v94 visibility head from {args.vis_head_ckpt} "
+              f"(step {ck.get('step')}, bidirectional={mc['bidirectional']})", flush=True)
     if args.method == "external":
         if args.pred_dir is None:
             ap.error("--method external requires --pred-dir")
@@ -657,6 +698,8 @@ def main() -> int:
                         waft_pred_dir=args.waft_pred_dir,
                         z_source=args.z_source,
                         vis_source=args.vis_source,
+                        vis_head=vis_head,
+                        flowvis_dir=args.flowvis_dir,
                     )
                 # Align frame/point counts (released preds may truncate frames).
                 Fg = int(clip.tracks_XYZ.shape[0])

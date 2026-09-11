@@ -1,0 +1,30 @@
+# v94: visibility predicted from forward and backward optical flow alone, replacing the
+# forward-backward consistency mask that every number up to v93b was scored with.
+#
+# Independent of the refiner by construction: no trunk feature, no depth, and -- unlike
+# v92 -- not the mask itself, which v92 could simply echo from its 4th input channel.
+model:
+  dim: 64
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  # An occlusion is bracketed in time, so the non-causal mask is the accurate choice for
+  # offline scoring; it costs the refiner's streaming property, hence a setting.
+  bidirectional: true
+data:
+  cache_dir: ~/data/tapvid3d_flowvis
+  subsets: [adt, drivetrack, pstudio]
+  num_points: 256
+  max_frames: 300
+train:
+  out_dir: result/v94
+  steps: 3000
+  lr: 1.0e-3
+  warmup: 100
+  decay: 600
+  grad_clip: 1.0
+  pos_weight: auto
+  log_every: 50
+  val_every: 250
+  ckpt_every: 250
+  seed: 42

@@ -1,0 +1,21 @@
+# Smoke config: one clip per subset per split, same code path as v94_cache.yaml.
+cache:
+  out_dir: ~/data/tapvid3d_flowvis_smoke
+  verify_against: ~/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
+  subsets:
+  - adt
+  - drivetrack
+  - pstudio
+  n_train_per_subset: 1
+  n_heldout_per_subset: 0
+  seed: 42
+  n_minival_per_subset: 1
+data:
+  root: ~/data/tapvid3d
+  image_size: 896
+flow:
+  source: waft_live
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0

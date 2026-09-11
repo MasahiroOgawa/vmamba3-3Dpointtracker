@@ -68,7 +68,7 @@ def _infer_clip(
     anchor_t = q[:, 2].long().clamp(0, F_ - 1)
 
     device = flow_model.device
-    uv, vis, flow_at = track_clip_with_flow(
+    uv, vis, flow_at, _flow_bwd = track_clip_with_flow(
         flow_model, images_255.to(device), queries_xy, anchor_t, image_size, fb_alpha, fb_beta,
     )
 

@@ -142,10 +142,15 @@ def track_clip_with_flow(
     fb_alpha: float = 0.05,
     fb_beta: float = 1.0,
     bidirectional: bool = False,
-) -> tuple[Tensor, Tensor, Tensor]:
-    """Return (uv (F,N,2), vis (F,N), flow_at_uv (F,N,2)) on CPU.
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Return (uv (F,N,2), vis (F,N), flow_fwd (F,N,2), flow_bwd (F,N,2)) on CPU.
 
-    flow_at_uv[t] = forward flow sampled at uv[t]; zeros at t = F-1.
+    flow_fwd[t] = flow t -> t+1 sampled at uv[t]; zeros at t = F-1.
+    flow_bwd[t] = flow t -> t-1 sampled at uv[t]; zeros at t = 0.
+    Their sum over a hop, flow_fwd[t] + flow_bwd[t+1], is the cycle residual that
+    _consistent() thresholds -- the v94 head reads both vectors instead, so it can
+    learn a magnitude-dependent tolerance and, unlike the latching mask, re-mark a
+    point visible after an occlusion.
     bidirectional: see track_clip.
     """
     device = flow_model.device
@@ -155,13 +160,14 @@ def track_clip_with_flow(
     uv = torch.zeros(F_, N, 2, device=device)
     vis = torch.zeros(F_, N, dtype=torch.bool, device=device)
     flow_at = torch.zeros(F_, N, 2, device=device)
+    back_at = torch.zeros(F_, N, 2, device=device)
     idx = torch.arange(N, device=device)
     anchor_t = anchor_t.to(device).clamp(0, F_ - 1)
     uv[anchor_t, idx] = queries_xy.to(device)
     vis[anchor_t, idx] = True
 
     if F_ == 1:
-        return uv.cpu(), vis.float().cpu(), flow_at.cpu()
+        return uv.cpu(), vis.float().cpu(), flow_at.cpu(), back_at.cpu()
 
     fwd = [
         flow_model.flow(images[t : t + 1], images[t + 1 : t + 2])[0].cpu().unsqueeze(0)
@@ -208,10 +214,14 @@ def track_clip_with_flow(
         uv[t - 1, m] = cand[m]
         vis[t - 1, m] = vis[t, m] & ok[m]
 
+    # Sampled after both sweeps so every uv[t] is final. bwd[t-1] maps frame t back to
+    # t-1, so the backward flow *at* frame t reads from bwd[t-1], not bwd[t].
     for t in range(F_ - 1):
         flow_at[t] = _sample(fwd[t].to(device), uv[t], image_size)
+    for t in range(1, F_):
+        back_at[t] = _sample(bwd[t - 1].to(device), uv[t], image_size)
 
-    return uv.cpu(), vis.float().cpu(), flow_at.cpu()
+    return uv.cpu(), vis.float().cpu(), flow_at.cpu(), back_at.cpu()
 
 
 @torch.no_grad()

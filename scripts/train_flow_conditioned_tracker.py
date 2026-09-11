@@ -145,7 +145,7 @@ def _run_flow_batch(
         q = batch.queries_xyt[b].to(device)
         queries_xy = q[:, :2]
         anchor_t = q[:, 2].long().clamp(0, F_ - 1)
-        uv, vis, flow_at = track_clip_with_flow(
+        uv, vis, flow_at, _flow_bwd = track_clip_with_flow(
             flow_model, imgs, queries_xy, anchor_t, image_size, fb_alpha, fb_beta,
         )
         all_uv.append(uv)
@@ -237,7 +237,7 @@ def _motion_check(
         q = clip.queries_xyt.clone()
         queries_xy = torch.stack([q[:, 0] * sx, q[:, 1] * sy], dim=-1).to(device)
         anchor_t = q[:, 2].long().clamp(0, F_ - 1).to(device)
-        uv, vis, flow_at = track_clip_with_flow(
+        uv, vis, flow_at, _flow_bwd = track_clip_with_flow(
             flow_model, imgs, queries_xy, anchor_t, image_size, fb_alpha, fb_beta,
         )
         # Load DA3 depth for this clip (used for depth_at feature, not for unproject here).

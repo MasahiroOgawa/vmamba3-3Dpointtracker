@@ -28,7 +28,7 @@
     (0.15,0.26) -- (0.7,-0.20) -- (1.25,0.32) -- (1.8,-0.09) -- (2.35,0.38)
     -- (2.9,-0.28) -- (3.45,0.15) -- (4.0,-0.22);
   \node[anchor=west, font=\scriptsize, text=cInput!60!black] at (-0.1,1.02)
-        {DA3-g is off by a different factor every frame: still points seem to breathe};
+        {the depth model is off by a different factor every frame: still points seem to breathe};
   \node[anchor=west, font=\scriptsize, align=left] at (5.6,0.0)
         {The stage emits \emph{one} number per frame, $\Delta s_f$, and scales\\
          that frame's depth by $e^{\Delta s_f}$ to flatten the wobble onto\\
@@ -41,7 +41,7 @@
 % arrows running along its edge; the detail now lives in the caption.
 \node[data]  (aimg)  at (0,0)      {video\\frames};
 \node[flowb] (aflow) at (2.2,0)    {optical\\flow};
-\node[data]  (adep)  at (0,-1.6)   {DA3-g\\depth map};
+\node[data]  (adep)  at (0,-1.6)   {metric\\depth map};
 \node[flowb] (apts)  at (4.5,0)    {point\\tracking};
 \node[flowb] (asamp) at (4.5,-1.6) {depth\\sampling};
 \node[learn] (atok) at (8.0,-0.8)  {masked mean\\$\rightarrow$ 1 token/frame};
@@ -69,7 +69,7 @@
    one visible or not by a forward--backward consistency check. It emits two things, labelled on the
    arrows: the \emph{pixels} depth sampling reads the map at, and the \emph{visibility} flag only
    the masked mean uses --- which is why both arrows into the pooling box are needed. \emph{Depth sampling} reads the
-   DA3-g depth map at exactly those pixels and nowhere else. The \emph{masked mean} then collapses
+   depth map at exactly those pixels and nowhere else. The \emph{masked mean} then collapses
    the points to one vector per frame, weighting each by its visibility, so Mamba-3 sees a sequence
    of $F$ frame tokens and never sees a point. Everything the stage observes therefore arrives
    \emph{through the tracker}: a stage trained with SEA-RAFT and one trained with WAFT learn
@@ -78,19 +78,19 @@
 
 % ---------------- (b) the Mamba-3 depth scale refiner ----------------
 \begin{scope}[yshift=-7.2cm]
-\node[data]  (bdep)  at (0,-0.8)    {DA3-g\\depth map};
+\node[data]  (bdep)  at (0,-0.8)    {metric\\depth map};
 \node[flowb] (blog)  at (2.2,-0.8)  {take log};
-\node[learn] (bcnn)  at (5.9,-0.1)  {pool to $64^2$,\\small CNN $\rightarrow 64$};
+\node[learn] (bcnn)  at (5.9,-0.1)  {pool to $64^2$,\\CNN $\rightarrow 64$};
 \node[flowb] (bq)    at (5.9,-1.6)  {sample percentiles\\$\rightarrow 10$};
 \node[learn] (btok)  at (10.0,-0.8) {concat $64{+}10$\\$\rightarrow$ 1 token/frame};
-\node[learn] (bmam)  at (12.6,-0.8) {Mamba-3\\over frames};
-\node[objmid] (bout) at (14.6,-0.8) {$\Delta s_f$};
+\node[learn] (bmam)  at (13.0,-0.8) {Mamba-3\\over frames};
+\node[objmid] (bout) at (15.0,-0.8) {$\Delta s_f$};
 
 \draw[ar] (bdep) -- (blog);
 % Both branches read the same log-depth map; the percentiles are taken over every pixel of it,
 % not over the pooled patch, so the fork is here and not after the pooling.
 \coordinate (bin)  at (3.5,-0.8);
-\coordinate (bout1) at (8.0,-0.8);
+\coordinate (bout1) at (7.7,-0.8);
 \draw[ar] (blog.east) -- (bin) |- (bcnn.west);
 \draw[ar] (blog.east) -- (bin) |- (bq.west);
 \draw[ar] (bcnn.east) -- (bcnn.east -| bout1) |- (btok.west);
@@ -116,7 +116,8 @@
 
 \end{tikzpicture}
 \caption{\textbf{What the de-flicker stage is for, and why the way it was built was wrong.}
-  \emph{The problem it solves:} DA3-g estimates each frame independently, so its depth is off by a
+  \emph{The problem it solves:} a per-frame monocular depth model estimates each frame
+  independently, so its depth is off by a
   slightly different factor every frame --- the sketch at the top. Points that are still in the
   world therefore appear to breathe toward and away from the camera. The stage exists to undo that,
   and emits one number per frame, $\Delta s_f$, that rescales that frame's depth.

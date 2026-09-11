@@ -3821,15 +3821,31 @@ $\log(1+\lVert b_t\rVert)$, and the two cycle residuals $\log(1+\lVert f_t+b_{t+
 $\log(1+\lVert f_{t-1}+b_t\rVert)$. The residuals are the quantity \eqref{eq:latch} thresholds;
 they are supplied explicitly because a product of two inputs is awkward for an MLP, and they add
 no information the two vectors do not already carry. An MLP embeds the eight to $64$, two
-Mamba-3 layers mix \emph{along frames only} --- non-causal, because an occlusion is bracketed in
-time and a point is known to have been occluded partly by the fact that it returns --- and a
-linear head with a sigmoid gives $P(\text{visible})$ per frame. There is no latch.
+Mamba-3 layers mix \emph{along frames only} --- never across points --- and a linear head with a
+sigmoid gives $P(\text{visible})$ per frame. There is no latch. The head is $0.173$\,M parameters.
+
+\paragraph{Two switches, which are independent and easily confused.}
+The first is whether the head is used at all: the evaluator's \texttt{-{}-vis-source} selects
+\texttt{flow}, the forward--backward mask, or \texttt{v94}, this head. Every arm before v94 is
+\texttt{flow}. The second is internal to the head and fixed at training time, \texttt{model.bidirectional},
+which sets the decay mask of the Mamba-3 layers over the frame axis:
+\begin{align}
+\text{causal:} \quad & L[i,j] = \gamma_j \textstyle\prod_{k=j+1}^{T} \alpha_k, \label{eq:v94-causal}\\
+\text{non-causal:} \quad & L[i,j] = \gamma_j \big[\textstyle\prod_{k=j+1}^{T} \alpha_k + \prod_{k=1}^{j-1} \alpha_k\big].
+\label{eq:v94-noncausal}
+\end{align}
+Under \eqref{eq:v94-causal} frame $t$ sees only frames $\le t$; under \eqref{eq:v94-noncausal} it
+sees the whole clip. \textbf{Both settings are the head switched on} --- they are two separately
+trained copies of one architecture whose configurations differ in that single line, and both are
+reported below. Non-causal ought to be the more accurate of the two, because an occlusion is
+bracketed in time and a point is known to have been occluded partly by the fact that it returns,
+which is evidence lying in future frames. It costs the streaming property that v93b's causal
+refiner keeps, which is why the causal variant is measured rather than assumed away.
 
 \input{figs/fig_v94_head}
 
-The head is $0.173$\,M parameters and sees no depth, no appearance and no refiner state, so it
-trains standalone in minutes rather than inside the refiner's $8.5$\,h run, and retraining the
-refiner cannot invalidate it.
+It sees no depth, no appearance and no refiner state, so it trains standalone in minutes rather
+than inside the refiner's $8.5$\,h run, and retraining the refiner cannot invalidate it.
 
 \subsubsection{Protocol}
 The flow is cached with v93's exact front-end settings, and the cache is accepted only if the

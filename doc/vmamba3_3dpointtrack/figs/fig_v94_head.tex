@@ -30,7 +30,7 @@
 
 % ---- lower path: v94, the same two vectors through a network ----
 \node[learn]  (feat) at (8.6,-2.3)  {8 flow features\\$\to$ MLP $\to 64$};
-\node[learn]  (mam)  at (11.4,-2.3) {Mamba-3 over\\frames, non-causal};
+\node[learn]  (mam)  at (11.4,-2.3) {Mamba-3 over\\frames};
 \node[objmid] (prob) at (13.9,-2.3) {$P(\text{visible})$\\$\in[0,1]$};
 \draw[ar] (feat) -- (mam);
 \draw[ar] (mam) -- (prob);
@@ -69,7 +69,8 @@
    $v_{t+1}=v_t\wedge ok_t$ can only ever fall. The lower path hands the two vectors to a
    network instead. Two consequences follow. It can learn a tolerance that depends on flow
    magnitude rather than a constant $\alpha,\beta$; and, because it decides each frame from its
-   own evidence, it can mark a point visible again after an occlusion --- which the mask cannot
+   own evidence (from past frames only, or from the whole clip --- both are trained and both are
+   reported), it can mark a point visible again after an occlusion --- which the mask cannot
    do at all, at any threshold. That second point is not a refinement but a repair: $63\%$,
    $52\%$ and $66\%$ of adt, drivetrack and pstudio points re-appear in ground truth, and the
    mask produces exactly zero re-appearances on all three.};

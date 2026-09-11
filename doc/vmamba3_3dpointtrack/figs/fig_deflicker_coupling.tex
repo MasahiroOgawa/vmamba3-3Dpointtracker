@@ -81,7 +81,7 @@
 \node[data]  (bdep)  at (0,-0.8)    {DA3-g\\depth map};
 \node[flowb] (blog)  at (2.2,-0.8)  {take log};
 \node[learn] (bcnn)  at (5.9,-0.1)  {pool to $64^2$,\\small CNN $\rightarrow 64$};
-\node[flowb] (bq)    at (5.9,-1.6)  {sample log depth\\at 10 percentiles};
+\node[flowb] (bq)    at (5.9,-1.6)  {sample percentiles\\$\rightarrow 10$};
 \node[learn] (btok)  at (10.0,-0.8) {concat $64{+}10$\\$\rightarrow$ 1 token/frame};
 \node[learn] (bmam)  at (12.6,-0.8) {Mamba-3\\over frames};
 \node[objmid] (bout) at (14.6,-0.8) {$\Delta s_f$};
@@ -102,8 +102,8 @@
   {\textbf{(b) Mamba-3 depth scale refiner.} It reads the depth map itself, so no tracker appears
    anywhere in the path and the front-end cannot change what it learns, and it sees every pixel of
    the frame rather than the few hundred scattered points panel (a) is restricted to. Note what the
-   CNN emits: \emph{$64$ features}, not a number. \emph{Sample log depth at 10 percentiles}: every
-   pixel of the frame's log-depth map is sorted, and the value standing at the $5$th, $15$th,
+   CNN emits: \emph{$64$ features}, not a number. \emph{Sample percentiles}: the frame's log depth, already taken
+   by the box before it, is sorted over every pixel, and the value standing at the $5$th, $15$th,
    \ldots, $95$th position is read off --- so this branch emits \emph{one vector of ten numbers per
    frame}, not ten vectors. On a typical frame they run from $\log 0.30$ at the $5$th to
    $\log 27.4$ at the $95$th, for depths in metres. Those ten and the CNN's sixty-four concatenate

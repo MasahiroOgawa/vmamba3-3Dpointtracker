@@ -23,7 +23,7 @@
 
 % ---- upper: the rule v93b and everything before it used ----
 \node[frozen] (chk)  at (8.6,0.5)  {forward--backward\\check};
-\node[frozen] (lat)  at (11.6,0.5) {once occluded,\\always occluded};
+\node[frozen] (lat)  at (11.6,0.5) {running AND\\over frames};
 \node[objout] (mask) at (14.4,0.5) {mask\\$\in\{0,1\}$};
 \draw[ar] (chk) -- (lat);
 \draw[ar] (lat) -- (mask);
@@ -62,9 +62,10 @@
    one frame forward by $f_t$ and back again by $b_{t+1}$; if it misses its start by more than
    $\alpha(\lVert f_t\rVert + \lVert b_{t+1}\rVert) + \beta$, call it occluded. The tolerance is a
    constant, identical for a point drifting slowly and one crossing the frame.
-   \emph{once occluded, always occluded}: the check's result is carried forward,
-   $v_{t+1} = v_t \wedge ok_t$, so a single failure fixes the point as occluded for every later
-   frame --- which is why the middle bar in the sketch never restarts, at any threshold.
+   \emph{running AND over frames}: $v_{t+1} = v_t \wedge ok_t$, so the check's result is
+   carried forward and a single failure fixes the point as occluded for every later frame ---
+   which is why the middle bar in the sketch never restarts, at any threshold. It is the one step
+   the lower path has no counterpart for.
    \emph{MLP $8\to64$}: eight scalars per point per frame, all of them functions of $f_t$ and
    $b_t$ --- the two vectors, their lengths, and the two forward--backward errors --- embedded to
    $64$ dimensions. \emph{Mamba-3 over frames}: two layers mixing along the time axis only, never

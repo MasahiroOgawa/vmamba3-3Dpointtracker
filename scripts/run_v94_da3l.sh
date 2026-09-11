@@ -6,7 +6,7 @@
 # The control run comes first and must reproduce v64's recorded 0.2547 abs / 0.1207 norm. If it
 # does not, the invocation differs from how v64 was scored and the v94 numbers cannot be read.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source scripts/cudnn_env.sh
 CACHE=$HOME/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
 FLOW=$HOME/data/tapvid3d_flowvis/minival

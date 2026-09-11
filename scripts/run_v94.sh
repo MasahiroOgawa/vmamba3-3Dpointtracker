@@ -4,7 +4,7 @@
 # to the forward-backward mask here it cannot help downstream, and the 167 min of WAFT the
 # minival cache costs would be wasted.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source scripts/cudnn_env.sh
 S=result/v94_status.log
 note() { echo "$*" | tee -a "$S"; }

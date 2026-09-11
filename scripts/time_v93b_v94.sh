@@ -4,7 +4,7 @@
 # matching the footnotes on the existing rows. fps is a rate, so a clip subset is representative
 # and avoids two full 2.8 h live-flow passes.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source scripts/cudnn_env.sh
 N=6                       # clips per subset
 CK=result/v93b/ckpt_8297.pt

@@ -6,7 +6,7 @@
 # the mask is still what feeds the trunk's 4th channel and gates its pooling, so the 3-D
 # positions are identical to the 0.2274 baseline and the comparison isolates visibility.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 source scripts/cudnn_env.sh
 CACHE=$HOME/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
 FLOW=$HOME/data/tapvid3d_flowvis/minival

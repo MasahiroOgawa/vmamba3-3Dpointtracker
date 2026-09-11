@@ -12,7 +12,8 @@ cache:
   n_heldout_per_subset: 5
   # minival is cached only once the held-out gate passes: it is 167 min of WAFT and is
   # needed only for the final score, so a head that loses to the mask must not pay for it.
-  n_minival_per_subset: 0
+  # gate 1 passed on the mean (+0.0072 causal), so minival is now needed for the score
+  n_minival_per_subset: null
   seed: 42
 data:
   root: ~/data/tapvid3d

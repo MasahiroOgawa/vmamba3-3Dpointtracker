@@ -22,9 +22,9 @@
 \draw[ar] (waft) -- (fl);
 
 % ---- upper: the rule v93b and everything before it used ----
-\node[frozen] (chk)  at (8.6,0.5)  {forward--backward\\check};
-\node[frozen] (lat)  at (11.6,0.5) {running AND\\over frames};
-\node[objout] (mask) at (14.4,0.5) {mask\\$\in\{0,1\}$};
+\node[frozen] (chk)  at (8.4,0.5)  {forward--backward\\check};
+\node[frozen] (lat)  at (11.7,0.5) {logical AND\\with previous};
+\node[objout] (mask) at (14.5,0.5) {mask\\$\in\{0,1\}$};
 \draw[ar] (chk) -- (lat);
 \draw[ar] (lat) -- (mask);
 
@@ -39,7 +39,8 @@
 \coordinate (corr) at (6.6,-1.0);
 \draw[ar] (fl.east) -- (corr) |- (chk.west);
 \draw[ar] (fl.east) -- (corr) |- (mlp.west);
-\node[anchor=south, font=\scriptsize, text=black!60]        at (8.6,1.25)  {v93b and earlier};
+\node[anchor=north, font=\scriptsize, text=cTrain!60!black] at (10.1,-3.25) {visibility head};
+\node[anchor=south, font=\scriptsize, text=black!60]        at (10.1,1.25) {forward--backward mask};
 
 % ---- one point, hidden and back again ----
 \begin{scope}[shift={(0.6,-5.3)}]
@@ -62,7 +63,8 @@
    one frame forward by $f_t$ and back again by $b_{t+1}$; if it misses its start by more than
    $\alpha(\lVert f_t\rVert + \lVert b_{t+1}\rVert) + \beta$, call it occluded. The tolerance is a
    constant, identical for a point drifting slowly and one crossing the frame.
-   \emph{running AND over frames}: $v_{t+1} = v_t \wedge ok_t$, so the check's result is
+   \emph{logical AND with previous}: $v_{t+1} = v_t \wedge ok_t$, combining this frame's check
+   with the previous frame's answer, so the check's result is
    carried forward and a single failure fixes the point as occluded for every later frame ---
    which is why the middle bar in the sketch never restarts, at any threshold. It is the one step
    the lower path has no counterpart for.

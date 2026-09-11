@@ -3954,7 +3954,21 @@ disagree because the normalised one median-scales each prediction before thresho
 makes its thresholds relative and much tighter: mean AJ is $0.09$--$0.12$ rather than
 $0.23$--$0.25$, so the extra points the head marks visible are tested far more severely.
 \textbf{v94 is therefore not adopted as the default}, and \texttt{-{}-vis-source flow} remains
-what every headline number in this report is scored with.
+what every headline number in this report is scored with. The two metrics sit on different
+scales, so the raw differences understate how lopsided the exchange is; as fractions of the score
+being traded, on DA3-l it is $+0.6\%$ absolute against $-15.6\%$ normalised, a loss about
+$25\times$ the gain.
+
+\textbf{The gain is also the fragile side of that exchange.} Broken out by subset on DA3-l, the
+absolute metric improves on \emph{one} subset and degrades on two --- pstudio $+10.1\%$,
+drivetrack $-6.1\%$, adt $-4.5\%$ --- so the $+0.0016$ mean is one gain narrowly outrunning two
+losses, and a small movement in any of the three would flip its sign. The normalised metric shows
+no such cancellation: drivetrack $-18.0\%$, pstudio $-14.0\%$, adt $-14.9\%$, every subset in the
+same direction and by a similar amount, on both backbones. A consistent loss across six subset
+comparisons is a measurement; a near-cancellation on one of them is not a result to build on. The
+honest description is that the head is good on pstudio and bad on drivetrack and adt, and that
+one metric's arithmetic happens to reward that mixture by a hair while the other penalises it
+heavily.
 
 \textbf{Held-out visibility accuracy did not predict metric-AJ, in either direction.} This is the
 result worth carrying forward. On drivetrack the head is the more accurate classifier by
@@ -4240,9 +4254,18 @@ while drivetrack contains outdoor ego-motion scenes at scales $>$10\,m.
 \subsection{Results across all arms: absolute metric-AJ, and the reversal}
 \label{sec:abs}
 Under the absolute-metric protocol the ranking \emph{reverses} (Table~\ref{tab:abs},
-Fig.~\ref{fig:reversal}). Our best model is v39 (WAFT flow $+$ the v35 depth refiner;
-\S\ref{sec:waft}), which tops absolute metric-AJ at $0.246$; the SEA-RAFT-fed v35 follows
-at $0.234$. Taking v35 vs.\ the DA3-l baseline: metric-AJ $+59\%$ ($0.147\!\to\!0.234$),
+Fig.~\ref{fig:reversal}).
+
+\paragraph{The best absolute metric-AJ, and why it is not the default.}
+The highest absolute metric-AJ in this report is $0.2563$, from
+\mbox{WAFT+DA3-l+vmamba3-2pool} (v64) scored with the v94 flow-only visibility head
+(\S\ref{sec:v94-result}). It is recorded for completeness rather than adopted: the same
+substitution costs $-15.6\%$ on the normalised leaderboard metric to buy $+0.6\%$ here, so the
+configuration this report treats as its best is the same arm with the front-end's
+forward--backward mask, \textbf{v64 at $0.2547$}. Both are well ahead of the older v39
+(WAFT flow $+$ the v35 depth refiner; \S\ref{sec:waft}) at $0.246$, which topped this metric
+before the two-pool refiner and is the arm the comparisons in the rest of this section are
+written against; the SEA-RAFT-fed v35 follows at $0.234$. Taking v35 vs.\ the DA3-l baseline: metric-AJ $+59\%$ ($0.147\!\to\!0.234$),
 mean error $-55\%$ ($4.29\!\to\!1.91$\,m). Against TAPIP3D$+$DA3-l: metric-AJ
 $+134\%$ ($0.100\!\to\!0.234$). The gain is most concentrated where DA3-l's scale is most
 wrong --- far-field \emph{drivetrack}, metric-AJ $0.005\!\to\!0.130$ ($26\times$) ---

@@ -81,7 +81,7 @@
 \node[data]  (bdep)  at (0,-0.8)    {DA3-g\\depth map};
 \node[flowb] (blog)  at (2.2,-0.8)  {take log};
 \node[learn] (bcnn)  at (5.9,-0.1)  {pool to $64^2$,\\small CNN $\rightarrow 64$};
-\node[flowb] (bq)    at (5.9,-1.6)  {log-depth percentiles\\$5,15,\ldots,95 \rightarrow 10$};
+\node[flowb] (bq)    at (5.9,-1.6)  {sample log depth\\at 10 percentiles};
 \node[learn] (btok)  at (10.0,-0.8) {concat $64{+}10$\\$\rightarrow$ 1 token/frame};
 \node[learn] (bmam)  at (12.6,-0.8) {Mamba-3\\over frames};
 \node[objmid] (bout) at (14.6,-0.8) {$\Delta s_f$};
@@ -102,14 +102,16 @@
   {\textbf{(b) Mamba-3 depth scale refiner.} It reads the depth map itself, so no tracker appears
    anywhere in the path and the front-end cannot change what it learns, and it sees every pixel of
    the frame rather than the few hundred scattered points panel (a) is restricted to. Note what the
-   CNN emits: \emph{$64$ features}, not a number. Those are concatenated with ten percentiles of the
-   frame's log depth --- the $5$th, $15$th, \ldots, $95$th --- a $10$-vector, one number per
-   level, running on a typical frame from $\log 0.30$ to $\log 27.4$ for depths in metres. Those
-   $10$ and the CNN's $64$ concatenate to $74$ and project to a $128$-D token per frame. The two branches are independent:
-   the percentiles are taken over \emph{every} pixel of the log-depth map, not the $64^2$ patch,
-   since pooling and then averaging inside the CNN discards the distribution's shape, which the
-   percentiles restore. Only after Mamba-3 has mixed the $F$ tokens does a linear head produce
-   $\Delta s_f$. Both stages therefore hand Mamba-3 the same thing: one token per frame.};
+   CNN emits: \emph{$64$ features}, not a number. \emph{Sample log depth at 10 percentiles}: every
+   pixel of the frame's log-depth map is sorted, and the value standing at the $5$th, $15$th,
+   \ldots, $95$th position is read off --- so this branch emits \emph{one vector of ten numbers per
+   frame}, not ten vectors. On a typical frame they run from $\log 0.30$ at the $5$th to
+   $\log 27.4$ at the $95$th, for depths in metres. Those ten and the CNN's sixty-four concatenate
+   to $74$ and project to a single $128$-dimensional token. The two branches are independent, and
+   deliberately so: the percentiles read every pixel rather than the $64^2$ patch, because pooling
+   and then averaging inside the CNN discards the distribution's shape, which the percentiles
+   restore. Only after Mamba-3 has mixed the $F$ tokens does a linear head produce $\Delta s_f$.
+   Both stages therefore hand Mamba-3 the same thing: one token per frame.};
 \end{scope}
 
 \end{tikzpicture}
@@ -130,7 +132,7 @@
   $99.5\%$ of its gradient is noise from its point of view. Giving it a direct target,
   $\Delta s^{*}_f=\mathrm{median}_n[\log z_{\text{gt}}-\log z_{\text{raw}}]$ with
   $L_{\text{dsr}}=|\Delta s_f-\Delta s^{*}_f|$, supervises exactly what it can change.
-  Orange is data, blue is trainable, grey is frozen or intermediate; rounded boxes are
-  processing steps and square-cornered boxes are the data objects passed between them.}
+  Orange is data, blue trainable, grey frozen or intermediate; rounded boxes are steps,
+  square-cornered ones data.}
 \label{fig:deflicker-coupling}
 \end{figure*}

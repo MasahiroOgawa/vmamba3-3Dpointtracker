@@ -4028,6 +4028,9 @@ methodology chapter where the defect is diagnosed.
 \centering
 \caption{The result, in four numbers. Each cell is the best arm that is free of the defects of
 \S\ref{sec:final-excluded}, beside the strongest external method under the identical protocol.
+The DA3-g absolute pair is given to five decimals because it agrees to four; neither entry there is
+bold, because their difference is $79\times$ smaller than the run-to-run spread and the two are
+indistinguishable.
 The two metrics disagree by design, and that disagreement is the finding: fixed-metre thresholds
 reward getting the depth \emph{scale} right, median scaling removes scale from the comparison
 before it is scored.}
@@ -4040,7 +4043,7 @@ depth & \multicolumn{2}{c}{ours (best defect-free arm)} & \multicolumn{2}{c}{bes
 \midrule
 \multicolumn{5}{l}{\emph{absolute metric-AJ} (fixed metre thresholds, $1$\,cm--$2.56$\,m)} \\
 DA3-l & v64, WAFT$+$DA3-l$+$2pool & $\mathbf{0.2547}$ & DELTA$+$DA3-l & $0.1828$ \\
-DA3-g & v93b, WAFT$+$DA3-g$+$defl.$+$2pool & $\mathbf{0.2274}$ & DELTA$+$DA3-g & $0.2274$ \\
+DA3-g & v93b, WAFT$+$DA3-g$+$defl.$+$2pool & $0.22744$ & DELTA$+$DA3-g & $0.22737$ \\
 \midrule
 \multicolumn{5}{l}{\emph{normalised 3D-AJ} (median-scaled, the leaderboard metric)} \\
 DA3-l & v64, WAFT$+$DA3-l$+$2pool & $0.1207$ & DELTA$+$DA3-l & $\mathbf{0.1408}$ \\
@@ -4051,9 +4054,10 @@ DA3-g & v93b, WAFT$+$DA3-g$+$defl.$+$2pool & $0.0909$ & DELTA$+$DA3-g & $\mathbf
 
 \textbf{What we claim.} On \emph{absolute} metric-AJ the refiner leads by a wide margin on DA3-l
 --- $0.2547$ against DELTA's $0.1828$, a $39\%$ relative gain --- and matches DELTA on DA3-g
-($0.2274$ against $0.22737$). The DA3-g match is a \emph{tie}: the margin is $+0.00007$ against a
-seed-to-seed spread of $0.0056$ measured from two seeds of v63 (\S\ref{sec:v93}), and we do not
-claim a win there.
+($0.22744$ against $0.22737$). The DA3-g match is a \emph{tie}, not a win: v93b is nominally the
+higher of the two, but by $+0.00007$, which is $79\times$ smaller than the $0.0056$ seed-to-seed
+spread measured from two seeds of v63 (\S\ref{sec:v93}). A margin that far inside the noise of a
+single arm is not an ordering, and we do not claim one.
 
 \textbf{What we do not claim.} On the scale-invariant leaderboard metric we \emph{lose} to DELTA
 on both backbones, $0.1207$ against $0.1408$ and $0.0909$ against $0.1088$. This is not a

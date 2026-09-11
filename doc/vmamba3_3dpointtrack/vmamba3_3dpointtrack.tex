@@ -4009,7 +4009,103 @@ an $\ell_1$ error over visible points, normalised by the per-clip median anchor-
 $s_{\text{clip}}$ (matching the benchmark's scale convention). We train $20$k steps (AdamW,
 lr $3\!\times\!10^{-4}$, warmup $500$, $8$-frame windows, bf16; $\sim$9.5\,h on one GPU).
 
+
 % =====================================================================
+\section{Final result}
+\label{sec:final}
+
+This chapter is the single place to look for what the work achieved. Every number in it was
+produced by our own evaluation pipeline on the same hardware, on the $150$-clip TAPVid-3D
+minival split, and every one is traceable to a surviving evaluation directory. Arms whose
+numbers are known to be produced by a defect are \emph{not} reported here; they are listed in
+\S\ref{sec:final-excluded} with the defect named, and their measurements remain in the
+methodology chapter where the defect is diagnosed.
+
+\subsection{Headline}
+\label{sec:final-headline}
+
+\begin{table}[h]
+\centering
+\caption{The result, in four numbers. Each cell is the best arm that is free of the defects of
+\S\ref{sec:final-excluded}, beside the strongest external method under the identical protocol.
+The two metrics disagree by design, and that disagreement is the finding: fixed-metre thresholds
+reward getting the depth \emph{scale} right, median scaling removes scale from the comparison
+before it is scored.}
+\label{tab:final-headline}
+\begin{tabular}{llrlr}
+\toprule
+depth & \multicolumn{2}{c}{ours (best defect-free arm)} & \multicolumn{2}{c}{best external} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+ & arm & score & method & score \\
+\midrule
+\multicolumn{5}{l}{\emph{absolute metric-AJ} (fixed metre thresholds, $1$\,cm--$2.56$\,m)} \\
+DA3-l & v64, WAFT$+$DA3-l$+$2pool & $\mathbf{0.2547}$ & DELTA$+$DA3-l & $0.1828$ \\
+DA3-g & v93b, WAFT$+$DA3-g$+$defl.$+$2pool & $\mathbf{0.2274}$ & DELTA$+$DA3-g & $0.2274$ \\
+\midrule
+\multicolumn{5}{l}{\emph{normalised 3D-AJ} (median-scaled, the leaderboard metric)} \\
+DA3-l & v64, WAFT$+$DA3-l$+$2pool & $0.1207$ & DELTA$+$DA3-l & $\mathbf{0.1408}$ \\
+DA3-g & v93b, WAFT$+$DA3-g$+$defl.$+$2pool & $0.0909$ & DELTA$+$DA3-g & $\mathbf{0.1088}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{What we claim.} On \emph{absolute} metric-AJ the refiner leads by a wide margin on DA3-l
+--- $0.2547$ against DELTA's $0.1828$, a $39\%$ relative gain --- and matches DELTA on DA3-g
+($0.2274$ against $0.22737$). The DA3-g match is a \emph{tie}: the margin is $+0.00007$ against a
+seed-to-seed spread of $0.0056$ measured from two seeds of v63 (\S\ref{sec:v93}), and we do not
+claim a win there.
+
+\textbf{What we do not claim.} On the scale-invariant leaderboard metric we \emph{lose} to DELTA
+on both backbones, $0.1207$ against $0.1408$ and $0.0909$ against $0.1088$. This is not a
+reporting choice but a property of the method: the refiner corrects depth along the ray, and
+median scaling divides exactly that correction out before scoring. The reversal is examined in
+\S\ref{sec:abs}.
+
+\textbf{The single best absolute number measured in this work} is $0.2563$, from v64 scored with
+the v94 flow-only visibility head (\S\ref{sec:v94-result}). It is recorded rather than adopted,
+because the same substitution costs $15.6\%$ of the normalised metric to buy $0.6\%$ here; v64 at
+$0.2547$ is the configuration the work treats as its result.
+
+\subsection{What is excluded from this chapter, and why}
+\label{sec:final-excluded}
+
+Three defects produced numbers that were at one time reported. Each is diagnosed in the
+methodology chapter; none of the affected numbers appears in the tables below.
+
+\begin{table}[h]
+\centering
+\caption{Measurements excluded from this chapter. ``Inflated'' means the defect raised the score,
+which is why none of them was caught by looking at the numbers alone.}
+\label{tab:final-excluded}
+\begin{tabular}{llll}
+\toprule
+arm & reported & defect & effect \\
+\midrule
+v39 & $0.2458$ & trained on SEA-RAFT, scored on WAFT (\S\ref{sec:searaft-trained-waft-eval}) & inflated \\
+v51 & $0.2560$ & trained on SEA-RAFT, scored on WAFT & inflated \\
+v45 & $0.2320$ & trained on SEA-RAFT, scored on WAFT & inflated \\
+\midrule
+v51 & $0.253$ & scored on $18914$ of $25814$ frames after adt clips hit & understated \\
+v50 & $0.222$ & out-of-memory on the quadratic path (\S\ref{sec:collapse-reeval}) & understated \\
+\midrule
+v35 & $0.234$ & not reproducible from any surviving evaluation (\S\ref{sec:collapse-reeval}) & --- \\
+\midrule
+v74 & $0.1792$ & never loaded the checkpoint it was meant to test (\S\ref{sec:dsr-arms}) & invalid \\
+v81 & $0.1728$ & training data contaminated & invalid \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{The train/eval mismatch is the one that matters}, because it affected the two arms that
+had been reported as the overall winners. The refiner sees flow during training ---
+\texttt{track\_clip} runs inside the training loop --- so an arm trained on SEA-RAFT and scored
+on WAFT is handed a better front-end than it was fitted to. The gain is real but cannot be
+credited to the refiner, and the matched pair proves the size of it: v50 and v51 are the
+\emph{same trained weights}, and scoring them with SEA-RAFT gives $0.2350$ where WAFT gives
+$0.2560$. The arms reported below hold the front-end fixed at WAFT for training and evaluation
+alike, which is the only configuration that answers how good the pipeline is on WAFT.
+
+\subsection{All arms: the tables}
 \label{sec:eval}
 
 % The four result floats are declared here, several subsections ahead of the prose that reads
@@ -4045,11 +4141,13 @@ v33, SEA-RAFT+DA3-l+mamba3            & 0.057 & 0.041 & 0.123 & 0.074 \\
 v34, SEA-RAFT+MegaSAM+mamba3        & 0.059 & 0.048 & 0.119 & 0.075 \\
 v35, SEA-RAFT+DA3-l+vmamba3               & 0.093 & 0.057 & 0.141 & 0.097 \\
 v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.093 & 0.057 & 0.141 & 0.097 \\
+v50, SEA-RAFT+DA3-l+vmamba3-2pool & 0.101 & 0.083 & 0.132 & 0.105 \\
 v37, WAFT+DA3-l            & 0.115 & 0.116 & 0.137 & 0.123 \\
 v38, WAFTbidir+DA3-l  & 0.116 & 0.120 & 0.141 & 0.126 \\
-v39, WAFT+DA3-l+vmamba3  & 0.097 & 0.073 & 0.150 & 0.107 \\
-v50, SEA-RAFT+DA3-l+vmamba3(2-pool) & 0.101 & 0.083 & 0.132 & 0.105 \\
-v51, WAFT+DA3-l+vmamba3(2-pool) & 0.108 & 0.096 & 0.142 & 0.115 \\
+v57, WAFT+DA3-l+vmamba3             & 0.105 & 0.082 & 0.144 & 0.110 \\
+v58, WAFT+DA3-l+vmamba3-2pool       & 0.106 & 0.086 & 0.135 & 0.109 \\
+v67, WAFT+DA3-l+vmamba3     & 0.109 & 0.093 & 0.149 & 0.117 \\
+v64, WAFT+DA3-l+vmamba3-2pool & 0.110 & 0.096 & 0.157 & 0.121 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4089,19 +4187,15 @@ TAPIP3D + DA3-g          & 0.057 & 0.011 & ---   & 0.034 \\
 \multicolumn{5}{l}{\emph{Ours}} \\
 SEA-RAFT + DA3-g (baseline)  & 0.112 & 0.036 & 0.120 & 0.089 \\
 v40, WAFT+DA3-g (no refiner) & 0.118 & 0.039 & 0.123 & 0.093 \\
-v41, WAFT+DA3-g+vmamba3      & 0.110 & 0.022 & 0.108 & 0.080 \\
-v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.118 & 0.026 & 0.112 & 0.086 \\
-v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.119 & 0.035 & 0.123 & 0.092 \\
-v44, WAFT+DA3-g+deflicker (standalone)  & 0.118 & 0.039 & 0.123 & 0.093 \\
-v45, WAFT+DA3-g+deflicker+vmamba3       & 0.118 & 0.029 & 0.118 & 0.088 \\
-v46, WAFT+DA3-g+within-frame mixing     & 0.117 & 0.030 & $0.076^{\dagger}$ & $0.074^{\dagger}$ \\
-v47, WAFT+DA3-g+shared ego-motion       & 0.120 & 0.033 & 0.119 & 0.091 \\
+v59, WAFT+DA3-g+defl.+vmamba3           & \textbf{0.118} & 0.027 & 0.114 & 0.086 \\
+v60, WAFT+DA3-g+defl.+2pool     & \textbf{0.118} & \textbf{0.034} & 0.115 & 0.089 \\
+v62, WAFT+DA3-g+vmamba3-2pool               & 0.117 & 0.032 & 0.123 & 0.091 \\
+v68, WAFT+DA3-g+vmamba3-2pool       & 0.116 & 0.032 & \textbf{0.129} & \textbf{0.093} \\
+v63, WAFT+DA3-g+defl.+2pool ($448$) & 0.115 & \textbf{0.034} & 0.126 & 0.092 \\
+v93b, WAFT+DA3-g+defl.+2pool (final)  & 0.111 & 0.033 & 0.128 & 0.091 \\
 \bottomrule
 \end{tabular}
 \\[2pt]
-{\footnotesize $^{\dagger}$v46 ran out of GPU memory ($12$\,GB) on $40/50$ adt clips (pure-torch within-frame
-attention, $O(F\,N^{2})$ on $\sim$300-frame clips); its adt and mean are over the $10$ clips that fit and are
-\emph{not} comparable to the other rows (\S\ref{sec:v46}).}
 
 
 \vspace{6pt}
@@ -4117,7 +4211,7 @@ version, Fig.~\ref{fig:6method-norm}.}
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (no scaling, fixed-metre thresholds 1\,cm--2.56\,m;
 higher better) --- \textbf{DA3-l depth}. Bold = best per column. ``---'' = result unavailable.
-\textbf{Overall winner across all four tables: v51} (DA3-l $+$ refiner with the VSSD-2pool mixer, mean $0.256$; the one-pool v39 is $0.246$) --- no DA3-g pipeline
+\textbf{Overall winner across all four tables: v64} (DA3-l $+$ refiner with the VSSD-2pool mixer, mean $0.255$; the one-pool v67 is $0.248$) --- no DA3-g pipeline
 reaches it (best DA3-g is DELTA$+$DA3-g at $0.227$, Table~\ref{tab:abs-g}).
 All numbers are produced by our own evaluation pipeline on the same hardware.}
 \label{tab:abs}
@@ -4140,11 +4234,13 @@ v33, SEA-RAFT+DA3-l+mamba3            & 0.082 & 0.186 & 0.272 & 0.180 \\
 v34, SEA-RAFT+MegaSAM+mamba3        & 0.001 & 0.092 & 0.208 & 0.100 \\
 v35, SEA-RAFT+DA3-l+vmamba3               & 0.130 & 0.248 & 0.298 & 0.225 \\
 v36, SEA-RAFTbidir+DA3-l+vmamba3     & 0.130 & 0.249 & 0.298 & 0.226 \\
+v50, SEA-RAFT+DA3-l+vmamba3-2pool & 0.135 & 0.271 & 0.299 & 0.235 \\
 v37, WAFT+DA3-l            & 0.005 & 0.181 & 0.289 & 0.159 \\
 v38, WAFTbidir+DA3-l  & 0.005 & 0.181 & 0.292 & 0.159 \\
-v39, WAFT+DA3-l+vmamba3  & 0.141 & 0.279 & 0.318 & 0.246 \\
-v50, SEA-RAFT+DA3-l+vmamba3(2-pool) & 0.135 & 0.271 & 0.299 & 0.235 \\
-v51, WAFT+DA3-l+vmamba3(2-pool) & \textbf{0.147} & \textbf{0.300} & \textbf{0.321} & \textbf{0.256} \\
+v57, WAFT+DA3-l+vmamba3             & \textbf{0.147} & 0.282 & 0.322 & 0.250 \\
+v58, WAFT+DA3-l+vmamba3-2pool       & \textbf{0.147} & \textbf{0.294} & 0.312 & 0.251 \\
+v67, WAFT+DA3-l+vmamba3     & 0.141 & 0.276 & 0.328 & 0.248 \\
+v64, WAFT+DA3-l+vmamba3-2pool & 0.141 & 0.285 & \textbf{0.338} & \textbf{0.255} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
@@ -4160,8 +4256,8 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 \centering
 \includegraphics[width=\textwidth]{figs/fig2_absolute_aj}
 \captionof{figure}{Same methods, absolute metric-AJ (fixed-metre thresholds 1\,cm--2.56\,m; higher
-better). v51 (WAFT flow $+$ v35 refiner with the VSSD-2pool mixer) leads all
-methods at $0.256$, ahead of the one-pool v39 ($0.246$) and the SEA-RAFT-fed v35 ($0.225$),
+better). v64 (WAFT flow $+$ v35 refiner with the VSSD-2pool mixer) leads all
+methods at $0.255$, ahead of the one-pool v67 ($0.248$) and the SEA-RAFT-fed v35 ($0.225$),
 despite all three ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \label{fig:6method-abs}
 \end{table}
@@ -4170,8 +4266,8 @@ despite all three ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \centering
 \caption{TAPVid-3D minival, absolute metric-AJ (fixed-metre thresholds; higher better) ---
          \textbf{DA3-g depth}: every DA3-consuming method re-run on the DA3-g backbone. Bold = best per
-         column. \textbf{Best DA3-g mean: our v45 ($0.232$), ahead of DELTA$+$DA3-g ($0.227$) and v43 ($0.229$)}
-         --- still below the DA3-l v39 ($0.246$, Table~\ref{tab:abs}); on DA3-g, v45 leads drivetrack
+         column. \textbf{Best DA3-g mean: our v93b ($0.227$), level with DELTA$+$DA3-g ($0.227$)}
+         --- still below the DA3-l v64 ($0.255$, Table~\ref{tab:abs}); on DA3-g, v93b leads drivetrack
          ($0.173$) and pstudio ($0.226$), and DELTA keeps adt ($0.324$).
          ``---'' = TAPIP3D adt OOM-limited. DA3-l counterpart: Table~\ref{tab:abs}.}
 \label{tab:abs-g}
@@ -4188,19 +4284,15 @@ TAPIP3D + DA3-g          & 0.110 & 0.148 & ---   & 0.129 \\
 \multicolumn{5}{l}{\emph{Ours}} \\
 SEA-RAFT + DA3-g (baseline)  & 0.136 & 0.175 & 0.269 & 0.193 \\
 v40, WAFT+DA3-g (no refiner) & 0.146 & 0.192 & 0.285 & 0.208 \\
-v41, WAFT+DA3-g+vmamba3      & 0.166 & 0.198 & 0.285 & 0.216 \\
-v42, WAFT+DA3-g+vmamba3 (pstudio $\times20$) & 0.169 & 0.213 & 0.292 & 0.225 \\
-v43, WAFT+DA3-g+vmamba3 ($+$scale head) & 0.171 & 0.220 & 0.297 & 0.229 \\
-v44, WAFT+DA3-g+deflicker (standalone)  & 0.123 & 0.196 & 0.289 & 0.203 \\
-v45, WAFT+DA3-g+deflicker+vmamba3       & \textbf{0.173} & 0.226 & 0.297 & \textbf{0.232} \\
-v46, WAFT+DA3-g+within-frame mixing     & 0.165 & 0.217 & $0.264^{\dagger}$ & $0.215^{\dagger}$ \\
-v47, WAFT+DA3-g+shared ego-motion       & 0.169 & \textbf{0.227} & 0.297 & 0.231 \\
+v59, WAFT+DA3-g+defl.+vmamba3           & 0.156 & 0.213 & 0.289 & 0.219 \\
+v60, WAFT+DA3-g+defl.+2pool     & 0.155 & 0.218 & 0.290 & 0.221 \\
+v62, WAFT+DA3-g+vmamba3-2pool               & 0.155 & \textbf{0.219} & 0.295 & 0.223 \\
+v68, WAFT+DA3-g+vmamba3-2pool       & 0.152 & 0.207 & 0.307 & 0.222 \\
+v63, WAFT+DA3-g+defl.+2pool ($448$) & \textbf{0.163} & 0.203 & 0.306 & 0.224 \\
+v93b, WAFT+DA3-g+defl.+2pool (final)  & \textbf{0.163} & 0.209 & \textbf{0.310} & \textbf{0.227} \\
 \bottomrule
 \end{tabular}
 \\[2pt]
-{\footnotesize $^{\dagger}$v46 ran out of GPU memory ($12$\,GB) on $40/50$ adt clips (pure-torch within-frame
-attention, $O(F\,N^{2})$ on $\sim$300-frame clips); its adt and mean are over the $10$ clips that fit and are
-\emph{not} comparable to the other rows (\S\ref{sec:v46}).}
 
 
 \vspace{6pt}
@@ -4208,12 +4300,12 @@ attention, $O(F\,N^{2})$ on $\sim$300-frame clips); its adt and mean are over th
 \includegraphics[width=\textwidth]{figs/fig2_absolute_aj_da3g}
 \captionof{figure}{Method comparison on \textbf{DA3-g} depth, absolute metric-AJ (fixed-metre thresholds; higher
 better). Drivetrack rises across the board vs.\ DA3-l (Fig.~\ref{fig:6method-abs}), but pstudio/adt do not,
-so even v42 --- our best DA3-g pipeline (mean $0.225$), which adds a pstudio $\times20$ near-boost over v41 ---
-does not beat the DA3-l v39 overall ($0.246$). TAPIP3D adt is OOM-limited (``N/A'').}
+so even v93b --- our best DA3-g pipeline (mean $0.227$) ---
+does not beat the DA3-l v64 overall ($0.255$). TAPIP3D adt is OOM-limited (``N/A'').}
 \label{fig:6method-abs-da3g}
 \end{table}
 
-\subsection{Results across all arms: the scale-invariant leaderboard metric}
+\subsection{The scale-invariant leaderboard metric}
 Table~\ref{tab:median} reports median-scaled 3D-AJ.
 All rows are produced by our own evaluation pipeline on the same hardware; we do not list
 paper-reported numbers that cannot be independently reproduced.
@@ -4251,7 +4343,7 @@ TCR's Wan2.1 video-diffusion backbone is primarily trained on indoor/studio cont
 while drivetrack contains outdoor ego-motion scenes at scales $>$10\,m.
 
 
-\subsection{Results across all arms: absolute metric-AJ, and the reversal}
+\subsection{Absolute metric-AJ, and the reversal}
 \label{sec:abs}
 Under the absolute-metric protocol the ranking \emph{reverses} (Table~\ref{tab:abs},
 Fig.~\ref{fig:reversal}).
@@ -4296,7 +4388,7 @@ favours SEA-RAFT$+$MegaSAM. Right: under the absolute metric, v35 wins --- most 
 \label{fig:reversal}
 \end{figure}
 
-\subsection{Results across all arms: comparison to the state of the art}
+\subsection{Comparison to the state of the art}
 \label{sec:sota}
 
 \paragraph{SpatialTracker.}
@@ -4323,8 +4415,8 @@ instead of the window-local \texttt{track3d\_pred}) recovers only ${\sim}0.2$--$
 points, while the remaining ${\sim}24$ pp gap is attributable to the window-length difference.
 Our evaluation of SpatialTrackerV2 is therefore a \emph{same-hardware, same-constraints} baseline:
 the reported scores reflect what SpatialTrackerV2 achieves within the 12\,GB budget, on the
-same clips as our own method.  Our best model (v39, WAFT flow $+$ v35 refiner) achieves
-$15.1\%$ normalised 3D-AJ on adt under these identical conditions, exceeding our SpaTrackerV2
+same clips as our own method.  Our best arm (v64, WAFT flow $+$ the VSSD-2pool refiner) achieves
+$15.7\%$ normalised 3D-AJ on adt under these identical conditions, exceeding our SpaTrackerV2
 reproduction on that subset by a wide margin.
 
 \paragraph{TAPIP3D + DA3-l.}
@@ -4380,8 +4472,8 @@ Results are shown in Tables~\ref{tab:median} and~\ref{tab:abs}.
 On the leaderboard (scale-invariant) metric, TCR scores $1.3\%$ / $1.0\%$ / $0.3\%$
 on pstudio / adt / drivetrack (mean $0.9\%$) --- below all our baselines.
 On the absolute metric, TCR scores $2.5\%$ / $3.2\%$ / $0.2\%$ (mean $2.0\%$).
-Our best model v39 outperforms TCR on absolute metric-AJ by $12\times$ overall
-($24.6\%$ vs $2.0\%$) and by $70\times$ on drivetrack ($14.1\%$ vs $0.2\%$) where TCR
+Our best arm v64 outperforms TCR on absolute metric-AJ by nearly $13\times$ overall
+($25.5\%$ vs $2.0\%$) and by $70\times$ on drivetrack ($14.1\%$ vs $0.2\%$) where TCR
 effectively fails.
 
 The low drivetrack score is an out-of-distribution failure: Wan2.1 is primarily trained on
@@ -4431,7 +4523,7 @@ almost exactly: the same adt stronghold and the same far-field drivetrack limit.
 sets the single best \emph{adt} score of \emph{any} method (absolute metric-AJ $0.345$, a hair over DELTA's
 $0.344$), with mean $0.180$ ($\approx$ DELTA $0.183$); on \textbf{DA3-g} it is a touch behind DELTA
 (adt $0.319$ vs $0.324$, mean $0.216$ vs $0.227$). So the DELTA family --- v1 and v2 --- owns adt but nothing
-else: our v51 (DA3-l, mean $0.256$) and v45 (DA3-g, mean $0.232$) still lead the \emph{mean} absolute metric,
+else: our v64 (DA3-l, mean $0.255$) and v93b (DA3-g, mean $0.227$) still lead the \emph{mean} absolute metric,
 and beat both on drivetrack and pstudio. On throughput, DELTAv2 and DELTA are comparable in our $12$\,GB
 external-depth harness (${\approx}6.9$ vs $7.7$\,fps); the paper's $5\times$ speedup is measured on native
 full-resolution \emph{dense} tracking, whereas our sparse-query, precomputed-depth setup is memory-bound and
@@ -4449,13 +4541,17 @@ metric-AJ every direct-unprojection method leaps on drivetrack, but no DA3-g pip
 overtakes the DA3-l v39 on the near-field subsets (cf.\ \S\ref{sec:v41}).
 
 
-\subsection{Results across all arms: qualitative}
-Figures~\ref{fig:qual-pstudio}--\ref{fig:qual-adt} compare our best method \textbf{v39} (WAFT flow $+$ the
-vmamba3 depth refiner, our top absolute-metric-AJ pipeline) against the closest similar-size state of the art,
+\subsection{Qualitative}
+Figures~\ref{fig:qual-pstudio}--\ref{fig:qual-adt} compare \textbf{v39} (WAFT flow $+$ the
+vmamba3 depth refiner) against the closest similar-size state of the art,
 \textbf{DELTA$+$DA3-l}, on the clip where \emph{v39} scores its highest per-clip absolute metric-AJ in each
 subset --- i.e.\ our method at its best in 3D space. Both methods share the same DA3-l metric-depth backbone,
 so the comparison isolates the tracker; DELTA runs its own DenseTrack3D 2D tracker (it cannot consume our WAFT
-front-end). Solid $=$ prediction, dashed $=$ ground truth. Both panels of a figure use the \emph{same} axis
+front-end). \emph{These panels were rendered from v39, whose \textbf{score} is excluded from this chapter for the
+train/eval mismatch of \S\ref{sec:final-excluded}.} They are kept because what they show --- the shape of the
+refiner's depth correction against the ground truth --- is a property of the refiner and not of which front-end
+trained it; regenerating them from v64 is outstanding, and no number is read off them.
+Solid $=$ prediction, dashed $=$ ground truth. Both panels of a figure use the \emph{same} axis
 limits, taken from the ground-truth extent, so predictions that fall outside the true scene volume simply do
 not appear (matplotlib line-clipping to the box). \textbf{The message is that v39 beats the SOTA in absolute
 3D:} its solid tracks sit on the dashed ground truth, whereas DELTA's drift off it. To make the win checkable
@@ -4528,7 +4624,7 @@ depth refiner corrects (whence v39's win in Fig.~\ref{fig:qual-drivetrack}).}
 \label{fig:qual-st}
 \end{figure}
 
-\subsection{Results across all arms: efficiency}
+\subsection{Efficiency}
 \begin{table}[h]
 \centering
 \caption{Inference throughput and model size on the \textbf{DA3-l} pipeline (RTX\,4080, 12\,GB;

@@ -1,6 +1,9 @@
 \documentclass[11pt,a4paper]{article}
 \usepackage{amsmath,amssymb}
 \usepackage{multirow}
+% Floats were drifting 16-18 pages past the sections that cite them, and across the
+% chapter boundary into the results chapter; a section-level barrier stops that.
+\usepackage[section]{placeins}
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{array}
 \usepackage{bm}
@@ -3413,7 +3416,7 @@ DELTA$+$DA3-g), and on pstudio we are already ahead by $+0.0159$. Splitting adt'
 two things metric-AJ multiplies together --- how close the predicted point is, and whether it is
 called visible --- shows they point in opposite directions.
 
-\begin{figure*}[!tb]
+\begin{figure*}[!tbp]
 \centering
 \includegraphics[width=\textwidth]{figs/adt_gap.png}
 \caption{\textbf{adt, 50 clips, v91 against DELTA$+$DA3-g, paired per clip.} Points above the
@@ -3692,7 +3695,7 @@ learning'' from curves that could not have shown learning --- at \texttt{batch: 
 loss spans $21\times$, and the logger was printing a single clip's loss per 50 steps. The
 practical rule for this pipeline is to score checkpoints and not to read curves.
 
-\begin{figure*}[!tb]
+\begin{figure*}[!tbp]
 \centering
 \includegraphics[width=\textwidth]{figs/v93_curve.png}
 \caption{\textbf{v93 and v93b as one trajectory.} \emph{Top:} training loss, flat throughout.
@@ -4333,6 +4336,12 @@ so even v93b --- our best DA3-g pipeline (mean $0.227$) ---
 does not beat the DA3-l v64 overall ($0.255$). TAPIP3D adt is OOM-limited (``N/A'').}
 \label{fig:6method-abs-da3g}
 \end{table}
+
+% The four combined floats above are `table` environments carrying \captionof{figure}, so they
+% queue as tables while later figures queue as figures. Without this barrier a figure declared
+% after them (fig:reversal) can be placed before them, and the figure numbers stop matching the
+% page order.
+\FloatBarrier
 
 \subsection{The scale-invariant leaderboard metric}
 Table~\ref{tab:median} reports median-scaled 3D-AJ.

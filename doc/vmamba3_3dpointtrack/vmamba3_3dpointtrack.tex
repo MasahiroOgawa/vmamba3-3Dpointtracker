@@ -4277,10 +4277,10 @@ $^{\P}$ TrackCraft3R evaluated on all 150 clips; see Table~\ref{tab:median} foot
 \centering
 \includegraphics[width=\textwidth]{figs/fig2_absolute_aj}
 \captionof{figure}{Same methods, absolute metric-AJ (fixed-metre thresholds 1\,cm--2.56\,m; higher
-better). The chart carries the arms this report shares with the paper, so it stops at v64 and
-omits the v94 visibility-head row of Table~\ref{tab:abs}; among those plotted, v64 (WAFT flow $+$
-v35 refiner with the VSSD-2pool mixer) leads all methods at $0.255$, ahead of the one-pool v67
-($0.248$) and the SEA-RAFT-fed v35 ($0.225$),
+better). The chart carries the arms this report shares with the paper; its last bar is v94, the
+VSSD-2pool refiner scored with the flow-only visibility head, which leads all methods at $0.256$,
+ahead of the one-pool v67 ($0.248$) and the SEA-RAFT-fed v35 ($0.225$). v64 ($0.255$) is in
+Table~\ref{tab:abs} but not plotted, to keep the bar count readable,
 despite all three ranking below SEA-RAFT$+$MegaSAM on the leaderboard metric.}
 \label{fig:6method-abs}
 \end{table}
@@ -4335,9 +4335,9 @@ v94, as v93b $+$ flow-only visibility head & 0.154 & \textbf{0.234} & 0.299 & \t
 \captionof{figure}{Method comparison on \textbf{DA3-g} depth, absolute metric-AJ (fixed-metre thresholds; higher
 better). Drivetrack rises across the board vs.\ DA3-l (Fig.~\ref{fig:6method-abs}), but pstudio/adt do not,
 so even v93b --- our best DA3-g pipeline (mean $0.227$) ---
-does not beat the DA3-l v64 overall ($0.255$). As in Fig.~\ref{fig:6method-abs}, the chart carries
-the arms shared with the paper and stops before v93b and v94; both are in
-Table~\ref{tab:abs-g}. TAPIP3D adt is OOM-limited (``N/A'').}
+does not beat the DA3-l v64 overall ($0.255$). As in Fig.~\ref{fig:6method-abs}, the chart's last bar is v94 --- v93b with the
+flow-only visibility head --- which replaces the near-duplicate v63 to keep the bar count readable;
+every arm remains in Table~\ref{tab:abs-g}. TAPIP3D adt is OOM-limited (``N/A'').}
 \label{fig:6method-abs-da3g}
 \end{table}
 

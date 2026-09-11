@@ -129,7 +129,7 @@ def main():
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), float(tc["grad_clip"]))
         opt.step()
-        run_loss += float(loss)
+        run_loss += float(loss.detach())
         run_n += 1
 
         if step % int(tc["log_every"]) == 0:

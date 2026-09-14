@@ -37,6 +37,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
 from mpl_toolkits.mplot3d import proj3d  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -47,7 +48,7 @@ from mamba3_tracker.viz.track3d_axes import (  # noqa: E402
     apply_image_like_view,
 )
 
-plt.rcParams.update({"font.size": 24})  # sized so lettering stays >=7pt effective
+plt.rcParams.update({"font.size": 27})  # axis labels; see PRINT_SCALE below
 # when these panels print at ~2.4 in (paper Fig 13) / ~3 in (memo Figs 14-16).
 
 _HERE = Path(__file__).resolve().parent
@@ -62,6 +63,16 @@ IMAGE_SIZE = 896
 MAX_TRACKS = 32
 CACHE_DIR = cache_dir() / "qual_3d"
 
+# Each panel is drawn FIG_W_IN wide and placed at 0.36\linewidth of a 522pt text block, so a
+# glyph of native size s renders at s * 0.36 * 522 / (FIG_W_IN * 72) on the page. The paper's
+# caption font is \footnotesize = 8pt: in-plot text should match it, neither falling under
+# (the previous 24pt on an 11in canvas landed at 5.3pt) nor overshooting it.
+FIG_W_IN, FIG_H_IN = 8.0, 7.0
+PRINT_SCALE = 0.36 * 522.0 / (FIG_W_IN * 72.0)
+FS_TICK = 26
+FS_LEGEND = 25
+assert 8.0 <= min(FS_TICK, FS_LEGEND) * PRINT_SCALE <= 9.5
+
 
 def _best_clip(scores_dir: Path, subset: str) -> str:
     clips = json.loads((scores_dir / f"{subset}.json").read_text())
@@ -75,26 +86,6 @@ def _best_clip(scores_dir: Path, subset: str) -> str:
 def _pick_tracks(vis_NF: np.ndarray, k: int) -> list[int]:
     order = np.argsort(-vis_NF.sum(axis=1))
     return list(order[:k])
-
-
-def _gt_lims(gt, vis, pad: float = 0.02):
-    """Shared (x,y,z) axis limits from the GT of the plotted tracks, so the SOTA and
-    ours panels show the exact same volume and the red ring lands in the same place.
-
-    `pad` is deliberately tiny -- just enough that a track running along a box face
-    is not drawn exactly on it. It inflates the *longest* axis, which then sets the
-    cube for all three, so every percent of pad costs a percent of zoom on every
-    axis at once."""
-    pts = [
-        gt[n, vis[n].astype(bool)]
-        for n in _pick_tracks(vis, MAX_TRACKS)
-        if vis[n].astype(bool).sum() >= 2
-    ]
-    P = np.concatenate(pts, axis=0)
-    lo, hi = P.min(axis=0), P.max(axis=0)
-    rng = np.maximum(hi - lo, 1e-3)
-    lo, hi = lo - pad * rng, hi + pad * rng
-    return [(float(lo[i]), float(hi[i])) for i in range(3)]
 
 
 def _win_center(other, ours, gt, vis):
@@ -117,19 +108,70 @@ def _win_center(other, ours, gt, vis):
     return gt[best_n, m].mean(axis=0)
 
 
-ZOOM_R = 0.45   # half-side of the zoomed volume, metres
-BUBBLE = (0.60, 0.055, 0.38, 0.38)  # inset axes rect in figure coords
+# The ring marks a ball of RING_R metres around the winning track, and the inset shows
+# exactly that ball -- the review asked for "the same content, enlarged". Both are derived
+# from this one number, so they cannot drift apart.
+CUBE_M = 3.0         # side of the plotted volume, metres -- see _cube_lims
+RING_FRAC = 0.075    # ring radius as a fraction of that side, so every panel matches
+RING_R = RING_FRAC * CUBE_M
+BUBBLE_MAG = 2.0     # the inset shows the ring's ball at this many times its on-screen size
+# A 3-D axes draws its cube inside only part of its own rectangle, so a rect sized to the
+# wanted magnification lands well short of it. Measured from a rendered panel: cube width /
+# rect width = 0.61. The rect is divided by this, and the ring is kept small enough that the
+# result still fits -- at RING_FRAC 0.15 a true 2x inset would have needed 115% of the figure.
+AXES_FILL = 0.61
+BUBBLE_FILL = 2.15
 
 
-def _add_zoom_bubble(fig, ax, pred, gt, vis, anchor, highlight, lims) -> None:
+def _cube_lims(gt, vis, side=CUBE_M):
+    """A fixed `side`-metre cube centred on the plotted ground truth.
+
+    Framing each clip to its own extent made the panels incomparable and, on drivetrack,
+    unreadable: that clip spans 6.5 m in depth against 1.3 m across, and the equal-scale
+    cube the depth forces shrinks the tracks to a clump. A fixed cube gives every panel the
+    same scale, so the red ring covers the same fraction of every box. Tracks leaving the
+    cube are clipped, which the caption states."""
+    pts = np.concatenate([gt[n, vis[n] > 0.5] for n in range(gt.shape[0])
+                          if (vis[n] > 0.5).sum() > 1])
+    c = np.median(pts, axis=0)
+    return [(float(c[i] - side / 2.0), float(c[i] + side / 2.0)) for i in range(3)]
+
+
+def _ring_radius_px(fig, ax, c, r_world):
+    """On-screen radius, in display pixels, of a ball of r_world metres centred at c.
+
+    The camera is orthographic with equal axis scales, so one metre is the same number of
+    pixels in every direction and projecting one offset point suffices. The draw() is
+    required: before it, a 3-D axes' projection matrix is stale and the transform silently
+    returns positions from the previous layout."""
+    fig.canvas.draw()
+    pts = []
+    for q in (c, (c[0] + r_world, c[1], c[2])):
+        x, y, _ = proj3d.proj_transform(q[0], q[1], q[2], ax.get_proj())
+        pts.append(np.asarray(ax.transData.transform((x, y)), dtype=float))
+    return pts[0], float(np.hypot(*(pts[1] - pts[0])))
+
+
+def _add_zoom_bubble(fig, ax, pred, gt, vis, c, ring_px, r_px) -> None:
     """AC10: magnify the ringed region into an inset drawn inside the same axes box.
 
     The review asked for the circled region enlarged. Placing the inset inside the figure
     rather than beside it keeps Fig. 9 on one page -- the grid is already 3 rows by 2
     columns -- and a leader line ties it back to the ring so the two read as one object.
     """
-    c = np.asarray(highlight, dtype=float)
-    inset = fig.add_axes(BUBBLE, projection="3d")
+    # side of the inset in figure fractions: BUBBLE_MAG x the ring's on-screen diameter
+    fw, fh = fig.get_size_inches() * fig.dpi
+    side_x = BUBBLE_MAG * 2.0 * r_px / AXES_FILL / fw
+    side_y = BUBBLE_MAG * 2.0 * r_px / AXES_FILL / fh
+    rect = (1.0 - side_x - 0.03, 0.03, side_x, side_y)
+    # Opaque backing: the inset sits over the main axes' Z tick labels, which otherwise read
+    # as if they belonged to it. The red edge also makes it read as one object with the ring.
+    fig.add_artist(Rectangle((rect[0], rect[1]), rect[2], rect[3],
+                             transform=fig.transFigure, facecolor="white",
+                             edgecolor="red", linewidth=1.5, zorder=10))
+    inset = fig.add_axes(rect, projection="3d")
+    inset.set_zorder(11)
+    inset.patch.set_alpha(0.0)
     inset.set_facecolor("white")
     cmap = plt.get_cmap("tab20")
     near = False
@@ -138,7 +180,7 @@ def _add_zoom_bubble(fig, ax, pred, gt, vis, anchor, highlight, lims) -> None:
         if m.sum() < 2:
             continue
         # keep only the stretch of this track that passes through the zoomed volume
-        inside = m & (np.abs(gt[n, :, :] - c).max(axis=1) <= ZOOM_R)
+        inside = m & (np.abs(gt[n, :, :] - c).max(axis=1) <= RING_R)
         if inside.sum() < 2:
             continue
         near = True
@@ -150,26 +192,27 @@ def _add_zoom_bubble(fig, ax, pred, gt, vis, anchor, highlight, lims) -> None:
     if not near:
         fig.delaxes(inset)
         return
-    apply_equal_cube(inset, [(float(c[i] - ZOOM_R), float(c[i] + ZOOM_R)) for i in range(3)])
+    apply_equal_cube(inset, [(float(c[i] - RING_R), float(c[i] + RING_R)) for i in range(3)])
     apply_image_like_view(inset)
-    for setter in ("set_xticklabels", "set_yticklabels", "set_zticklabels"):
-        getattr(inset, setter)([])
-    for setter in ("set_xlabel", "set_ylabel", "set_zlabel"):
-        getattr(inset, setter)("")
-    for pane in (inset.xaxis, inset.yaxis, inset.zaxis):
-        pane.pane.set_edgecolor("red")
-        pane.pane.set_alpha(0.10)
-    inset.set_title(f"ringed region, {2 * ZOOM_R:.1f}\,m box", fontsize=18, color="red", pad=2)
+    inset.set_box_aspect((1, 1, 1), zoom=BUBBLE_FILL)
+    # No axis box inside the bubble: the red frame already delimits it, and a second set of
+    # panes and ticks at this size is clutter that competes with the tracks.
+    inset.set_axis_off()
     # leader line from the ring to the inset, drawn in figure coordinates
-    x2, y2, _ = proj3d.proj_transform(c[0], c[1], c[2], ax.get_proj())
-    p_fig = fig.transFigure.inverted().transform(ax.transData.transform((x2, y2)))
-    fig.add_artist(Line2D([p_fig[0], BUBBLE[0] + BUBBLE[2] * 0.5],
-                          [p_fig[1], BUBBLE[1] + BUBBLE[3]],
+    # start at the ring's edge, not its centre, so the line does not cross the marked region
+    target_px = np.array([(rect[0] + 0.03) * fw, (rect[1] + rect[3]) * fh])
+    d = target_px - np.asarray(ring_px, dtype=float)
+    n = float(np.hypot(*d)) or 1.0
+    edge_px = np.asarray(ring_px, dtype=float) + d / n * r_px
+    p_fig = fig.transFigure.inverted().transform(edge_px)
+    fig.add_artist(Line2D([p_fig[0], rect[0] + 0.03],
+                          [p_fig[1], rect[1] + rect[3]],
                           color="red", lw=1.8, alpha=0.8, zorder=15))
 
 
 def _render_3d(
-    pred, gt, vis, anchor, out_path: Path, title: str, highlight=None, lims=None
+    pred, gt, vis, anchor, out_path: Path, title: str, highlight=None, lims=None,
+    legend: bool = False,
 ) -> None:
     """pred/gt: (N,F,3); vis: (N,F); anchor: (N,). Short 2x-font 3D plot.
     highlight: (3,) world point to ring in red (the region we win most), or None.
@@ -188,7 +231,7 @@ def _render_3d(
             q[out] = np.nan
         return q
 
-    fig = plt.figure(figsize=(11, 8))
+    fig = plt.figure(figsize=(FIG_W_IN, FIG_H_IN))
     ax = fig.add_subplot(111, projection="3d")
     cmap = plt.get_cmap("tab20")
     for i, n in enumerate(_pick_tracks(vis, MAX_TRACKS)):
@@ -221,24 +264,18 @@ def _render_3d(
                 linewidths=0.6,
             )
     if highlight is not None:
-        ax.scatter(
-            [highlight[0]],
-            [highlight[1]],
-            [highlight[2]],
-            s=9000,
-            facecolors="none",
-            edgecolors="red",
-            linewidths=3.0,
-            zorder=20,
-        )
+        _ring = np.asarray(highlight, dtype=float)
     # AC10: the solid/dashed convention lived only in the caption; state it in the figure.
-    ax.plot([], [], [], "-", lw=2.0, color="black", label="predicted")
-    ax.plot([], [], [], "--", lw=1.4, color="black", label="ground truth")
-    if highlight is not None:
-        ax.scatter([], [], [], s=90, facecolors="none", edgecolors="red", linewidths=2.0,
-                   label="largest improvement")
-    ax.legend(loc="upper left", fontsize=20, framealpha=0.85, borderpad=0.3,
-              handlelength=1.6, labelspacing=0.25)
+    # Only one panel carries it -- the convention is shared by all six, and six legible
+    # copies would take more room than the plots.
+    if legend:
+        ax.plot([], [], [], "-", lw=2.0, color="black", label="predicted")
+        ax.plot([], [], [], "--", lw=1.4, color="black", label="ground truth")
+        if highlight is not None:
+            ax.scatter([], [], [], s=90, facecolors="none", edgecolors="red", linewidths=2.0,
+                       label="largest improvement")
+        ax.legend(loc="lower left", fontsize=FS_LEGEND, framealpha=0.9, borderpad=0.3,
+                  handlelength=1.6, labelspacing=0.25, bbox_to_anchor=(-0.02, -0.02))
     if lims is not None:
         # Equal metric scale with a box that hugs the data, so the tracks reach
         # the axis edges instead of sitting in a small central region.
@@ -251,12 +288,20 @@ def _render_3d(
     # Z runs diagonally under the box, so its label needs a bigger outward offset
     # than X/Y or it collides with its own tick labels.
     ax.set_zlabel("Z (m)", labelpad=40)
-    ax.tick_params(labelsize=24)  # ticks are the smallest text -> keep >=7pt effective
+    ax.tick_params(labelsize=FS_TICK)
     # No in-plot title: the method/subset is stated by the LaTeX sub-caption
     # (paper Fig 13) / figure caption (memo), so a title here is redundant.
     fig.tight_layout()
     if highlight is not None:
-        _add_zoom_bubble(fig, ax, pred, gt, vis, anchor, highlight, lims)
+        # after tight_layout, so the projection and the axes box are final
+        p0, r_px = _ring_radius_px(fig, ax, _ring, RING_R)
+        # a square, not a circle: the inset shows a box, and a circle would promise a
+        # region the magnified view does not actually correspond to. marker="s" takes an
+        # area in points squared, so its side is exactly d_pt.
+        d_pt = 2.0 * r_px * 72.0 / fig.dpi          # marker size is in points, not pixels
+        ax.scatter([_ring[0]], [_ring[1]], [_ring[2]], s=d_pt ** 2, marker="s",
+                   facecolors="none", edgecolors="red", linewidths=3.0, zorder=20)
+        _add_zoom_bubble(fig, ax, pred, gt, vis, _ring, p0, r_px)
     # pad_inches leaves whitespace so the rotated 3D "Z (m)" label (which
     # bbox_inches="tight" under-measures for mplot3d) is not clipped at the edge.
     fig.savefig(out_path, dpi=330, bbox_inches="tight", pad_inches=0.5)
@@ -424,7 +469,7 @@ def main() -> int:
     for sub in SUBSETS:
         clip_id, gt, anchor, v39xyz, vis, delta = _infer_subset(args, v39, dev, sub)
         hl = _win_center(delta, v39xyz, gt, vis)
-        lims = _gt_lims(gt, vis)
+        lims = _cube_lims(gt, vis)
         print(
             f"[qual] {sub}: best v39 clip {clip_id}  N={gt.shape[0]} F={gt.shape[1]}  "
             f"highlight={'none' if hl is None else hl.round(2)}"
@@ -439,6 +484,7 @@ def main() -> int:
             f"{sub}: DELTA+DA3-l (SOTA)",
             highlight=hl,
             lims=lims,
+            legend=(sub == "drivetrack"),
         )
         _render_3d(
             v39xyz,

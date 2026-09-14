@@ -80,6 +80,7 @@ def _infer(
     vis_source="flow",
     vis_head=None,
     flowvis_dir=None,
+    out=None,
 ):
     """Return (pred_tracks (N,F,3) camera-frame XYZ, pred_vis (N,F)).
 
@@ -156,6 +157,10 @@ def _infer(
     depth_t = _load_depth(da3_depth_root, clip.subset, clip.clip_id, F_).to(device)
     K_t = K.unsqueeze(0).to(device)  # K computed above (scaled to image_size)
     uv_d = uv.unsqueeze(0).to(device)
+    # Figure scripts need the 2-D track as well as the 3-D one. Handing it back through an
+    # optional dict keeps the return signature -- and every published number -- unchanged.
+    if out is not None:
+        out["uv"] = uv.numpy()
 
     if method == "searaft":
         xyz = _unproject_with_depth(uv_d, depth_t, K_t, float(image_size))[0]  # (F,N,3)

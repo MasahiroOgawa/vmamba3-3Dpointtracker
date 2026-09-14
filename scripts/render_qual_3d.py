@@ -36,6 +36,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
+from mpl_toolkits.mplot3d import proj3d  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
@@ -101,7 +103,7 @@ def _win_center(other, ours, gt, vis):
     region to circle). Returns None if no track is actually better."""
     best_n, best_gain = None, 0.0
     for n in _pick_tracks(vis, MAX_TRACKS):
-        m = vis[n].astype(bool)
+        m = vis[n] > 0.5
         if m.sum() < 2:
             continue
         oe = np.linalg.norm(other[n, m] - gt[n, m], axis=1)
@@ -113,6 +115,57 @@ def _win_center(other, ours, gt, vis):
         return None
     m = vis[best_n].astype(bool)
     return gt[best_n, m].mean(axis=0)
+
+
+ZOOM_R = 0.45   # half-side of the zoomed volume, metres
+BUBBLE = (0.60, 0.055, 0.38, 0.38)  # inset axes rect in figure coords
+
+
+def _add_zoom_bubble(fig, ax, pred, gt, vis, anchor, highlight, lims) -> None:
+    """AC10: magnify the ringed region into an inset drawn inside the same axes box.
+
+    The review asked for the circled region enlarged. Placing the inset inside the figure
+    rather than beside it keeps Fig. 9 on one page -- the grid is already 3 rows by 2
+    columns -- and a leader line ties it back to the ring so the two read as one object.
+    """
+    c = np.asarray(highlight, dtype=float)
+    inset = fig.add_axes(BUBBLE, projection="3d")
+    inset.set_facecolor("white")
+    cmap = plt.get_cmap("tab20")
+    near = False
+    for i, n in enumerate(_pick_tracks(vis, MAX_TRACKS)):
+        m = vis[n] > 0.5
+        if m.sum() < 2:
+            continue
+        # keep only the stretch of this track that passes through the zoomed volume
+        inside = m & (np.abs(gt[n, :, :] - c).max(axis=1) <= ZOOM_R)
+        if inside.sum() < 2:
+            continue
+        near = True
+        col = cmap(i % 20)
+        inset.plot(gt[n, inside, 0], gt[n, inside, 1], gt[n, inside, 2],
+                   "--", lw=1.6, color=col, alpha=0.7)
+        inset.plot(pred[n, inside, 0], pred[n, inside, 1], pred[n, inside, 2],
+                   "-", lw=2.4, color=col, alpha=0.95)
+    if not near:
+        fig.delaxes(inset)
+        return
+    apply_equal_cube(inset, [(float(c[i] - ZOOM_R), float(c[i] + ZOOM_R)) for i in range(3)])
+    apply_image_like_view(inset)
+    for setter in ("set_xticklabels", "set_yticklabels", "set_zticklabels"):
+        getattr(inset, setter)([])
+    for setter in ("set_xlabel", "set_ylabel", "set_zlabel"):
+        getattr(inset, setter)("")
+    for pane in (inset.xaxis, inset.yaxis, inset.zaxis):
+        pane.pane.set_edgecolor("red")
+        pane.pane.set_alpha(0.10)
+    inset.set_title(f"ringed region, {2 * ZOOM_R:.1f}\,m box", fontsize=18, color="red", pad=2)
+    # leader line from the ring to the inset, drawn in figure coordinates
+    x2, y2, _ = proj3d.proj_transform(c[0], c[1], c[2], ax.get_proj())
+    p_fig = fig.transFigure.inverted().transform(ax.transData.transform((x2, y2)))
+    fig.add_artist(Line2D([p_fig[0], BUBBLE[0] + BUBBLE[2] * 0.5],
+                          [p_fig[1], BUBBLE[1] + BUBBLE[3]],
+                          color="red", lw=1.8, alpha=0.8, zorder=15))
 
 
 def _render_3d(
@@ -139,7 +192,7 @@ def _render_3d(
     ax = fig.add_subplot(111, projection="3d")
     cmap = plt.get_cmap("tab20")
     for i, n in enumerate(_pick_tracks(vis, MAX_TRACKS)):
-        m = vis[n].astype(bool)
+        m = vis[n] > 0.5
         if m.sum() < 2:
             continue
         c = cmap(i % 20)
@@ -178,6 +231,14 @@ def _render_3d(
             linewidths=3.0,
             zorder=20,
         )
+    # AC10: the solid/dashed convention lived only in the caption; state it in the figure.
+    ax.plot([], [], [], "-", lw=2.0, color="black", label="predicted")
+    ax.plot([], [], [], "--", lw=1.4, color="black", label="ground truth")
+    if highlight is not None:
+        ax.scatter([], [], [], s=90, facecolors="none", edgecolors="red", linewidths=2.0,
+                   label="largest improvement")
+    ax.legend(loc="upper left", fontsize=20, framealpha=0.85, borderpad=0.3,
+              handlelength=1.6, labelspacing=0.25)
     if lims is not None:
         # Equal metric scale with a box that hugs the data, so the tracks reach
         # the axis edges instead of sitting in a small central region.
@@ -194,6 +255,8 @@ def _render_3d(
     # No in-plot title: the method/subset is stated by the LaTeX sub-caption
     # (paper Fig 13) / figure caption (memo), so a title here is redundant.
     fig.tight_layout()
+    if highlight is not None:
+        _add_zoom_bubble(fig, ax, pred, gt, vis, anchor, highlight, lims)
     # pad_inches leaves whitespace so the rotated 3D "Z (m)" label (which
     # bbox_inches="tight" under-measures for mplot3d) is not clipped at the edge.
     fig.savefig(out_path, dpi=330, bbox_inches="tight", pad_inches=0.5)
@@ -210,7 +273,7 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
     picked = _pick_tracks(vis, MAX_TRACKS)
     for ax, ax_i, lab in zip(axes, range(3), ["X", "Y", "Z"]):
         for i, n in enumerate(picked):
-            m = vis[n].astype(bool)
+            m = vis[n] > 0.5
             if m.sum() < 2:
                 continue
             c = cmap(i % 20)
@@ -243,6 +306,25 @@ def _render_st(gt, pred, vis, out_path: Path, title: str) -> None:
     print(f"[qual] wrote {out_path}")
 
 
+_VIS_HEAD = [None]
+
+
+def _build_vis_head(ckpt: Path, dev):
+    """The flow-only visibility head of the reported best arm (v94)."""
+    from mamba3_tracker.model.flow_vis_head import FlowVisHead
+
+    st = torch.load(ckpt, map_location="cpu", weights_only=False)
+    mc = st.get("cfg", {}).get("model", {})
+    head = FlowVisHead(
+        dim=int(mc.get("dim", 64)), state_dim=int(mc.get("state_dim", 64)),
+        num_heads=int(mc.get("num_heads", 4)), num_layers=int(mc.get("num_layers", 2)),
+        bidirectional=bool(mc.get("bidirectional", True)),
+    ).to(dev)
+    head.load_state_dict(st["model"])
+    head.eval()
+    return head
+
+
 def _build_v39(ckpt: Path, dev) -> torch.nn.Module:
     """v39 = the v35 depth refiner (Mamba3V35Refiner) fed by the WAFT front-end."""
     from mamba3_tracker.model.depth_refined_tracker import Mamba3V35Refiner
@@ -257,6 +339,7 @@ def _build_v39(ckpt: Path, dev) -> torch.nn.Module:
         max_log_correction=float(mc.get("max_log_correction", 2.0)),
         max_delta_uv=float(mc.get("max_delta_uv", 2.0)),
         patch_size=int(mc.get("patch_size", 5)),
+        two_pool=bool(mc.get("two_pool", False)),
         per_frame_scale=bool(mc.get("per_frame_scale", False)),
         within_frame=bool(mc.get("within_frame", False)),
         d_proj=int(mc.get("d_proj", 64)),
@@ -264,7 +347,9 @@ def _build_v39(ckpt: Path, dev) -> torch.nn.Module:
         dino_image_size=int(mc.get("dino_image_size", 448)),
         image_size=int(mc.get("image_size", 896)),
     ).to(dev)
-    model.load_state_dict(st["model"])
+    # Tolerant: checkpoints written before the refiner gained its own vis_head lack those
+    # tensors, and this arm takes visibility from the separate flow-only head instead.
+    _ev._load_ckpt_into(model, st["model"])
     model.eval()
     return model
 
@@ -296,6 +381,9 @@ def _infer_subset(args, v39, dev, sub: str):
         max_frames=0,
         device=dev,
         waft_pred_dir=args.waft_pred_dir,
+        vis_source="v94" if args.vis_head_ckpt else "flow",
+        vis_head=_VIS_HEAD[0],
+        flowvis_dir=str(Path(args.flowvis_dir).expanduser()) if args.flowvis_dir else None,
     )
     delta, _ = _ev._load_external(args.delta_pred_dir, sub, clip_id)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -310,6 +398,10 @@ def main() -> int:
     ap.add_argument("--delta-pred-dir", type=Path)
     ap.add_argument("--da3-depth-root", type=Path)
     ap.add_argument("--scores-dir", type=Path, help="v39 metric_results")
+    ap.add_argument("--vis-head-ckpt", type=Path, default=None,
+                    help="FlowVisHead checkpoint; selects the flow-only visibility head")
+    ap.add_argument("--flowvis-dir", type=Path, default=None,
+                    help="dir of cached forward/backward flow, required with --vis-head-ckpt")
     ap.add_argument(
         "--out-dir", type=Path, default=Path("doc/vmamba3_3dpointtrack/figs")
     )
@@ -323,6 +415,10 @@ def main() -> int:
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.vis_head_ckpt and not args.replot:
+        if not args.flowvis_dir:
+            raise SystemExit("--vis-head-ckpt needs --flowvis-dir")
+        _VIS_HEAD[0] = _build_vis_head(args.vis_head_ckpt, dev)
     v39 = None if args.replot else _build_v39(args.v35_ckpt, dev)
 
     for sub in SUBSETS:

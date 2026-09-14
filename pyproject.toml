@@ -53,3 +53,11 @@ addopts = "-ra"
 
 [dependency-groups]
 dev = ["pytest>=7", "pytest-xdist", "ruff>=0.15.14"]
+
+[tool.uv]
+# torch pins nvidia-cudnn-cu13==9.20.0.48, which ships no libcudnn_engines_tensor_ir. The
+# system cuDNN (apt, 9.26) does, and the loader supplies it from /usr/lib alongside the
+# wheel's 9.20 core -- a 9.26 engine inside a 9.20 core, which every convolution rejects with
+# CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH. Overriding to 9.26 makes the whole set one
+# version; torch 2.12.1 was verified to run against it.
+override-dependencies = ["nvidia-cudnn-cu13>=9.26"]

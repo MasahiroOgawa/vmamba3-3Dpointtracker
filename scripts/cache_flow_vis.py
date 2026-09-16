@@ -138,6 +138,10 @@ def main():
     flow_model = build_waft(device, fl.get("scale"), fl.get("iters"))
 
     splits = clip_lists(cfg)
+    # The split is defined here and nowhere else. Without this manifest the trainer has to
+    # infer it by listing the directory, and a clip left behind by an earlier config -- v94
+    # held out five per subset that v95 trains on -- silently becomes a train/test leak.
+    (out_root / "splits.json").write_text(json.dumps(splits, indent=2))
     total = sum(len(v) for s in splits.values() for v in s.values())
     print(f"[cache] {total} clips: "
           + "  ".join(f"{k}={sum(len(v) for v in s.values())}" for k, s in splits.items()),

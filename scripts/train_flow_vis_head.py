@@ -64,11 +64,19 @@ class ClipStore:
 
 
 def load_split(cache_dir: Path, split: str, subsets, max_frames: int, resident: int | None):
-    """-> {subset: ClipStore}. `resident` caps how many clips of each subset stay in RAM."""
-    return {
-        ss: ClipStore(sorted((cache_dir / split / ss).glob("*.npz")), max_frames, resident)
-        for ss in subsets
-    }
+    """-> {subset: ClipStore}. `resident` caps how many clips of each subset stay in RAM.
+
+    Membership comes from the cache's own splits.json, never from listing the directory:
+    the cache is shared between configs, and a clip one config held out may be another's
+    training data. Intersected with what is on disk, since a budgeted cache stops early.
+    """
+    manifest = json.loads((cache_dir / "splits.json").read_text())[split]
+    out = {}
+    for ss in subsets:
+        d = cache_dir / split / ss
+        paths = [d / n for n in sorted(manifest[ss]) if (d / n).exists()]
+        out[ss] = ClipStore(paths, max_frames, resident)
+    return out
 
 
 def batch_from(clip, num_points, rng, device):

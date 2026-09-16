@@ -16,6 +16,8 @@ data:
   subsets: [adt, drivetrack, pstudio]
   num_points: 256
   max_frames: 300
+  # Clips resident in RAM; no effect on this run, whose 36 clips all fit.
+  clip_cache: 512
 train:
   out_dir: result/v94
   steps: 3000

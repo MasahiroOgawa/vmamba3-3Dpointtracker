@@ -16,6 +16,9 @@ data:
   subsets: [adt, drivetrack, pstudio]
   num_points: 256
   max_frames: 300
+  # Clips resident in RAM. The full pool decompresses to ~12 GB against 13 GB free, so
+  # the trainer streams it: a step touches one clip, and this caps the LRU that holds it.
+  clip_cache: 512
 train:
   out_dir: result/v95
   # 10x v94's 3000. Justified only by the ~118x larger clip pool; if held-out still peaks

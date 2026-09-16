@@ -12,6 +12,7 @@ import argparse
 import json
 import random
 import sys
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -25,23 +26,49 @@ from mamba3_tracker.model.flow_vis_head import FlowVisHead  # noqa: E402
 from mamba3_tracker.train.schedule import wsd  # noqa: E402
 
 
-def load_split(cache_dir: Path, split: str, subsets, max_frames: int):
-    """-> {subset: [dict of numpy arrays]}; small enough to hold in RAM."""
-    out = {}
-    for ss in subsets:
-        clips = []
-        for p in sorted((cache_dir / split / ss).glob("*.npz")):
-            with np.load(p) as d:
-                F_ = min(int(d["flow_fwd"].shape[0]), max_frames)
-                clips.append({
-                    "flow_fwd": d["flow_fwd"][:F_],
-                    "flow_bwd": d["flow_bwd"][:F_],
-                    "vis_gt": d["vis_gt"][:F_].astype(np.float32),
-                    "vis_flow": d["vis_flow"][:F_].astype(np.float32),
-                    "name": p.name,
-                })
-        out[ss] = clips
-    return out
+class ClipStore:
+    """A sequence of clips loaded from disk on use, with a bounded number kept resident.
+
+    Holding the whole pool would need ~12 GB against 13 GB of free RAM: one adt clip is
+    300 frames x 838 points x 4 float32 arrays, and there are 1856 of them. Indexing and
+    iteration are the list protocol, so random.choice and `for c in store` work unchanged.
+    """
+
+    def __init__(self, paths, max_frames: int, resident: int | None):
+        self.paths = list(paths)
+        self.max_frames = max_frames
+        self.resident = len(self.paths) if resident is None else int(resident)
+        self._lru: OrderedDict = OrderedDict()
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, i):
+        p = self.paths[i]
+        if p in self._lru:
+            self._lru.move_to_end(p)
+            return self._lru[p]
+        with np.load(p) as d:
+            F_ = min(int(d["flow_fwd"].shape[0]), self.max_frames)
+            clip = {
+                "flow_fwd": d["flow_fwd"][:F_],
+                "flow_bwd": d["flow_bwd"][:F_],
+                "vis_gt": d["vis_gt"][:F_].astype(np.float32),
+                "vis_flow": d["vis_flow"][:F_].astype(np.float32),
+                "name": p.name,
+            }
+        self._lru[p] = clip
+        while len(self._lru) > self.resident:
+            self._lru.popitem(last=False)
+        return clip
+
+
+def load_split(cache_dir: Path, split: str, subsets, max_frames: int, resident: int | None):
+    """-> {subset: ClipStore}. `resident` caps how many clips of each subset stay in RAM."""
+    return {
+        ss: ClipStore(sorted((cache_dir / split / ss).glob("*.npz")), max_frames, resident)
+        for ss in subsets
+    }
 
 
 def batch_from(clip, num_points, rng, device):
@@ -91,8 +118,9 @@ def main():
 
     subsets = list(dc["subsets"])
     max_frames = int(dc["max_frames"])
-    train = load_split(cache, "train", subsets, max_frames)
-    held = load_split(cache, "heldout", subsets, max_frames)
+    # Held-out is small (150 clips) and re-read at every validation, so it stays resident.
+    train = load_split(cache, "train", subsets, max_frames, int(dc["clip_cache"]))
+    held = load_split(cache, "heldout", subsets, max_frames, None)
     print(f"[v94] train {[len(train[s]) for s in subsets]} clips, "
           f"heldout {[len(held[s]) for s in subsets]} -- subsets {subsets}", flush=True)
 

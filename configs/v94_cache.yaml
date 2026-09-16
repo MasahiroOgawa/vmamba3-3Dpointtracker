@@ -14,6 +14,7 @@ cache:
   # needed only for the final score, so a head that loses to the mask must not pay for it.
   # gate 1 passed on the mean (+0.0072 causal), so minival is now needed for the score
   n_minival_per_subset: null
+  time_budget_s: 0        # unlimited; this cache was 201 clips
   seed: 42
 data:
   root: ~/data/tapvid3d

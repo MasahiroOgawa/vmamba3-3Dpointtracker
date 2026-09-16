@@ -18,6 +18,11 @@ cache:
   # training slice, which for pstudio (106 clips) would run off the end and leave it empty.
   heldout_from_end: true
   n_minival_per_subset: null
+  # 48 h. The cache is the long pole, not training: the head trains 3000 steps in 2 minutes,
+  # while one adt clip costs ~177 s of WAFT. Whatever has landed at the deadline is already
+  # balanced across subsets (the order is round-robin), so it is trainable as it stands.
+  # Counted from process start, so a resumed run gets a fresh budget -- set it deliberately.
+  time_budget_s: 172800
   seed: 42
 data:
   root: ~/data/tapvid3d

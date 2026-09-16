@@ -143,6 +143,7 @@ def main():
           + "  ".join(f"{k}={sum(len(v) for v in s.values())}" for k, s in splits.items()),
           flush=True)
 
+    budget = float(c["time_budget_s"])
     done = mismatch = 0
     t0 = time.time()
     for split, per_subset in splits.items():
@@ -153,6 +154,12 @@ def main():
             if op.exists():
                 done += 1
                 continue
+            # Stopping on a clock, not a clip count: the cache is the long pole (adt clips
+            # cost ~177 s each) and the interleaved order means whatever has landed by the
+            # deadline is already balanced across subsets, hence trainable as it stands.
+            if budget > 0 and time.time() - t0 > budget:
+                print(f"[cache] BUDGET {budget:.0f}s reached at {done}/{total}", flush=True)
+                break
             with np.load(root / subset / name, allow_pickle=True) as data:
                 uv, vis, ff, fb = run_clip(
                     flow_model, data, image_size, fb_alpha, fb_beta, device)
@@ -187,6 +194,13 @@ def main():
             print(f"[cache] {done}/{total} {split}/{subset}/{name}  "
                   f"{el:.0f}s elapsed, eta {el / max(done, 1) * (total - done) / 60:.0f} min",
                   flush=True)
+        if budget > 0 and time.time() - t0 > budget:
+            break
+    for split, per_subset in splits.items():
+        for subset in per_subset:
+            d = out_root / split / subset
+            print(f"[cache] cached {split}/{subset}: "
+                  f"{len(list(d.glob('*.npz'))) if d.exists() else 0}", flush=True)
     print(f"[cache] DONE {done}/{total} clips, mask mismatches: {mismatch}", flush=True)
 
 

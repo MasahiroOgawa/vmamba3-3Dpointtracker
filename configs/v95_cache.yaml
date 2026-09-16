@@ -1,0 +1,30 @@
+# Flow cache for the v95 visibility head: the whole available training pool, where v94 used
+# 12 clips per subset. v94's held-out accuracy peaked at step 1250 of 3000 and then oscillated
+# while training loss kept falling -- overfitting 36 clips, not undertraining -- so the
+# experiment that follows is more data, not more steps.
+#
+# Flow settings are identical to v94_cache.yaml and must stay that way: the head's only input
+# is this flow, and it has to be the flow the refiner actually sees.
+cache:
+  out_dir: ~/data/tapvid3d_flowvis        # shared with v94: already-cached clips are skipped
+  verify_against: ~/data/tapvid3d_baseline_preds/waft_minival_is896_s-1_i4
+  subsets: [adt, drivetrack, pstudio]
+  # Everything outside minival and the held-out tail. adt 1907, drivetrack 2406, pstudio 106.
+  n_train_per_subset: 99999
+  # 50 per subset, against v94's 5. Fifteen clips made the held-out curve jump between 0.639
+  # and 0.790 on adjacent evaluations, which is too noisy to select a checkpoint on.
+  n_heldout_per_subset: 50
+  # Required with a large n_train: the default takes held-out from immediately after the
+  # training slice, which for pstudio (106 clips) would run off the end and leave it empty.
+  heldout_from_end: true
+  n_minival_per_subset: null
+  seed: 42
+data:
+  root: ~/data/tapvid3d
+  image_size: 896
+flow:
+  source: waft_live
+  iters: 4
+  scale: -1
+  fb_alpha: 0.05
+  fb_beta: 1.0

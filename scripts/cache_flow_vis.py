@@ -56,6 +56,19 @@ def build_waft(device, scale, iters):
         os.chdir(cwd)
 
 
+def interleave(per_subset):
+    """Round-robin over subsets. The trainer samples uniformly over subsets, so a cache that
+    fills one subset before starting the next is unusable until the last one lands."""
+    its = {s: iter(names) for s, names in per_subset.items()}
+    while its:
+        for s in list(its):
+            name = next(its[s], None)
+            if name is None:
+                del its[s]
+            else:
+                yield s, name
+
+
 def clip_lists(cfg):
     """minival is fixed; train/heldout are drawn from everything else, deterministically."""
     root = Path(str(cfg["data"]["root"])).expanduser()
@@ -67,8 +80,16 @@ def clip_lists(cfg):
         rest = sorted(p.name for p in (root / subset).glob("*.npz") if p.name not in mini)
         rng.shuffle(rest)
         n_tr, n_ho = int(c["n_train_per_subset"]), int(c["n_heldout_per_subset"])
-        out.setdefault("train", {})[subset] = rest[:n_tr]
-        out.setdefault("heldout", {})[subset] = rest[n_tr : n_tr + n_ho]
+        if bool(c.get("heldout_from_end", False)):
+            # Taking held-out from the end makes it independent of how many clips training
+            # asks for. With the default (held-out immediately after train) a large n_train
+            # walks past the end of the list and pstudio -- 106 clips outside minival, against
+            # adt's 1907 -- is left with no held-out set at all.
+            out.setdefault("heldout", {})[subset] = rest[len(rest) - n_ho :]
+            out.setdefault("train", {})[subset] = rest[: len(rest) - n_ho][:n_tr]
+        else:
+            out.setdefault("train", {})[subset] = rest[:n_tr]
+            out.setdefault("heldout", {})[subset] = rest[n_tr : n_tr + n_ho]
         n_mv = c.get("n_minival_per_subset")
         out.setdefault("minival", {})[subset] = (
             sorted(mini) if n_mv is None else sorted(mini)[: int(n_mv)]
@@ -125,43 +146,47 @@ def main():
     done = mismatch = 0
     t0 = time.time()
     for split, per_subset in splits.items():
-        for subset, names in per_subset.items():
+        for subset, name in interleave(per_subset):
             od = out_root / split / subset
             od.mkdir(parents=True, exist_ok=True)
-            for name in names:
-                op = od / name
-                if op.exists():
-                    done += 1
-                    continue
-                with np.load(root / subset / name, allow_pickle=True) as data:
-                    uv, vis, ff, fb = run_clip(
-                        flow_model, data, image_size, fb_alpha, fb_beta, device)
-                    vis_gt = np.asarray(data["visibility"]).astype(np.uint8)
-                # The mask this reproduces must be the one v93b was scored with, or the head
-                # would be trained against a front-end the refiner never saw.
-                if verify is not None and split == "minival":
-                    vp = verify / subset / name
-                    if vp.exists():
-                        with np.load(vp) as wd:
-                            ref = np.asarray(wd["visibility"])[: vis.shape[0]] > 0.5
-                        if not np.array_equal(ref, vis.numpy() > 0.5):
-                            mismatch += 1
-                            print(f"[cache] MASK MISMATCH {subset}/{name}: "
-                                  f"{int((ref != (vis.numpy() > 0.5)).sum())} of {ref.size}",
-                                  flush=True)
+            op = od / name
+            if op.exists():
+                done += 1
+                continue
+            with np.load(root / subset / name, allow_pickle=True) as data:
+                uv, vis, ff, fb = run_clip(
+                    flow_model, data, image_size, fb_alpha, fb_beta, device)
+                vis_gt = np.asarray(data["visibility"]).astype(np.uint8)
+            # The mask this reproduces must be the one v93b was scored with, or the head
+            # would be trained against a front-end the refiner never saw.
+            if verify is not None and split == "minival":
+                vp = verify / subset / name
+                if vp.exists():
+                    with np.load(vp) as wd:
+                        ref = np.asarray(wd["visibility"])[: vis.shape[0]] > 0.5
+                    if not np.array_equal(ref, vis.numpy() > 0.5):
+                        mismatch += 1
+                        print(f"[cache] MASK MISMATCH {subset}/{name}: "
+                              f"{int((ref != (vis.numpy() > 0.5)).sum())} of {ref.size}",
+                              flush=True)
+            # Written aside and renamed: a kill mid-write leaves a truncated .npz that the
+            # resume check would skip forever, since it only tests existence.
+            tmp = od / (name + ".partial")
+            with open(tmp, "wb") as fh:
                 np.savez_compressed(
-                    op,
+                    fh,
                     flow_fwd=ff.numpy().astype(np.float32),
                     flow_bwd=fb.numpy().astype(np.float32),
                     uv=uv.numpy().astype(np.float32),
                     vis_flow=(vis.numpy() > 0.5).astype(np.uint8),
                     vis_gt=vis_gt[: vis.shape[0]],
                 )
-                done += 1
-                el = time.time() - t0
-                print(f"[cache] {done}/{total} {split}/{subset}/{name}  "
-                      f"{el:.0f}s elapsed, eta {el / max(done, 1) * (total - done) / 60:.0f} min",
-                      flush=True)
+            os.replace(tmp, op)
+            done += 1
+            el = time.time() - t0
+            print(f"[cache] {done}/{total} {split}/{subset}/{name}  "
+                  f"{el:.0f}s elapsed, eta {el / max(done, 1) * (total - done) / 60:.0f} min",
+                  flush=True)
     print(f"[cache] DONE {done}/{total} clips, mask mismatches: {mismatch}", flush=True)
 
 

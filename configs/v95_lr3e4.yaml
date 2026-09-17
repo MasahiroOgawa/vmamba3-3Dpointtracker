@@ -1,10 +1,10 @@
-# v95: the v94 visibility head retrained from scratch on the whole training pool
-# (configs/v95_cache.yaml), where v94 saw 12 clips per subset.
+# v95-lr3e4: peak learning rate 3.0e-4 against the 1.0e-3 every probe so far has used.
 #
-# Same architecture as v94, deliberately: the point of the run is to isolate the effect of
-# data, so nothing else may move. Only the schedule is scaled, because v94's limit was not
-# steps -- its held-out accuracy peaked at step 1250 of 3000 and then oscillated between
-# 0.765 and 0.790 while training loss kept falling from 0.68 to 0.41.
+# Shortening the peak-lr plateau (v95_probe964, cosine from warmup) did not move the training
+# loss: it tracks v95_probe850 at ~0.36 throughout and ends at 0.35, even though its lr is
+# below 5.0e-4 for the whole second half. So the plateau is not the duration at peak lr.
+# This run tests whether it is the magnitude. Everything else is configs/v95.yaml unchanged.
+#
 model:
   dim: 64
   state_dim: 64
@@ -20,11 +20,11 @@ data:
   # the trainer streams it: a step touches one clip, and this caps the LRU that holds it.
   clip_cache: 512
 train:
-  out_dir: result/v95
+  out_dir: result/v95_lr3e4
   # 10x v94's 3000. Justified only by the ~118x larger clip pool; if held-out still peaks
   # early and flattens, that is the ceiling of a flow-only head, not a schedule to lengthen.
   steps: 30000
-  lr: 1.0e-3
+  lr: 3.0e-4
   warmup: 500
   # Cosine from the end of warmup, not a long plateau at peak lr. With decay: 6000 the
   # schedule held 1.0e-3 for 78% of training and the TRAINING loss stopped falling after

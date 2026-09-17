@@ -1,10 +1,10 @@
-# v95: the v94 visibility head retrained from scratch on the whole training pool
-# (configs/v95_cache.yaml), where v94 saw 12 clips per subset.
+# v95-probe-964: the first probe with the corrected learning-rate schedule.
 #
-# Same architecture as v94, deliberately: the point of the run is to isolate the effect of
-# data, so nothing else may move. Only the schedule is scaled, because v94's limit was not
-# steps -- its held-out accuracy peaked at step 1250 of 3000 and then oscillated between
-# 0.765 and 0.790 while training loss kept falling from 0.68 to 0.41.
+# Identical to configs/v95.yaml, which now decays from the end of warmup. The two earlier
+# probes (v95_probe350, v95_probe850) kept the old decay: 6000 and are NOT comparable on
+# schedule; they are kept as the record of what exposed the problem. This run has 964 clips
+# against probe850's 850, so it is not a controlled schedule-only comparison either -- what
+# it settles is whether the training loss falls for the whole run instead of plateauing.
 model:
   dim: 64
   state_dim: 64
@@ -20,7 +20,7 @@ data:
   # the trainer streams it: a step touches one clip, and this caps the LRU that holds it.
   clip_cache: 512
 train:
-  out_dir: result/v95
+  out_dir: result/v95_probe964
   # 10x v94's 3000. Justified only by the ~118x larger clip pool; if held-out still peaks
   # early and flattens, that is the ceiling of a flow-only head, not a schedule to lengthen.
   steps: 30000

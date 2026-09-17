@@ -1,17 +1,30 @@
-# Held-out curves for the visibility-head data-scaling probes.
+# Held-out and training curves for the visibility-head probes.
 #
-# Every run below is scored on the same 150-clip held-out set, so the curves are directly
+# Every run is scored on the same 150-clip held-out set, so the accuracy curves are directly
 # comparable; v94's own log is not, having used a 15-clip set, so it enters as the single
 # re-scored point in result/v94_on_v95_heldout.json.
+#
+# Each run carries its own schedule because they differ: probe350 and probe850 hold peak lr
+# for 78% of training, which is the defect probe964 was run to correct. Plotting one shared
+# schedule under curves produced by two of them would misstate every one of them.
 plot:
   out: result/vis_head_curves.png
   runs:
-    - {log: result/v95_probe350.log, label: "350 clips", color: "#1f77b4"}
-    - {log: result/v95_probe850.log, label: "850 clips", color: "#d62728"}
+    - log: result/v95_probe350.log
+      label: "350 clips, plateau, lr 1e-3"
+      color: "#1f77b4"
+      schedule: {lr: 1.0e-3, steps: 30000, warmup: 500, decay: 6000}
+    - log: result/v95_probe850.log
+      label: "850 clips, plateau, lr 1e-3"
+      color: "#d62728"
+      schedule: {lr: 1.0e-3, steps: 30000, warmup: 500, decay: 6000}
+    - log: result/v95_probe964.log
+      label: "964 clips, cosine, lr 1e-3"
+      color: "#9467bd"
+      schedule: {lr: 1.0e-3, steps: 30000, warmup: 500, decay: 29500}
+    - log: result/v95_lr3e4.log
+      label: "988 clips, cosine, lr 3e-4"
+      color: "#ff7f0e"
+      schedule: {lr: 3.0e-4, steps: 30000, warmup: 500, decay: 29500}
   reference: result/v94_on_v95_heldout.json
   reference_label: "36 clips (v94, re-scored)"
-  # Read from configs/v95_probe350.yaml; both probes share them.
-  lr: 1.0e-3
-  steps: 30000
-  warmup: 500
-  decay: 6000

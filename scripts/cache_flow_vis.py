@@ -106,7 +106,11 @@ def run_clip(flow_model, data, image_size, fb_alpha, fb_beta, device):
         images = F.interpolate(
             images, size=(image_size, image_size), mode="bilinear", align_corners=False
         )
-    images_255 = (images * 255.0).to(device)
+    # Scaled in place and freed eagerly. A 300-frame clip at 896^2 is 2.7 GB as float32, and
+    # holding the decoded, the resized and the scaled copies at once drove peak RSS to 16 GB.
+    # In-place multiply is the same arithmetic, so the cache stays consistent across restarts.
+    images_255 = images.mul_(255.0).to(device)
+    del imgs, images
     sx, sy = image_size / float(W), image_size / float(H)
     q = data["queries_xyt"].astype(np.float32)
     queries_xy = torch.from_numpy(np.stack([q[:, 0] * sx, q[:, 1] * sy], -1)).float()

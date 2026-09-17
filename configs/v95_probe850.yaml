@@ -1,4 +1,4 @@
-# v95-probe: the v95 arm trained on whatever the flow cache holds at the moment it starts.
+# v95-probe-850: the v95 arm trained on whatever the flow cache holds at the moment it starts.
 # Identical to configs/v95.yaml except out_dir, so the only variable is how many clips exist.
 #
 # The point is the data-scaling curve. v94 saw 36 clips and scores 0.7844 on the 150-clip
@@ -20,7 +20,7 @@ data:
   # the trainer streams it: a step touches one clip, and this caps the LRU that holds it.
   clip_cache: 512
 train:
-  out_dir: result/v95_probe
+  out_dir: result/v95_probe850
   # 10x v94's 3000. Justified only by the ~118x larger clip pool; if held-out still peaks
   # early and flattens, that is the ceiling of a flow-only head, not a schedule to lengthen.
   steps: 30000

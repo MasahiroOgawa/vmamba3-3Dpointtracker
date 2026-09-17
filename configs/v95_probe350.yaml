@@ -1,0 +1,35 @@
+# v95-probe: the v95 arm trained on whatever the flow cache holds at the moment it starts.
+# Identical to configs/v95.yaml except out_dir, so the only variable is how many clips exist.
+#
+# The point is the data-scaling curve. v94 saw 36 clips and scores 0.7844 on the 150-clip
+# held-out set, where the flow mask scores 0.7376. If a run with an order of magnitude more
+# clips lands at 0.784 too, the head is saturated and the remaining cache hours buy nothing;
+# the trainer prints the clip count it actually saw, which is what each point is plotted at.
+model:
+  dim: 64
+  state_dim: 64
+  num_heads: 4
+  num_layers: 2
+  bidirectional: true
+data:
+  cache_dir: ~/data/tapvid3d_flowvis
+  subsets: [adt, drivetrack, pstudio]
+  num_points: 256
+  max_frames: 300
+  # Clips resident in RAM. The full pool decompresses to ~12 GB against 13 GB free, so
+  # the trainer streams it: a step touches one clip, and this caps the LRU that holds it.
+  clip_cache: 512
+train:
+  out_dir: result/v95_probe350
+  # 10x v94's 3000. Justified only by the ~118x larger clip pool; if held-out still peaks
+  # early and flattens, that is the ceiling of a flow-only head, not a schedule to lengthen.
+  steps: 30000
+  lr: 1.0e-3
+  warmup: 500
+  decay: 6000
+  grad_clip: 1.0
+  pos_weight: auto
+  log_every: 100
+  val_every: 1000
+  ckpt_every: 1000
+  seed: 42

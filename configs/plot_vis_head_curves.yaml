@@ -1,0 +1,17 @@
+# Held-out curves for the visibility-head data-scaling probes.
+#
+# Every run below is scored on the same 150-clip held-out set, so the curves are directly
+# comparable; v94's own log is not, having used a 15-clip set, so it enters as the single
+# re-scored point in result/v94_on_v95_heldout.json.
+plot:
+  out: result/vis_head_curves.png
+  runs:
+    - {log: result/v95_probe350.log, label: "350 clips", color: "#1f77b4"}
+    - {log: result/v95_probe850.log, label: "850 clips", color: "#d62728"}
+  reference: result/v94_on_v95_heldout.json
+  reference_label: "36 clips (v94, re-scored)"
+  # Read from configs/v95_probe350.yaml; both probes share them.
+  lr: 1.0e-3
+  steps: 30000
+  warmup: 500
+  decay: 6000

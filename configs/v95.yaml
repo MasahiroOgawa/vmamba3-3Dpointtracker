@@ -24,7 +24,11 @@ train:
   # 10x v94's 3000. Justified only by the ~118x larger clip pool; if held-out still peaks
   # early and flattens, that is the ceiling of a flow-only head, not a schedule to lengthen.
   steps: 30000
-  lr: 1.0e-3
+  # 3.0e-4, matching configs/v95_lr3e4.yaml. At 1.0e-3 the held-out curve swung with sd
+  # 0.0089 across evaluations against 0.0050 here, for the same best accuracy -- too noisy to
+  # select a checkpoint on. Holding lr and schedule identical to that 988-clip arm makes this
+  # run a controlled test of one variable: 988 clips against the full 4268.
+  lr: 3.0e-4
   warmup: 500
   # Cosine from the end of warmup, not a long plateau at peak lr. With decay: 6000 the
   # schedule held 1.0e-3 for 78% of training and the TRAINING loss stopped falling after

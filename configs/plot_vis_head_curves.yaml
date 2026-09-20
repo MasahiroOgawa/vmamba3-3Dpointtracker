@@ -26,5 +26,9 @@ plot:
       label: "988 clips, cosine, lr 3e-4"
       color: "#ff7f0e"
       schedule: {lr: 3.0e-4, steps: 30000, warmup: 500, decay: 29500}
+    - log: result/v95.log
+      label: "4268 clips (full), cosine, lr 3e-4"
+      color: "#17becf"
+      schedule: {lr: 3.0e-4, steps: 30000, warmup: 500, decay: 29500}
   reference: result/v94_on_v95_heldout.json
   reference_label: "36 clips (v94, re-scored)"

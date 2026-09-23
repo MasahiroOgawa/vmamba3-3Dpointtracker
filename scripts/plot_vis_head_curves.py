@@ -55,13 +55,13 @@ def main():
                label=f"flow mask (incumbent): {mask:.4f}")
 
     ax.set_ylabel("held-out mean accuracy", fontsize=12)
-    ax.legend(fontsize=9, loc="lower right", ncol=2)
+    ax.legend(fontsize=11, loc="lower right", ncol=2)
     ax.grid(alpha=0.3)
     ax.set_title("Visibility head: held-out accuracy, training loss, and the schedule "
                  "that produced them", fontsize=12)
 
     axt.set_ylabel("training loss", fontsize=12)
-    axt.legend(fontsize=9, loc="upper right")
+    axt.legend(fontsize=11, loc="upper right")
     axt.grid(alpha=0.3)
 
     for r in p["runs"]:

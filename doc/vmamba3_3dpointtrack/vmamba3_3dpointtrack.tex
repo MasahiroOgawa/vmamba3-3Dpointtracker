@@ -4005,6 +4005,160 @@ seed spread of \S\ref{sec:v93} applies and $0.2287$ remains a tie, not a win. Th
 effect appears on two independently trained refiners over two depth models, with the same sign on
 all six subset comparisons of the normalised metric, is stronger evidence than either arm alone.
 
+\subsection{More data for the flow-only head (v95)}
+\label{sec:v95}
+
+v94 trained on $36$ clips and was selected on a $15$-clip held-out set. Its held-out accuracy
+peaked at step $1250$ of $3000$ and then oscillated while the training loss kept falling, which
+reads as overfitting a small pool rather than undertraining. v95 tests that reading directly: the
+same architecture, the same objective and the same evaluation, trained on the entire available
+pool of $4268$ clips --- $119\times$ v94's --- with the held-out set enlarged to $150$ clips.
+
+\subsubsection{Three defects found before any result was believable}
+The comparison could not be read until these were corrected, and each invalidates a number that
+had already been reported.
+
+\textbf{A train/test leak of $15$ clips.} The trainer chose split membership by listing the cache
+directory, while the split is defined in the cache config. The cache is shared between arms, so
+the two disagreed: five clips per subset that v94 held out are assigned to training by v95, and
+those files were still sitting in \texttt{heldout/}. The cache now stamps \texttt{splits.json}
+beside the data and the trainer reads membership from it, intersected with what is on disk.
+
+\textbf{v94's $15$-clip held-out set was too small to support its per-subset claims.} Re-scoring
+the v94 checkpoint on the $150$-clip set moves its adt margin from $-0.0425$ to $+0.0080$ --- a
+sign flip. The reading that ``the head helps everywhere except adt'' was an artifact of five adt
+clips. Its mean margin over the mask likewise moves from $+0.0055$ to $+0.0468$. Held-out numbers
+from the two sets are not comparable, and only the $150$-clip column below is used.
+
+\textbf{The cache filled one subset before starting the next.} The trainer samples uniformly over
+subsets, so a cache holding only adt is untrainable; caching adt's $1856$ training clips first
+made every partial cache useless for roughly $94$\,h. The cache now round-robins the subsets, so
+any prefix is balanced and trainable, and it writes each clip to a temporary name and renames it,
+because the resume check tests only existence and a kill mid-write would otherwise poison a clip
+permanently.
+
+\subsubsection{What the schedule turned out to be, and what it was not}
+The training loss stops falling around step $5000$ and sits near $0.35$ for the remainder of the
+run (Fig.~\ref{fig:v95-curves}, middle panel). The schedule was the obvious suspect: \texttt{wsd}
+held the peak learning rate from step $500$ to $24000$, $78\%$ of training, and the loss dropped
+the moment the decay began. Two arms tested it, both on $\sim$1000 clips.
+
+\begin{table}[h]
+\centering
+\caption{Neither the duration at peak learning rate nor its magnitude moves the loss floor. All
+three arms run $30000$ steps on the $150$-clip held-out set. ``last $2/3$'' averages the
+evaluations after the first third, and its standard deviation measures how reliably a checkpoint
+can be selected at all.}
+\label{tab:v95-schedule}
+\begin{tabular}{lrrrrr}
+\toprule
+arm & clips & end loss & best acc. & last $2/3$ & s.d. \\
+\midrule
+plateau to step $24000$, lr $10^{-3}$ & $850$  & $0.3398$ & $0.7863$ & $0.7721$ & $0.0081$ \\
+cosine from warmup, lr $10^{-3}$      & $964$  & $0.3488$ & $0.7854$ & $0.7720$ & $0.0089$ \\
+cosine from warmup, lr $3\times10^{-4}$ & $988$ & $0.3511$ & $0.7856$ & $0.7773$ & $\mathbf{0.0050}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Decaying from the end of warmup left the loss where it was, and so did cutting the peak rate by
+$3.3\times$: the floor is $\sim$0.35 under every setting tried. The lower rate did halve the
+evaluation-to-evaluation spread, which is what makes checkpoint selection meaningful, so v95 uses
+it --- but the plateau is not an optimisation artifact, and reading it as one is what made two
+earlier readings of this experiment wrong. Probes at $350$ and $850$ clips were both scored as
+saturated, in each case from the maximum of an unconverged, oscillating series.
+
+\begin{figure}[tbp]
+\centering
+\includegraphics[width=\textwidth]{figs/fig_v95_curves.png}
+\caption{Held-out accuracy (top), training loss (middle) and the learning-rate schedule that
+produced each curve (bottom), for every arm of this section. The dotted and dashed horizontal
+lines are the forward--backward mask ($0.7376$) and the re-scored v94 head ($0.7844$). The loss curves lie on
+one another regardless of schedule; the full-pool arm (cyan) is the only one whose held-out
+accuracy separates, and it does so while its training loss is \emph{higher}.}
+\label{fig:v95-curves}
+\end{figure}
+
+\subsubsection{Result: more data does improve the classifier}
+Held on one variable --- identical learning rate, schedule, step count and held-out set --- the
+full pool beats the $988$-clip arm on every statistic.
+
+\begin{table}[h]
+\centering
+\caption{Held-out per-frame visibility accuracy on the $150$-clip set, disjoint from minival.
+v95 is the best classifier of the three by every measure. The training loss moves in the opposite
+direction to the accuracy, which is the signature of a generalisation gain rather than a better
+fit.}
+\label{tab:v95-gate}
+\begin{tabular}{lrrrrrr}
+\toprule
+ & clips & adt & drivetrack & pstudio & mean & end loss \\
+\midrule
+forward--backward mask & --- & $0.7733$ & $0.7829$ & $0.6565$ & $0.7376$ & --- \\
+v94, re-scored & $36$ & $0.7812$ & $0.8180$ & $0.7539$ & $0.7844$ & --- \\
+v95, $988$-clip arm & $988$ & --- & --- & --- & $0.7856$ & $0.3511$ \\
+v95, full pool (step $10000$) & $\mathbf{4268}$ & $\mathbf{0.8007}$ & $\mathbf{0.8093}$ & $\mathbf{0.7667}$ & $\mathbf{0.7922}$ & $0.3578$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Every subset improves, adt included, and the mean rises $+0.0078$ over v94 and $+0.0546$ over the
+mask. The margin over the $988$-clip arm is $+0.0066$ on the best checkpoint and $+0.0043$ on the
+last-two-thirds mean, against a within-run spread of $0.0048$: the evidence is the consistent
+direction across three statistics plus the loss moving the other way, not any single number.
+These are single runs per point, with seed sensitivity unmeasured.
+
+\subsubsection{Result: the better classifier scores worse}
+The v95 head was then scored on the DA3-l winner exactly as v94 was --- same v64 checkpoint, same
+depth, same cached WAFT front-end, same minival split, only the head swapped. The control
+reproduced v64's $0.2547 / 0.1207$ exactly.
+
+\begin{table}[h]
+\centering
+\caption{v95 against v94 and the mask on \mbox{WAFT+DA3-l+vmamba3-2pool} (v64), minival. All
+three rows share one checkpoint, so 3-D positions are identical --- point accuracy
+($0.3943$) and median error ($0.9975$\,m) are unchanged to four decimals across all three, and
+the differences are the visibility channel alone.}
+\label{tab:v95-result}
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{lrrrrrr}
+\toprule
+visibility & drivetrack & pstudio & adt & metric-AJ & norm.\ 3D-AJ & occ.\ acc. \\
+\midrule
+forward--backward mask & $\mathbf{0.1410}$ & $0.2852$ & $\mathbf{0.3379}$ & $0.2547$ & $\mathbf{0.1207}$ & $0.7542$ \\
+v94 head ($36$ clips)  & $0.1324$ & $0.3139$ & $0.3226$ & $\mathbf{0.2563}$ & $0.1019$ & $0.7681$ \\
+v95 head ($4268$ clips) & $0.1352$ & $\mathbf{0.3151}$ & $0.3160$ & $0.2554$ & $0.1046$ & $\mathbf{0.7700}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{v95 predicts visibility best and scores worst of the two heads on the metric that
+matters.} It is the most accurate classifier on the held-out set ($0.7922$) \emph{and} on minival
+itself ($0.7700$ occlusion accuracy), and its metric-AJ is $0.2554$ against v94's $0.2563$ ---
+$+0.3\%$ over the mask where v94 gains $+0.6\%$. Both heads still lose heavily on the normalised
+metric, v95 by $-13.3\%$.
+
+This is \S\ref{sec:v94-result}'s finding --- held-out visibility accuracy does not predict
+metric-AJ --- reproduced under the one condition that could have overturned it. v94's version
+rested on a $15$-clip held-out set that has since been shown too small to support its per-subset
+claims, and on a head that might simply have been undertrained. Neither objection survives: the
+held-out set is ten times larger, the classifier is better by every available measure, and the
+ranking on metric-AJ is unchanged.
+
+\textbf{The mechanism is visible in the subsets.} Against the mask, v95 gains $+10.5\%$ on
+pstudio and loses $6.5\%$ on adt and $4.1\%$ on drivetrack; v94's split is $+10.1\%$, $-4.5\%$,
+$-6.1\%$. The better classifier moves each subset a little further in the direction its own
+errors point --- more pstudio, less adt --- and the mean is a near-cancellation either way. AJ
+credits a point only where visibility and position are both right, so a head that marks more
+points visible exposes more of them to the position test; improving the classifier on its own
+objective moves it away from the objective being reported. The two are not merely uncorrelated
+here, they are in tension, and no amount of training data addresses that.
+
+\textbf{Consequence for the reported result.} v94 remains the configuration of record: adopting
+v95 would return $0.255$, indistinguishable from the no-head baseline, leaving the visibility head
+with no measurable justification at all. The lever is the objective, not the data --- the head is
+trained on per-point cross-entropy against ground-truth visibility, which is not what AJ rewards.
+
 \subsection{Training setup, common to every arm (all versions)}
 Only the $0.40$M-parameter refiner is trained. The loss is 3D-position-only (the 2D track and
 visibility are frozen, so they carry no gradient):

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# v94 on the DA3-l line. The DA3-l winner (v64 = WAFT+DA3-l+vmamba3-2pool) carries no scale
-# refiner -- that stage exists to correct DA3-g's per-frame drift -- so this is the counterpart
-# of the DA3-g arm, not a literal depth swap on the same checkpoint.
+# v95 on the DA3-l line: run_v94_da3l.sh's evaluation with the visibility head swapped for the
+# one trained on the full 4268-clip pool. The DA3-l winner (v64 = WAFT+DA3-l+vmamba3-2pool)
+# carries no scale refiner -- that stage exists to correct DA3-g's per-frame drift -- so this is
+# the counterpart of the DA3-g arm, not a literal depth swap on the same checkpoint.
 #
 # The control run comes first and must reproduce v64's recorded 0.2547 abs / 0.1207 norm. If it
 # does not, the invocation differs from how v64 was scored and the v95 numbers cannot be read.
+# What v94's head scored under this same invocation, and what v95 is read against:
+#   v64 control (flow mask)  abs 0.2547  norm 0.1207
+#   v94 head                 abs 0.2563  norm 0.1019
 set -u
 cd "$(dirname "$0")/.." || exit 1
 source scripts/cudnn_env.sh

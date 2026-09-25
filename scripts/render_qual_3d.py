@@ -202,15 +202,25 @@ def _add_zoom_bubble(fig, ax, pred, gt, vis, c, ring_px, r_px) -> None:
     # No axis box inside the bubble: the red frame already delimits it, and a second set of
     # panes and ticks at this size is clutter that competes with the tracks.
     inset.set_axis_off()
-    # leader line from the ring to the inset, drawn in figure coordinates
-    # start at the ring's edge, not its centre, so the line does not cross the marked region
-    target_px = np.array([(rect[0] + 0.03) * fw, (rect[1] + rect[3]) * fh])
-    d = target_px - np.asarray(ring_px, dtype=float)
-    n = float(np.hypot(*d)) or 1.0
-    edge_px = np.asarray(ring_px, dtype=float) + d / n * r_px
-    p_fig = fig.transFigure.inverted().transform(edge_px)
-    fig.add_artist(Line2D([p_fig[0], rect[0] + 0.03],
-                          [p_fig[1], rect[1] + rect[3]],
+    # Leader line from the marked square to the inset, touching both boxes and entering
+    # neither: it must not run across the tracks it points at, in the plot or in the inset.
+    # Both ends clip to a rectangle border, not to a circle -- the marker is a square, so a
+    # point at distance r from its centre still lies inside it along a diagonal.
+    def _box_exit(centre_px, half_px, unit):
+        # distance along `unit` at which the ray leaves the box
+        safe = np.where(np.abs(unit) < 1e-12, 1e-12, unit)
+        t = float(np.min(np.abs(np.asarray(half_px, dtype=float) / safe)))
+        return np.asarray(centre_px, dtype=float) + unit * t
+
+    ring_c = np.asarray(ring_px, dtype=float)
+    inset_c = np.array([(rect[0] + rect[2] / 2.0) * fw, (rect[1] + rect[3] / 2.0) * fh])
+    d = inset_c - ring_c
+    u = d / (float(np.hypot(*d)) or 1.0)
+    start_px = _box_exit(ring_c, (r_px, r_px), u)
+    end_px = _box_exit(inset_c, (rect[2] * fw / 2.0, rect[3] * fh / 2.0), -u)
+    a = fig.transFigure.inverted().transform(start_px)
+    b = fig.transFigure.inverted().transform(end_px)
+    fig.add_artist(Line2D([a[0], b[0]], [a[1], b[1]],
                           color="red", lw=1.8, alpha=0.8, zorder=15))
 
 

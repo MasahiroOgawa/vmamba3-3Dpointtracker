@@ -163,9 +163,13 @@ def _add_zoom_bubble(fig, ax, pred, gt, vis, c, ring_px, r_px) -> None:
     fw, fh = fig.get_size_inches() * fig.dpi
     side_x = BUBBLE_MAG * 2.0 * r_px / AXES_FILL / fw
     side_y = BUBBLE_MAG * 2.0 * r_px / AXES_FILL / fh
-    rect = (1.0 - side_x - 0.03, 0.03, side_x, side_y)
-    # Opaque backing: the inset sits over the main axes' Z tick labels, which otherwise read
-    # as if they belonged to it. The red edge also makes it read as one object with the ring.
+    # Top-left, not bottom-right: mplot3d draws the Z tick labels at the lower right of the
+    # cube, and an inset anchored to the figure's bottom-right corner lands on top of them.
+    # On the drivetrack row, whose Z labels are two digits wide (9, 10, 11), that clipped
+    # "10" to a bare "1". The top-left corner is empty in every panel -- the X ticks start
+    # well to its right -- so the inset can sit there without covering any label.
+    rect = (0.03, 1.0 - side_y - 0.03, side_x, side_y)
+    # The red edge makes the inset read as one object with the ring it magnifies.
     fig.add_artist(Rectangle((rect[0], rect[1]), rect[2], rect[3],
                              transform=fig.transFigure, facecolor="white",
                              edgecolor="red", linewidth=1.5, zorder=10))

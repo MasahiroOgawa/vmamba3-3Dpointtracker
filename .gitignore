@@ -29,3 +29,11 @@ result/
 # Compiled documents (tex output). Keep figure PDFs (build inputs) tracked.
 *.pdf
 !doc/vmamba3_3dpointtrack/figs/*.pdf
+
+# Local working notes and agent instructions; not part of the published repository.
+CLAUDE.md
+MEMORY.md
+memory/
+doc/PLAN*.md
+doc/plan_*.md
+doc/evaluation.md

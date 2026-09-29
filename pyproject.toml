@@ -2,7 +2,7 @@
 name = "vmamba3-3dpointtracker"
 version = "0.1.0"
 description = "3D point tracker: SEA-RAFT + DA3 depth + Mamba-3 SSM refiner"
-authors = [{ name = "Masahiro Ogawa", email = "m-ogawa@sensyn-robotics.com" }]
+authors = [{ name = "Masahiro Ogawa", email = "masahiro.ogaw@gmail.com" }]
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "visionmamba3",

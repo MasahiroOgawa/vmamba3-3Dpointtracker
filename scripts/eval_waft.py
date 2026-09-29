@@ -7,11 +7,10 @@ pipeline as the SEA-RAFT+DA3 baseline (only the flow network differs).
   v37 = WAFT + DA3            (forward-only flow chaining)
   v38 = WAFT + DA3, bidir     (--bidir-fuse; forward+backward flow fusion per hop)
 
-Run from WAFT's own venv (torch 2.7 / cu128):
-  cd ~/proj/study/WAFT
-  .venv/bin/python ~/proj/study/vmamba3-3Dpointtracker/scripts/eval_waft.py \\
+Run from WAFT's own venv (torch 2.7 / cu128), from the repository root:
+  third_party/WAFT/.venv/bin/python scripts/eval_waft.py \\
     --subsets drivetrack pstudio adt \\
-    --out-dir /home/mas/data/tapvid3d_baseline_preds/waft            # v37
+    --out-dir ~/data/tapvid3d_baseline_preds/waft                    # v37
   ... add --bidir-fuse and --out-dir .../waft_fuse                  # v38
 
 Mirrors scripts/eval_metric3d.py `_infer` (searaft branch): square image_size
@@ -31,12 +30,12 @@ import torch.nn.functional as F
 from PIL import Image
 from tqdm import tqdm
 
-WAFT_ROOT = Path("/home/mas/proj/study/WAFT")
+PROJ = Path(__file__).resolve().parents[1]
+WAFT_ROOT = PROJ / "third_party" / "WAFT"
 # DepthAnythingFeature loads 'depth-anything-ckpts/...' via a relative path at
 # construction, so the process CWD must be the WAFT repo root.
 os.chdir(WAFT_ROOT)
 sys.path.insert(0, str(WAFT_ROOT))
-PROJ = Path("/home/mas/proj/study/vmamba3-3Dpointtracker")
 sys.path.insert(0, str(PROJ / "src"))
 
 from config.parser import json_to_args  # noqa: E402
@@ -49,7 +48,7 @@ from mamba3_tracker.data.tapvid3d_splits import (  # noqa: E402
     get_full_eval_files,
 )
 
-TAPVID3D_ROOT = Path("/home/mas/data/tapvid3d")
+TAPVID3D_ROOT = Path("~/data/tapvid3d").expanduser()
 # Env-overridable so the DA3-g cache can be selected without editing code, the same mechanism
 # doc/plan_da3g_reeval.md documents for the external-baseline scripts. Default stays DA3-l for
 # backward compatibility with every number already published from this script.

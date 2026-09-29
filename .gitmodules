@@ -1,3 +1,36 @@
+# Required: fetched by `git clone --recursive`.
 [submodule "third_party/visionMamba3"]
 	path = third_party/visionMamba3
-	url = git@github.com:MasahiroOgawa/visionMamba3.git
+	url = https://github.com/MasahiroOgawa/visionMamba3.git
+[submodule "third_party/WAFT"]
+	path = third_party/WAFT
+	url = https://github.com/MasahiroOgawa/WAFT.git
+	branch = feature/uv
+[submodule "third_party/depth-anything-3"]
+	path = third_party/depth-anything-3
+	url = https://github.com/ByteDance-Seed/Depth-Anything-3.git
+	branch = main
+
+# Baselines: only for re-running the comparisons. `update = none` keeps a recursive clone from
+# fetching them; scripts/setup_baselines.sh checks them out and builds each one's own venv.
+[submodule "third_party/SEA-RAFT"]
+	path = third_party/SEA-RAFT
+	url = https://github.com/princeton-vl/SEA-RAFT.git
+	update = none
+[submodule "third_party/SpaTrackerV2"]
+	path = third_party/SpaTrackerV2
+	url = https://github.com/henry123-boy/SpaTrackerV2.git
+	update = none
+[submodule "third_party/TrackCraft3R"]
+	path = third_party/TrackCraft3R
+	url = https://github.com/MasahiroOgawa/TrackCraft3r.git
+	branch = feature/uv
+	update = none
+[submodule "third_party/DELTA_densetrack3d"]
+	path = third_party/DELTA_densetrack3d
+	url = https://github.com/snap-research/DELTA_densetrack3d.git
+	update = none
+[submodule "third_party/DenseTrack3Dv2"]
+	path = third_party/DenseTrack3Dv2
+	url = https://github.com/snap-research/DenseTrack3Dv2.git
+	update = none
